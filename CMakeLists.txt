@@ -10,7 +10,7 @@ set(DEDISP_VERSION_MINOR 0)
 set(DEDISP_VERSION_PATCH 1)
 set(DEDISP_VERSION ${DEDISP_VERSION_MAJOR}.${DEDISP_VERSION_MINOR}.${DEDISP_VERSION_PATCH} )
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 2.8)
 
 # dependencies
 find_package(CUDA)
