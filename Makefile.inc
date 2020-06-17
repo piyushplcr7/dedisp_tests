@@ -1,12 +1,12 @@
 # The definitions in this file should be changed to match your system
 
 CUDA_PATH   ?= /usr/local/cuda
-INSTALL_DIR ?= $(HOME)/linux_64
+INSTALL_DIR ?= $(HOME)/opt/dedisp
 
 CUDA_DIR   ?= $(CUDA_PATH)
 THRUST_DIR ?= $(CUDA_DIR)/include
 
-GPU_ARCH   ?= sm_30
+GPU_ARCH   ?= sm_60
 
 LIB_ARCH   = lib64
 
