@@ -88,6 +88,27 @@ install(
 
 
 ################################################################################
+# testdedisp binary
+################################################################################
+
+add_executable(testdedisp
+    example/testdedisp.c
+    example/gasdev.c
+    example/ran1.c)
+
+target_include_directories(testdedisp PRIVATE src)
+
+target_link_libraries(testdedisp dedisp m)
+
+install(
+    TARGETS
+        testdedisp
+    RUNTIME
+        DESTINATION bin
+)
+
+
+################################################################################
 # python binaries
 ################################################################################
 
