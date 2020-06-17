@@ -124,3 +124,10 @@ install(
         GROUP_READ GROUP_READ  GROUP_EXECUTE
         WORLD_READ WORLD_READ  WORLD_EXECUTE
 )
+
+
+################################################################################
+# tests
+################################################################################
+enable_testing()
+add_test(NAME tDedisp COMMAND testdedisp)
