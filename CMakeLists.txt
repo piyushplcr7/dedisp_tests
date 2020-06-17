@@ -65,12 +65,13 @@ install(
         DESTINATION include
 )
 
+# make sure that all subsequent binaries can find the dedisp library
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+
 
 ################################################################################
 # dedisp_fil binary
 ################################################################################
-
-set(CMAKE_INSTALL_RPATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64;${CMAKE_INSTALL_PREFIX}/lib")
 
 add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.c)
 
