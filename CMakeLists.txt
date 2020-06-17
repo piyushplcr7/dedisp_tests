@@ -84,3 +84,21 @@ install(
     RUNTIME
         DESTINATION bin
 )
+
+
+################################################################################
+# python binaries
+################################################################################
+
+install(
+    FILES
+        python/filterbank.py
+        python/plot_burst.py
+        python/psr_constants.py
+        python/sigproc.py
+    DESTINATION bin
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_READ  GROUP_EXECUTE
+        WORLD_READ WORLD_READ  WORLD_EXECUTE
+)
