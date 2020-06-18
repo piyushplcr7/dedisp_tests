@@ -75,7 +75,6 @@ int main(int argc,char *argv[])
   dedisp_float *output=0;
   dedisp_float *dmlist;
   dedisp_size dm_count=0,max_delay,nsamp_computed,ndec=1;
-  dedisp_error error;
   dedisp_float dm_start=0.0,dm_end=50.0,dm_step=0.0,pulse_width=4.0,dm_tol=1.25;
   dedisp_size nbits=32,gulp_size=65536;
   clock_t startclock;
@@ -212,7 +211,7 @@ int main(int argc,char *argv[])
 
   // Create a dedispersion plan
   if (verbose) printf("Creating dedispersion plan\n");
-  DedispPlan plan(h.nchan,h.tsamp,h.fch1,h.foff);
+  dedisp::DedispPlan plan(h.nchan,h.tsamp,h.fch1,h.foff);
 
   // Intialize GPU
   if (verbose) printf("Intializing GPU (device %d)\n",device_id);
@@ -266,11 +265,7 @@ int main(int argc,char *argv[])
   if (verbose) printf("Dedispersing on the GPU\n");
   startclock=clock();
   plan.execute(h.nsamp,input,h.nbit,(dedisp_byte *)output,nbits,DEDISP_USE_DEFAULT);
-  error=dedisp_sync();
-  if (error!=DEDISP_NO_ERROR) {
-    printf("\nERROR: Failed to synchronize: %s\n",dedisp_get_error_string(error));
-    return -1;
-  }
+  plan.sync();
   if (verbose) printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
 
   // Output length

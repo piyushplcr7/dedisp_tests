@@ -8,8 +8,12 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
-#include <dedisp.h>
+
+#include <DedispPlan.hpp>
+
+extern "C" {
 float gasdev(long *idum);
+}
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
@@ -114,15 +118,13 @@ int main(int argc, char* argv[])
   dedisp_size  in_nbits    = 8;
   dedisp_size  out_nbits   = 32;  // DON'T CHANGE THIS FROM 32, since that signals it to use floats
         
-  dedisp_plan  plan;
-  dedisp_error error;
   dedisp_size  dm_count;
   dedisp_size  max_delay;
   dedisp_size  nsamps_computed;
   dedisp_byte *input  = 0;
   dedisp_float *output = 0;
 
-  int i,nc,ns,nd;
+  unsigned int i,nc,ns,nd;
   const dedisp_float *dmlist;
   //const dedisp_size *dt_factors;
   dedisp_float *delay_s;
@@ -143,7 +145,7 @@ int main(int argc, char* argv[])
   printf("\n");
 
   /* First build 2-D array of floats with our signal in it */
-  rawdata = malloc(nsamps*nchans*sizeof(dedisp_float));
+  rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
   for (ns=0; ns<nsamps; ns++) {
     for (nc=0; nc<nchans; nc++) {
       rawdata[ns*nchans+nc] = datarms*gasdev(&idum);
@@ -151,7 +153,7 @@ int main(int argc, char* argv[])
   }
 
   /* Now embed a dispersed pulse signal in it */
-  delay_s = malloc(nchans*sizeof(dedisp_float));
+  delay_s = (dedisp_float *) malloc(nchans*sizeof(dedisp_float));
   for (nc=0; nc<nchans; nc++) {
     dedisp_float a = 1.f/(f0+nc*df);
     dedisp_float b = 1.f/f0;
@@ -186,7 +188,7 @@ int main(int argc, char* argv[])
   printf("Pulse S/N (per frequency channel) : %f\n",sigamp/datarms);
 
 
-  input = malloc(nsamps * nchans * (in_nbits/8));
+  input = (dedisp_byte *) malloc(nsamps * nchans * (in_nbits/8));
 
   printf("Quantizing array\n");
   /* Now fill array by quantizing rawdata */
@@ -203,39 +205,25 @@ int main(int argc, char* argv[])
   printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
   printf("\n");
 
-  printf("Init GPU\n");
-  // Initialise the GPU
-  error = dedisp_set_device(device_idx);
-  if( error != DEDISP_NO_ERROR ) {
-    printf("ERROR: Could not set GPU device: %s\n",
-	   dedisp_get_error_string(error));
-    return -1;
-  }
 
   printf("Create plan\n");
   // Create a dedispersion plan
-  error = dedisp_create_plan(&plan, nchans, dt, f0, df);
-  if( error != DEDISP_NO_ERROR ) {
-    printf("\nERROR: Could not create dedispersion plan: %s\n",
-	   dedisp_get_error_string(error));
-    return -1;
-  }
-        
+  dedisp::DedispPlan plan(nchans, dt, f0, df);
+
+  printf("Init GPU\n");
+  // Initialise the GPU
+  plan.set_device(device_idx);
+
   printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
-  error = dedisp_generate_dm_list(plan, dm_start, dm_end, pulse_width, dm_tol);
-  if( error != DEDISP_NO_ERROR ) {
-    printf("\nERROR: Failed to generate DM list: %s\n",
-	   dedisp_get_error_string(error));
-    return -1;
-  }
+  plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
         
   // Find the parameters that determine the output size
-  dm_count = dedisp_get_dm_count(plan);
-  max_delay = dedisp_get_max_delay(plan);
+  dm_count = plan.get_dm_count();
+  max_delay = plan.get_max_delay();
   nsamps_computed = nsamps - max_delay;
-  dmlist = dedisp_get_dm_list(plan);
-  //dt_factors = dedisp_get_dt_factors(plan);
+  dmlist = plan.get_dm_list();
+  //dt_factors = plan.get_dt_factors(plan);
 
 
   printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
@@ -246,7 +234,7 @@ int main(int argc, char* argv[])
   printf("\n");
 
   // Allocate space for the output data
-  output = malloc(nsamps_computed * dm_count * out_nbits/8);
+  output = (dedisp_float *) malloc(nsamps_computed * dm_count * out_nbits/8);
   if (output == NULL) {
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
@@ -255,15 +243,10 @@ int main(int argc, char* argv[])
   printf("Compute on GPU\n");
   startclock = clock();
   // Compute the dedispersion transform on the GPU
-  error = dedisp_execute(plan, nsamps,
+  plan.execute(nsamps,
 			 input, in_nbits,
 			 (dedisp_byte *)output, out_nbits,
 			 DEDISP_USE_DEFAULT);
-  if( error != DEDISP_NO_ERROR ) {
-    printf("\nERROR: Failed to execute dedispersion plan: %s\n",
-	   dedisp_get_error_string(error));
-    return -1;
-  }
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
         
   // Look for significant peaks 
@@ -292,7 +275,6 @@ int main(int argc, char* argv[])
   // Clean up
   free(output);
   free(input);
-  dedisp_destroy_plan(plan);
   printf("Dedispersion successful.\n");
   return 0;
 }
