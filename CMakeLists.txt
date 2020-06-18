@@ -90,7 +90,7 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 # dedisp_fil binary
 ################################################################################
 
-add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.c)
+add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.cpp)
 
 target_include_directories(dedisp_fil PRIVATE src)
 
