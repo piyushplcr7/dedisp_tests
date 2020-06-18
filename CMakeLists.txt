@@ -25,6 +25,13 @@ set(CMAKE_CXX_FLAGS "-Wall -g -O3")
 
 
 ################################################################################
+# stopwatch class
+################################################################################
+add_library(stopwatch OBJECT src/external/Stopwatch.cpp)
+set_property(TARGET stopwatch PROPERTY POSITION_INDEPENDENT_CODE on)
+
+
+################################################################################
 # cuda configuration
 ################################################################################
 
