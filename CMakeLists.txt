@@ -25,6 +25,23 @@ set(CMAKE_CXX_FLAGS "-Wall -g -O3")
 
 
 ################################################################################
+# options
+################################################################################
+option(ENABLE_BENCHMARK on)
+
+if (ENABLE_BENCHMARK)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEDISP_BENCHMARK")
+endif()
+
+
+################################################################################
+# stopwatch class
+################################################################################
+add_library(stopwatch OBJECT src/external/Stopwatch.cpp)
+set_property(TARGET stopwatch PROPERTY POSITION_INDEPENDENT_CODE on)
+
+
+################################################################################
 # cuda configuration
 ################################################################################
 
@@ -46,7 +63,7 @@ cuda_add_library(dedisp SHARED src/dedisp.cu)
 
 target_include_directories(dedisp PUBLIC src)
 
-target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY})
+target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY} stopwatch)
 
 set_target_properties(dedisp PROPERTIES PUBLIC_HEADER "src/dedisp.h;src/DedispPlan.hpp")
 

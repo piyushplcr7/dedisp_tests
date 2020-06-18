@@ -49,7 +49,7 @@
 #include <iostream>
 using std::cout;
 using std::endl;
-#include "stopwatch.hpp"
+#include "external/Stopwatch.h"
 #endif
 // -----------------------------------------
 
@@ -657,10 +657,10 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 	cudaStream_t stream = 0;//(cudaStream_t)plan->stream;
 	
 #ifdef DEDISP_BENCHMARK
-	Stopwatch copy_to_timer;
-	Stopwatch copy_from_timer;
-	Stopwatch transpose_timer;
-	Stopwatch kernel_timer;
+	std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
+	std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
+	std::unique_ptr<Stopwatch> transpose_timer(Stopwatch::create());
+	std::unique_ptr<Stopwatch> kernel_timer(Stopwatch::create());
 #endif
 	
 	// Gulp loop
@@ -676,7 +676,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 			* DEDISP_SAMPS_PER_THREAD + plan->max_delay;
 		
 #ifdef DEDISP_BENCHMARK
-		copy_to_timer.start();
+		copy_to_timer->Start();
 #endif
 		// Copy the input data from host to device if necessary
 		if( using_host_memory ) {
@@ -703,8 +703,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		}
 #ifdef DEDISP_BENCHMARK
 		cudaThreadSynchronize();
-		copy_to_timer.stop();
-		transpose_timer.start();
+		copy_to_timer->Pause();
+		transpose_timer->Start();
 #endif
 		// Transpose the words in the input
 		Transpose<dedisp_word> transpose;
@@ -714,9 +714,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		                    d_transposed);
 #ifdef DEDISP_BENCHMARK
 		cudaThreadSynchronize();
-		transpose_timer.stop();
+		transpose_timer->Pause();
 		
-		kernel_timer.start();
+		kernel_timer->Start();
 #endif
 		
 		// Unpack the transposed data
@@ -897,14 +897,14 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 
 #ifdef DEDISP_BENCHMARK
 		cudaThreadSynchronize();
-		kernel_timer.stop();
+		kernel_timer->Pause();
 #endif
 		// Copy output back to host memory if necessary
 		if( using_host_memory ) {
 			dedisp_size gulp_samp_byte_idx = gulp_samp_idx * out_bytes_per_sample;
 			dedisp_size nsamp_bytes_computed_gulp = nsamps_computed_gulp * out_bytes_per_sample;
 #ifdef DEDISP_BENCHMARK
-			copy_from_timer.start();
+			copy_from_timer->Start();
 #endif
 			if( plan->scrunching_enabled ) {
 				// TODO: This for-loop isn't a very elegant solution
@@ -941,27 +941,30 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 			}
 #ifdef DEDISP_BENCHMARK
 			cudaThreadSynchronize();
-			copy_from_timer.stop();
+			copy_from_timer->Pause();
 #endif
 		}
 		
 	} // End of gulp loop
 	
 #ifdef DEDISP_BENCHMARK
-	cout << "Copy to time:   " << copy_to_timer.getTime() << endl;
-	cout << "Copy from time: " << copy_from_timer.getTime() << endl;
-	cout << "Transpose time: " << transpose_timer.getTime() << endl;
-	cout << "Kernel time:    " << kernel_timer.getTime() << endl;
-	float total_time = copy_to_timer.getTime() + copy_from_timer.getTime() + transpose_timer.getTime() + kernel_timer.getTime();
-	cout << "Total time:     " << total_time << endl;
+	cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
+	cout << "Copy from time: " << copy_from_timer->ToString() << endl;
+	cout << "Transpose time: " << transpose_timer->ToString() << endl;
+	cout << "Kernel time:    " << kernel_timer->ToString() << endl;
+	auto total_time = copy_to_timer->Milliseconds() +
+					  copy_from_timer->Milliseconds() +
+					  transpose_timer->Milliseconds() +
+					  kernel_timer->Milliseconds();
+	cout << "Total time:     " << Stopwatch::ToString(total_time) << endl;
 	
 	// Append the timing results to a log file
 	std::ofstream perf_file("perf.log", std::ios::app);
-	perf_file << copy_to_timer.getTime() << "\t"
-	          << copy_from_timer.getTime() << "\t"
-	          << transpose_timer.getTime() << "\t"
-	          << kernel_timer.getTime() << "\t"
-	          << total_time << endl;
+	perf_file << copy_to_timer->ToString() << "\t"
+	          << copy_from_timer->ToString() << "\t"
+	          << transpose_timer->ToString() << "\t"
+	          << kernel_timer->ToString() << "\t"
+	          << Stopwatch::ToString(total_time) << endl;
 	perf_file.close();
 #endif
 	
