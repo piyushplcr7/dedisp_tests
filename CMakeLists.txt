@@ -59,7 +59,7 @@ endif()
 # dedisp library
 ################################################################################
 
-cuda_add_library(dedisp SHARED src/dedisp.cu)
+cuda_add_library(dedisp SHARED src/dedisp.cu src/DedispPlan.cpp)
 
 target_include_directories(dedisp PUBLIC src)
 
