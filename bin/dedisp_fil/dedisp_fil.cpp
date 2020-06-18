@@ -68,7 +68,7 @@ void usage(void)
 
 int main(int argc,char *argv[])
 {
-  int i,device_id=0,verbose=1;
+  unsigned int i,device_id=0,verbose=1;
   struct header h;
   FILE *file;
   dedisp_byte *input=0;
@@ -81,7 +81,7 @@ int main(int argc,char *argv[])
   clock_t startclock;
   int arg=0;
   char *filename=NULL,prefix[128]="test";
-  int numout=0;
+  unsigned int numout=0;
 
   // Decode options
   if (argc>1) {
@@ -150,7 +150,7 @@ int main(int argc,char *argv[])
   if (dm_count!=0 && dm_step>0.0) {
     dm_end=dm_start+dm_count*dm_step;
   } else {
-    fprintf(stderr,"Error parsing DM range. Provide start,end,step or start,step,numdms.\n",filename);
+    fprintf(stderr,"Error parsing DM range. Provide start,end,step or start,step,numdms.\n");
     return -1;
   }
 
@@ -171,7 +171,7 @@ int main(int argc,char *argv[])
     printf("Bandwidth                                 : %f MHz\n",fabs(h.foff)*h.nchan);
     printf("Number of channels (channel width)        : %d (%f MHz)\n",h.nchan,fabs(h.foff));
     printf("Sample time                               : %f us\n",h.tsamp*1e6*ndec);
-    printf("Observation duration                      : %f s (%d samples)\n",h.tsamp*h.nsamp,h.nsamp/ndec);
+    printf("Observation duration                      : %f s (%d samples)\n",h.tsamp*h.nsamp,(int)(h.nsamp/ndec));
     printf("Number of polarizations/bit depth         : %d/%d\n",h.nif,h.nbit);
     printf("Input data array size                     : %lu MB\n",h.buffersize/(1<<20));
     printf("Header size                               : %lu bytes\n",h.headersize);
