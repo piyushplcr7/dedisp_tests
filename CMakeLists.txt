@@ -49,110 +49,22 @@ endif()
 
 
 ################################################################################
-# helper libraries
+# library
 ################################################################################
-
-# include directory for common header files
-include_directories(${CMAKE_SOURCE_DIR}/src/common)
-
-# add subdirectories for individual libraries
-add_subdirectory(src/common)
-add_subdirectory(src/transpose)
-add_subdirectory(src/dedisperse)
-add_subdirectory(src/unpack)
-add_subdirectory(src/external)
+add_subdirectory(src)
 
 
 ################################################################################
-# dedisp library
+# binaries
 ################################################################################
+add_subdirectory(bin)
 
-cuda_add_library(dedisp SHARED
-    src/dedisp_kernels.cpp
-    src/DedispPlan.cu
-)
-
-target_link_libraries(dedisp
-    ${CUDA_CUDART_LIBRARY}
-    common
-    external
-    transpose
-    dedisperse
-    unpack)
-
-set_target_properties(dedisp PROPERTIES PUBLIC_HEADER src/DedispPlan.hpp)
-
-set_target_properties(
-    dedisp PROPERTIES
-    VERSION ${DEDISP_VERSION}
-    SOVERSION ${DEDISP_VERSION_MAJOR}
-)
-
-install(
-    TARGETS
-        dedisp
-    LIBRARY
-        DESTINATION lib
-    PUBLIC_HEADER
-        DESTINATION include
-)
-
-# make sure that all subsequent binaries can find the dedisp library
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-
-
-################################################################################
-# dedisp_fil binary
-################################################################################
-
-add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.cpp)
-
-target_include_directories(dedisp_fil PRIVATE src)
-
-target_link_libraries(dedisp_fil dedisp m)
-
-install(
-    TARGETS
-        dedisp_fil
-    RUNTIME
-        DESTINATION bin
-)
-
-
-################################################################################
-# testdedisp binary
-################################################################################
-
-add_executable(testdedisp bin/testdedisp/testdedisp.cpp)
-
-target_include_directories(testdedisp PRIVATE src)
-
-target_link_libraries(testdedisp dedisp m)
-
-install(
-    TARGETS
-        testdedisp
-    RUNTIME
-        DESTINATION bin
-)
 
 
 ################################################################################
 # python binaries
 ################################################################################
-
-install(
-    FILES
-        python/filterbank.py
-        python/plot_burst.py
-        python/psr_constants.py
-        python/sigproc.py
-    DESTINATION bin
-    PERMISSIONS
-        OWNER_READ OWNER_WRITE OWNER_EXECUTE
-        GROUP_READ GROUP_READ  GROUP_EXECUTE
-        WORLD_READ WORLD_READ  WORLD_EXECUTE
-)
+add_subdirectory(python)
 
 
 ################################################################################
