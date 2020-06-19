@@ -68,6 +68,25 @@ install(
         DESTINATION lib
 )
 
+
+################################################################################
+# dedisperse library
+################################################################################
+
+cuda_add_library(dedisperse SHARED src/dedisperse/dedisperse.cu)
+
+target_include_directories(dedisperse PUBLIC
+    src
+)
+
+install(
+    TARGETS
+        dedisperse
+    LIBRARY
+        DESTINATION lib
+)
+
+
 ################################################################################
 # dedisp library
 ################################################################################
@@ -82,7 +101,11 @@ target_include_directories(dedisp PUBLIC
     src
 )
 
-target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY} stopwatch transpose)
+target_link_libraries(dedisp
+    ${CUDA_CUDART_LIBRARY}
+    stopwatch
+    transpose
+    dedisperse)
 
 set_target_properties(dedisp PROPERTIES PUBLIC_HEADER src/DedispPlan.hpp)
 

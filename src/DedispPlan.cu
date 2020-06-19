@@ -7,6 +7,7 @@
 #include "dedisp_defines.h"
 #include "dedisp_error.hpp"
 #include "dedisp_kernels.hpp"
+#include "dedisperse/dedisperse.h"
 
 #include "kernels.cuh"
 
@@ -310,26 +311,12 @@ void DedispPlan::execute_guru(size_type        nsamps,
     }
 
     // Copy the lookup tables to constant memory on the device
-    // TODO: This was much tidier, but thanks to CUDA's insistence on
-    //         breaking its API in v5.0 I had to mess it up like this.
-    cudaMemcpyToSymbolAsync(c_delay_table,
-                            thrust::raw_pointer_cast(&d_delay_table[0]),
-                            m_nchans * sizeof(dedisp_float),
-                            0, cudaMemcpyDeviceToDevice, 0);
-    cudaThreadSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
-    cudaMemcpyToSymbolAsync(c_killmask,
-                            thrust::raw_pointer_cast(&d_killmask[0]),
-                            m_nchans * sizeof(dedisp_bool),
-                            0, cudaMemcpyDeviceToDevice, 0);
-    cudaThreadSynchronize();
-    error = cudaGetLastError();
-    if( error != cudaSuccess ) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
+    copy_delay_table(thrust::raw_pointer_cast(&d_delay_table[0]),
+                     m_nchans * sizeof(dedisp_float),
+                     0, 0);
+    copy_killmask(thrust::raw_pointer_cast(&d_killmask[0]),
+                  m_nchans * sizeof(dedisp_bool),
+                  0, 0);
 
     // Compute the problem decomposition
     dedisp_size nsamps_computed = nsamps - m_max_delay;
