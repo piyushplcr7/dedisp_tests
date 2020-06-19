@@ -125,9 +125,6 @@ public:
                       unsigned         flags);
     void sync();
 
-    // Private method
-    void update_scrunch_list();
-
 private:
     // Size parameters
     dedisp_size  m_dm_count;
@@ -144,20 +141,13 @@ private:
     std::vector<dedisp_float> h_dm_list;      // size = dm_count
     std::vector<dedisp_float> h_delay_table;  // size = nchans
     std::vector<dedisp_bool>  h_killmask;     // size = nchans
-    std::vector<dedisp_size>  h_scrunch_list; // size = dm_count
 
     // Device arrays
     thrust::device_vector<dedisp_float> d_dm_list;
     thrust::device_vector<dedisp_float> d_delay_table;
     thrust::device_vector<dedisp_bool>  d_killmask;
-    thrust::device_vector<dedisp_size>  d_scrunch_list;
 
     //StreamType m_stream;
-
-    // Scrunching parameters
-    dedisp_bool  m_scrunching_enabled;
-    dedisp_float m_pulse_width;
-    dedisp_float m_scrunch_tol;
 };
 
 } // end namespace dedisp

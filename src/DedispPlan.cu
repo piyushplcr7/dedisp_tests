@@ -161,8 +161,6 @@ void DedispPlan::set_dm_list(const float_type* dm_list,
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
                               h_delay_table[m_nchans-1] + 0.5);
-
-    update_scrunch_list();
 }
 
 void DedispPlan::generate_dm_list(float_type dm_start,
@@ -196,8 +194,6 @@ void DedispPlan::generate_dm_list(float_type dm_start,
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
                               h_delay_table[m_nchans-1] + 0.5);
-
-    update_scrunch_list();
 }
 
 void DedispPlan::execute(size_type        nsamps,
@@ -376,11 +372,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // TODO: Make this a parameter?
     dedisp_size min_in_nbits = 0;
-    if( m_scrunching_enabled ) {
-        // TODO: This produces corrupt output when equal to 32 !
-        //         Also check whether the unpacker is broken when in_nbits=32 !
-        min_in_nbits = 16; //32;
-    }
     dedisp_size unpacked_in_nbits = max((int)in_nbits, (int)min_in_nbits);
     dedisp_size unpacked_chans_per_word =
         sizeof(dedisp_word)*BITS_PER_BYTE / unpacked_in_nbits;
@@ -421,20 +412,14 @@ void DedispPlan::execute_guru(size_type        nsamps,
     else {
         d_out = out;
     }
-    //// Note: * 2 here is for the time-scrunched copies of the data
-    try { d_transposed_buf.resize(in_count_padded_gulp_max/* * 2 */); }
+    try { d_transposed_buf.resize(in_count_padded_gulp_max); }
     catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
     d_transposed = thrust::raw_pointer_cast(&d_transposed_buf[0]);
 
-    // Note: * 2 here is for the time-scrunched copies of the data
-    try { d_unpacked_buf.resize(unpacked_count_padded_gulp_max * 2); }
+    try { d_unpacked_buf.resize(unpacked_count_padded_gulp_max); }
     catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
     d_unpacked = thrust::raw_pointer_cast(&d_unpacked_buf[0]);
     // -------------------------------
-
-    // The stride (in words) between differently-scrunched copies of the
-    //   unpacked data.
-    dedisp_size scrunch_stride = unpacked_count_padded_gulp_max;
 
     // TODO: Eventually re-implement streams
     cudaStream_t stream = 0;//(cudaStream_t)m_stream;
@@ -507,94 +492,22 @@ void DedispPlan::execute_guru(size_type        nsamps,
                d_unpacked,
                in_nbits, unpacked_in_nbits);
 
-        // Compute time-scrunched copies of the data
-        if( m_scrunching_enabled ) {
-            dedisp_size max_scrunch = h_scrunch_list[m_dm_count-1];
-            dedisp_size scrunch_in_offset  = 0;
-            dedisp_size scrunch_out_offset = scrunch_stride;
-            for( dedisp_size s=2; s<=max_scrunch; s*=2 ) {
-                // TODO: Need to pass in stride and count? I.e., nsamps_padded/computed_gulp
-                //scrunch_x2(&d_transposed[scrunch_in_offset],
-                //           nsamps_padded_gulp/(s/2), nchan_words, in_nbits,
-                //           &d_transposed[scrunch_out_offset]);
-                scrunch_x2(&d_unpacked[scrunch_in_offset],
-                           nsamps_padded_gulp/(s/2),
-                           unpacked_nchan_words, unpacked_in_nbits,
-                           &d_unpacked[scrunch_out_offset]);
-                scrunch_in_offset = scrunch_out_offset;
-                scrunch_out_offset += scrunch_stride / s;
-            }
-        }
-
-        // Use direct algorithm
-        if( m_scrunching_enabled ) {
-
-            // TODO: THIS WILL NOT WORK IF dm_count < m_dm_count !
-            //         Need to avoid assumption that scrunch starts at 1
-            //         Must start the scrunch at the first *requested* DM
-
-            thrust::device_vector<dedisp_float> d_scrunched_dm_list(dm_count);
-            dedisp_size scrunch_start = 0;
-            dedisp_size scrunch_offset = 0;
-            for( dedisp_size s=0; s<dm_count; ++s ) {
-                dedisp_size cur_scrunch = h_scrunch_list[s];
-                // Look for segment boundaries
-                if( s+1 == dm_count || h_scrunch_list[s+1] != cur_scrunch ) {
-                    //dedisp_size next_scrunch = h_scrunch_list[s];
-                    //if( next_scrunch != cur_scrunch ) {
-                    dedisp_size scrunch_count = s+1 - scrunch_start;
-
-                    // Make a copy of the dm list divided by the scrunch factor
-                    // Note: This has the effect of increasing dt in the delay eqn
-                    dedisp_size dm_offset = first_dm_idx + scrunch_start;
-                    thrust::transform(d_dm_list.begin() + dm_offset,
-                                      d_dm_list.begin() + dm_offset + scrunch_count,
-                                      thrust::make_constant_iterator(cur_scrunch),
-                                      d_scrunched_dm_list.begin(),
-                                      thrust::divides<dedisp_float>());
-                    dedisp_float* d_scrunched_dm_list_ptr =
-                        thrust::raw_pointer_cast(&d_scrunched_dm_list[0]);
-
-                    // TODO: Is this how the nsamps vars need to change?
-                    if( !dedisperse(//&d_transposed[scrunch_offset],
-                                    &d_unpacked[scrunch_offset],
-                                    nsamps_padded_gulp / cur_scrunch,
-                                    nsamps_computed_gulp / cur_scrunch,
-                                    unpacked_in_nbits, //in_nbits,
-                                    m_nchans,
-                                    1,
-                                    d_scrunched_dm_list_ptr,
-                                    scrunch_count, // dm_count
-                                    1,
-                                    d_out + scrunch_start*out_stride_gulp_bytes,
-                                    out_stride_gulp_samples,
-                                    out_nbits,
-                                    1, 0, 0, 0, 0) ) {
-                        throw_error(DEDISP_INTERNAL_GPU_ERROR);
-                    }
-                    scrunch_offset += scrunch_stride / cur_scrunch;
-                    scrunch_start += scrunch_count;
-                }
-            }
-        }
-        else {
-            // Perform direct dedispersion without scrunching
-            if( !dedisperse(//d_transposed,
-                            d_unpacked,
-                            nsamps_padded_gulp,
-                            nsamps_computed_gulp,
-                            unpacked_in_nbits, //in_nbits,
-                            m_nchans,
-                            1,
-                            thrust::raw_pointer_cast(&d_dm_list[first_dm_idx]),
-                            dm_count,
-                            1,
-                            d_out,
-                            out_stride_gulp_samples,
-                            out_nbits,
-                            1, 0, 0, 0, 0) ) {
-                throw_error(DEDISP_INTERNAL_GPU_ERROR);
-            }
+        // Perform direct dedispersion without scrunching
+        if( !dedisperse(//d_transposed,
+                        d_unpacked,
+                        nsamps_padded_gulp,
+                        nsamps_computed_gulp,
+                        unpacked_in_nbits, //in_nbits,
+                        m_nchans,
+                        1,
+                        thrust::raw_pointer_cast(&d_dm_list[first_dm_idx]),
+                        dm_count,
+                        1,
+                        d_out,
+                        out_stride_gulp_samples,
+                        out_nbits,
+                        1, 0, 0, 0, 0) ) {
+            throw_error(DEDISP_INTERNAL_GPU_ERROR);
         }
 
 #ifdef DEDISP_BENCHMARK
@@ -608,39 +521,12 @@ void DedispPlan::execute_guru(size_type        nsamps,
 #ifdef DEDISP_BENCHMARK
             copy_from_timer->Start();
 #endif
-            if( m_scrunching_enabled ) {
-                // TODO: This for-loop isn't a very elegant solution
-                dedisp_size scrunch_start = 0;
-                for( dedisp_size s=0; s<dm_count; ++s ) {
-                    dedisp_size cur_scrunch = h_scrunch_list[s];
-                    // Look for segment boundaries
-                    if( s+1 == dm_count || h_scrunch_list[s+1] != cur_scrunch ) {
-                        dedisp_size scrunch_count = s+1 - scrunch_start;
-
-                        dedisp_size  src_stride = out_stride_gulp_bytes;
-                        dedisp_byte* src = d_out + scrunch_start * src_stride;
-                        dedisp_byte* dst = (out + scrunch_start * out_stride
-                                            + gulp_samp_byte_idx / cur_scrunch);
-                        dedisp_size  width = nsamp_bytes_computed_gulp / cur_scrunch;
-                        dedisp_size  height = scrunch_count;
-                        copy_device_to_host_2d(dst,                       // dst
-                                               out_stride,                // dst stride
-                                               src,                       // src
-                                               src_stride,                // src stride
-                                               width,                     // width bytes
-                                               height);                   // height
-                        scrunch_start += scrunch_count;
-                    }
-                }
-            }
-            else {
-                copy_device_to_host_2d(out + gulp_samp_byte_idx,  // dst
-                                       out_stride,                // dst stride
-                                       d_out,                     // src
-                                       out_stride_gulp_bytes,     // src stride
-                                       nsamp_bytes_computed_gulp, // width bytes
-                                       dm_count);                 // height
-            }
+            copy_device_to_host_2d(out + gulp_samp_byte_idx,  // dst
+                                   out_stride,                // dst stride
+                                   d_out,                     // src
+                                   out_stride_gulp_bytes,     // src stride
+                                   nsamp_bytes_computed_gulp, // width bytes
+                                   dm_count);                 // height
 #ifdef DEDISP_BENCHMARK
             cudaThreadSynchronize();
             copy_from_timer->Pause();
@@ -679,45 +565,6 @@ void DedispPlan::sync()
 {
     if( cudaThreadSynchronize() != cudaSuccess )
         throw_error(DEDISP_PRIOR_GPU_ERROR);
-}
-
-// Private interface
-void DedispPlan::update_scrunch_list()
-{
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
-    if( !m_scrunching_enabled || 0 == m_dm_count ) {
-        h_scrunch_list.resize(0);
-        // Fill with 1's by default for safety
-        h_scrunch_list.resize(m_dm_count, dedisp_size(1));
-        return;
-    }
-    h_scrunch_list.resize(m_dm_count);
-    kernel::generate_scrunch_list(
-        h_scrunch_list.data(),
-        m_dm_count,
-        m_dt,
-        h_dm_list.data(),
-        m_nchans,
-        m_f0,
-        m_df,
-        m_pulse_width,
-        m_scrunch_tol);
-
-    // Allocate on and copy to the device
-    try {
-        d_scrunch_list.resize(m_dm_count);
-    }
-    catch(...) {
-        throw_error(DEDISP_MEM_ALLOC_FAILED);
-    }
-    try {
-        d_scrunch_list = h_scrunch_list;
-    }
-    catch(...) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
 }
 
 } // end namespace dedisp

@@ -33,43 +33,6 @@ dedisp_float get_smearing(dedisp_float dt, dedisp_float pulse_width,
     return t_smear;
 }
 
-void generate_scrunch_list(dedisp_size* scrunch_list,
-                           dedisp_size dm_count,
-                           dedisp_float dt0,
-                           const dedisp_float* dm_list,
-                           dedisp_size nchans,
-                           dedisp_float f0, dedisp_float df,
-                           dedisp_float pulse_width,
-                           dedisp_float tol)
-{
-    // Note: This algorithm always starts with no scrunching and is only
-    //         able to 'adapt' the scrunching by doubling in any step.
-    // TODO: To improve this it would be nice to allow scrunch_list[0] > 1.
-    //         This would probably require changing the output nsamps
-    //           according to the mininum scrunch.
-
-    scrunch_list[0] = 1;
-    for( dedisp_size d=1; d<dm_count; ++d ) {
-        dedisp_float dm = dm_list[d];
-        dedisp_float delta_dm = dm - dm_list[d-1];
-
-        dedisp_float smearing = get_smearing(scrunch_list[d-1] * dt0,
-                                             pulse_width*1e-6,
-                                             f0, nchans, df,
-                                             dm, delta_dm);
-        dedisp_float smearing2 = get_smearing(scrunch_list[d-1] * 2 * dt0,
-                                              pulse_width*1e-6,
-                                              f0, nchans, df,
-                                              dm, delta_dm);
-        if( smearing2 / smearing < tol ) {
-            scrunch_list[d] = scrunch_list[d-1] * 2;
-        }
-        else {
-            scrunch_list[d] = scrunch_list[d-1];
-        }
-    }
-}
-
 void generate_dm_list(std::vector<dedisp_float>& dm_table,
                       dedisp_float dm_start, dedisp_float dm_end,
                       double dt, double ti, double f0, double df,

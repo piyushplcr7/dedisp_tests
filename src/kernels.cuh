@@ -23,7 +23,6 @@
 
 #include <vector> // For generate_dm_list
 
-#include <thrust/transform.h> // For scrunch_x2
 #include <thrust/iterator/counting_iterator.h>
 
 // Kernel tuning parameters
@@ -418,61 +417,6 @@ bool dedisperse(const dedisp_word*  d_in,
 	return true;
 }
 
-
-template<typename WordType>
-struct scrunch_x2_functor
-	: public thrust::unary_function<unsigned int,WordType> {
-	const WordType* in;
-	int             nbits;
-	WordType        mask;
-	unsigned int    in_nsamps;
-	unsigned int    out_nsamps;
-	scrunch_x2_functor(const WordType* in_, int nbits_, unsigned int in_nsamps_)
-		: in(in_), nbits(nbits_), mask((1<<nbits)-1),
-		  in_nsamps(in_nsamps_), out_nsamps(in_nsamps_/2) {}
-	inline __host__ __device__
-	WordType operator()(unsigned int out_i) const {
-		unsigned int c     = out_i / out_nsamps;
-		unsigned int out_t = out_i % out_nsamps;
-		unsigned int in_t0 = out_t * 2;
-		unsigned int in_t1 = out_t * 2 + 1;
-		unsigned int in_i0 = c * in_nsamps + in_t0;
-		unsigned int in_i1 = c * in_nsamps + in_t1;
-		
-		dedisp_word in0 = in[in_i0];
-		dedisp_word in1 = in[in_i1];
-		dedisp_word out = 0;
-		for( int k=0; k<sizeof(WordType)*8; k+=nbits ) {
-			dedisp_word s0 = (in0 >> k) & mask;
-			dedisp_word s1 = (in1 >> k) & mask;
-			dedisp_word avg = ((unsigned long long)s0 + s1) / 2;
-			out |= avg << k;
-		}
-		return out;
-	}
-};
-
-// Reduces the time resolution by 2x
-dedisp_error scrunch_x2(const dedisp_word* d_in,
-                        dedisp_size nsamps,
-                        dedisp_size nchan_words,
-                        dedisp_size nbits,
-                        dedisp_word* d_out)
-{
-	thrust::device_ptr<dedisp_word> d_out_begin(d_out);
-	
-	dedisp_size out_nsamps = nsamps / 2;
-	dedisp_size out_count  = out_nsamps * nchan_words;
-	
-	using thrust::make_counting_iterator;
-	
-	thrust::transform(make_counting_iterator<unsigned int>(0),
-	                  make_counting_iterator<unsigned int>(out_count),
-	                  d_out_begin,
-	                  scrunch_x2_functor<dedisp_word>(d_in, nbits, nsamps));
-	
-	return DEDISP_NO_ERROR;
-}
 
 template<typename WordType>
 struct unpack_functor
