@@ -88,6 +88,24 @@ install(
 
 
 ################################################################################
+# unpack library
+################################################################################
+
+cuda_add_library(unpack SHARED src/unpack/unpack.cu)
+
+target_include_directories(unpack PUBLIC
+    src
+)
+
+install(
+    TARGETS
+        unpack
+    LIBRARY
+        DESTINATION lib
+)
+
+
+################################################################################
 # dedisp library
 ################################################################################
 
@@ -105,7 +123,8 @@ target_link_libraries(dedisp
     ${CUDA_CUDART_LIBRARY}
     stopwatch
     transpose
-    dedisperse)
+    dedisperse
+    unpack)
 
 set_target_properties(dedisp PROPERTIES PUBLIC_HEADER src/DedispPlan.hpp)
 

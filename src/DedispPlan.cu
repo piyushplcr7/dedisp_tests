@@ -8,8 +8,7 @@
 #include "dedisp_error.hpp"
 #include "dedisp_kernels.hpp"
 #include "dedisperse/dedisperse.h"
-
-#include "kernels.cuh"
+#include "unpack/unpack.h"
 
 #if defined(DEDISP_BENCHMARK)
 #include <iostream>
