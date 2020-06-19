@@ -436,24 +436,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
     //   unpacked data.
     dedisp_size scrunch_stride = unpacked_count_padded_gulp_max;
 
-#ifdef USE_SUBBAND_ALGORITHM
-
-    dedisp_size sb_size           = DEDISP_DEFAULT_SUBBAND_SIZE;
-    // Note: Setting these two parameters equal should balance the two steps of
-    //         the sub-band algorithm.
-    dedisp_size dm_size           = sb_size; // Ndm'
-
-    dedisp_size sb_count          = m_nchans / sb_size;
-    dedisp_size nom_dm_count      = dm_count / dm_size;
-
-    thrust::device_vector<dedisp_word> d_intermediate_buf;
-    try { d_intermediate_buf.resize(nsamps_padded_gulp_max * sb_count
-                                    * nom_dm_count); }
-    catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-    dedisp_word* d_intermediate = thrust::raw_pointer_cast(&d_intermediate_buf[0]);
-
-#endif //  USE_SUBBAND_ALGORITHM
-
     // TODO: Eventually re-implement streams
     cudaStream_t stream = 0;//(cudaStream_t)m_stream;
 
@@ -544,87 +526,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
             }
         }
 
-#ifdef USE_SUBBAND_ALGORITHM
-        // TODO: This has not been updated to use d_unpacked!
-
-        dedisp_size chan_stride       = 1;
-        dedisp_size dm_stride         = dm_size;
-        dedisp_size ostride           = nsamps_padded_gulp * sb_count;
-        dedisp_size batch_size        = sb_count;
-        dedisp_size batch_in_stride   = nsamps_padded_gulp * sb_size / chans_per_word;
-        dedisp_size batch_dm_stride   = 0;
-        dedisp_size batch_chan_stride = sb_size;
-        dedisp_size batch_out_stride  = nsamps_padded_gulp;
-
-        /* // Consistency checks
-           if( (nom_dm_count-1)*dm_stride + (batch_size-1)*batch_dm_stride >= dm_count ) {
-           throw std::runtime_error("DM STRIDES ARE INCONSISTENT");
-           }
-           if( (sb_size-1)*chan_stride + (batch_size-1)*batch_chan_stride >= m_nchans ) {
-           throw std::runtime_error("CHAN STRIDES ARE INCONSISTENT");
-           }
-        */
-
-        // Both steps
-        if( !dedisperse(d_transposed,
-                        nsamps_padded_gulp,
-                        nsamps_computed_gulp,
-                        in_nbits,
-                        sb_size,
-                        chan_stride,
-                        thrust::raw_pointer_cast(&d_dm_list[first_dm_idx]),
-                        nom_dm_count,
-                        dm_stride,
-                        (dedisp_byte*)d_intermediate,
-                        ostride,
-                        32,//out_nbits,
-                        batch_size,
-                        batch_in_stride,
-                        batch_dm_stride,
-                        batch_chan_stride,
-                        batch_out_stride) ) {
-            throw_error(DEDISP_INTERNAL_GPU_ERROR);
-        }
-
-        batch_size = nom_dm_count;
-        chan_stride       = sb_size;
-        dm_stride         = 1;
-        ostride           = out_stride_gulp_samples;
-        batch_in_stride   = nsamps_padded_gulp * sb_count;
-        batch_dm_stride   = 0;
-        batch_chan_stride = 0;
-        batch_out_stride  = out_stride_gulp_samples * dm_size;
-
-        /* // Consistency checks
-           if( (dm_size-1)*dm_stride + (batch_size-1)*batch_dm_stride >= dm_count ) {
-           throw std::runtime_error("DM STRIDES ARE INCONSISTENT");
-           }
-           if( (sb_count-1)*chan_stride + (batch_size-1)*batch_chan_stride >= m_nchans ) {
-           throw std::runtime_error("CHAN STRIDES ARE INCONSISTENT");
-           }
-        */
-
-        if( !dedisperse(d_intermediate,
-                        nsamps_padded_gulp,
-                        nsamps_computed_gulp,
-                        32,//in_nbits,
-                        sb_count,
-                        chan_stride,
-                        thrust::raw_pointer_cast(&d_dm_list[first_dm_idx]),
-                        dm_size,
-                        dm_stride,
-                        d_out,
-                        ostride,
-                        out_nbits,
-                        batch_size,
-                        batch_in_stride,
-                        batch_dm_stride,
-                        batch_chan_stride,
-                        batch_out_stride) ) {
-            throw_error(DEDISP_INTERNAL_GPU_ERROR);
-        }
-#else // Use direct algorithm
-
+        // Use direct algorithm
         if( m_scrunching_enabled ) {
 
             // TODO: THIS WILL NOT WORK IF dm_count < m_dm_count !
@@ -694,7 +596,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
                 throw_error(DEDISP_INTERNAL_GPU_ERROR);
             }
         }
-#endif // SB/direct algorithm
 
 #ifdef DEDISP_BENCHMARK
         cudaThreadSynchronize();
