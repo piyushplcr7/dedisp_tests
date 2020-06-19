@@ -114,10 +114,7 @@ install(
 # testdedisp binary
 ################################################################################
 
-add_executable(testdedisp
-    example/testdedisp.cpp
-    example/gasdev.c
-    example/ran1.c)
+add_executable(testdedisp bin/testdedisp/testdedisp.cpp)
 
 target_include_directories(testdedisp PRIVATE src)
 
