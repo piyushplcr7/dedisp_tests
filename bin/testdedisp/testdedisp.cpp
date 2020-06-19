@@ -9,11 +9,10 @@
 #include <math.h>
 #include <time.h>
 
-#include <DedispPlan.hpp>
+#include <ctime>
+#include <random>
 
-extern "C" {
-float gasdev(long *idum);
-}
+#include <DedispPlan.hpp>
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
@@ -128,7 +127,6 @@ int main(int argc, char* argv[])
   const dedisp_float *dmlist;
   //const dedisp_size *dt_factors;
   dedisp_float *delay_s;
-  long idum=-1*time(NULL);
 
   clock_t startclock;
 
@@ -144,11 +142,19 @@ int main(int argc, char* argv[])
   printf("Input data array size                        : %lu MB\n",(nsamps*nchans*sizeof(float))/(1<<20));
   printf("\n");
 
+  /* Initialize random number generator */
+  std::srand(std::time(nullptr));
+  std::random_device rd;
+  std::mt19937 mt(rd());
+  std::normal_distribution<> dist(0, 1);
+
   /* First build 2-D array of floats with our signal in it */
   rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
+  #include <random>
+
   for (ns=0; ns<nsamps; ns++) {
     for (nc=0; nc<nchans; nc++) {
-      rawdata[ns*nchans+nc] = datarms*gasdev(&idum);
+      rawdata[ns*nchans+nc] = datarms*dist(mt);
     }
   }
 
