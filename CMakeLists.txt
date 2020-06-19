@@ -59,13 +59,19 @@ endif()
 # dedisp library
 ################################################################################
 
-cuda_add_library(dedisp SHARED src/dedisp.cu)
+cuda_add_library(dedisp SHARED
+    src/dedisp_error.cpp
+    src/dedisp_kernels.cpp
+    src/DedispPlan.cu
+)
 
-target_include_directories(dedisp PUBLIC src)
+target_include_directories(dedisp PUBLIC
+    src
+)
 
 target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY} stopwatch)
 
-set_target_properties(dedisp PROPERTIES PUBLIC_HEADER "src/dedisp.h;src/DedispPlan.hpp")
+set_target_properties(dedisp PROPERTIES PUBLIC_HEADER src/DedispPlan.hpp)
 
 set_target_properties(
     dedisp PROPERTIES
@@ -90,7 +96,7 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 # dedisp_fil binary
 ################################################################################
 
-add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.c)
+add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.cpp)
 
 target_include_directories(dedisp_fil PRIVATE src)
 
@@ -109,7 +115,7 @@ install(
 ################################################################################
 
 add_executable(testdedisp
-    example/testdedisp.c
+    example/testdedisp.cpp
     example/gasdev.c
     example/ran1.c)
 

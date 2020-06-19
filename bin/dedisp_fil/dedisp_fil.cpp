@@ -3,8 +3,9 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <dedisp.h>
 #include <getopt.h>
+
+#include <DedispPlan.hpp>
 
 struct header {
   int64_t headersize,buffersize;
@@ -67,21 +68,19 @@ void usage(void)
 
 int main(int argc,char *argv[])
 {
-  int i,device_id=0,verbose=1;
+  unsigned int i,device_id=0,verbose=1;
   struct header h;
   FILE *file;
   dedisp_byte *input=0;
   dedisp_float *output=0;
   dedisp_float *dmlist;
-  dedisp_plan plan;
   dedisp_size dm_count=0,max_delay,nsamp_computed,ndec=1;
-  dedisp_error error;
   dedisp_float dm_start=0.0,dm_end=50.0,dm_step=0.0,pulse_width=4.0,dm_tol=1.25;
   dedisp_size nbits=32,gulp_size=65536;
   clock_t startclock;
   int arg=0;
   char *filename=NULL,prefix[128]="test";
-  int numout=0;
+  unsigned int numout=0;
 
   // Decode options
   if (argc>1) {
@@ -150,7 +149,7 @@ int main(int argc,char *argv[])
   if (dm_count!=0 && dm_step>0.0) {
     dm_end=dm_start+dm_count*dm_step;
   } else {
-    fprintf(stderr,"Error parsing DM range. Provide start,end,step or start,step,numdms.\n",filename);
+    fprintf(stderr,"Error parsing DM range. Provide start,end,step or start,step,numdms.\n");
     return -1;
   }
 
@@ -171,7 +170,7 @@ int main(int argc,char *argv[])
     printf("Bandwidth                                 : %f MHz\n",fabs(h.foff)*h.nchan);
     printf("Number of channels (channel width)        : %d (%f MHz)\n",h.nchan,fabs(h.foff));
     printf("Sample time                               : %f us\n",h.tsamp*1e6*ndec);
-    printf("Observation duration                      : %f s (%d samples)\n",h.tsamp*h.nsamp,h.nsamp/ndec);
+    printf("Observation duration                      : %f s (%d samples)\n",h.tsamp*h.nsamp,(int)(h.nsamp/ndec));
     printf("Number of polarizations/bit depth         : %d/%d\n",h.nif,h.nbit);
     printf("Input data array size                     : %lu MB\n",h.buffersize/(1<<20));
     printf("Header size                               : %lu bytes\n",h.headersize);
@@ -210,32 +209,18 @@ int main(int argc,char *argv[])
   // Close file;
   fclose(file);
 
+  // Create a dedispersion plan
+  if (verbose) printf("Creating dedispersion plan\n");
+  dedisp::DedispPlan plan(h.nchan,h.tsamp,h.fch1,h.foff);
 
   // Intialize GPU
   if (verbose) printf("Intializing GPU (device %d)\n",device_id);
-  error=dedisp_set_device(device_id);
-  if (error!=DEDISP_NO_ERROR) {
-    printf("ERROR: Could not set GPU device: %s\n",dedisp_get_error_string(error));
-    return -1;
-  }
-
-  // Create a dedispersion plan
-  if (verbose) printf("Creating dedispersion plan\n");
-  error=dedisp_create_plan(&plan,h.nchan,h.tsamp,h.fch1,h.foff);
-  //  error=dedisp_create_plan_multi(&plan,h.nchan,h.tsamp,h.fch1,h.foff,4);
-  if (error!=DEDISP_NO_ERROR) {
-    printf("\nERROR: Could not create dedispersion plan: %s\n",dedisp_get_error_string(error));
-    return -1;
-  }
+  plan.set_device(device_id);
 
   // Generate a list of dispersion measures for the plan
   if (dm_step==0) {
     if (verbose) printf("Generating optimal DM trials\n");
-    error=dedisp_generate_dm_list(plan,dm_start,dm_end,pulse_width,dm_tol);
-    if (error!=DEDISP_NO_ERROR) {
-      printf("\nERROR: Failed to generate DM list: %s\n",dedisp_get_error_string(error));
-      return -1;
-    }
+    plan.generate_dm_list(dm_start,dm_end,pulse_width,dm_tol);
   } else {
   // Generate a list of dispersion measures for the plan
     if (verbose) printf("Generating linear DM trials\n");
@@ -244,18 +229,14 @@ int main(int argc,char *argv[])
     dmlist=(dedisp_float *) calloc(sizeof(dedisp_float),dm_count);
     for (i=0;i<dm_count;i++)
       dmlist[i]=(dedisp_float) dm_start+dm_step*i;
-    error=dedisp_set_dm_list(plan,dmlist,dm_count);
-    if (error!=DEDISP_NO_ERROR) {
-      printf("\nERROR: Failed to generate DM list: %s\n",dedisp_get_error_string(error));
-      return -1;
-    }
+    plan.set_dm_list(dmlist,dm_count);
   }
 
   // Get specifics of the computed dedispersion plan
-  dm_count=dedisp_get_dm_count(plan);
-  max_delay=dedisp_get_max_delay(plan);
+  dm_count=plan.get_dm_count();
+  max_delay=plan.get_max_delay();
   nsamp_computed=h.nsamp-max_delay;
-  dmlist=dedisp_get_dm_list(plan);
+  dmlist=(float *)plan.get_dm_list();
 
   // Print information
   if (verbose) {
@@ -277,28 +258,14 @@ int main(int argc,char *argv[])
   }
 
   // Setting maximum gulp_size
-  error=dedisp_set_gulp_size(plan,gulp_size);
-  printf("Current gulp_size = %d\n", (int)dedisp_get_gulp_size(plan));
-  if (error != DEDISP_NO_ERROR) {
-    printf("ERROR: Failed to set gulp_size: %s\n", dedisp_get_error_string(error));
-    return -1;
-  }
-
-
+  plan.set_gulp_size(gulp_size);
+  printf("Current gulp_size = %d\n", (int)plan.get_gulp_size());
 
   // Perform computation
   if (verbose) printf("Dedispersing on the GPU\n");
   startclock=clock();
-  error=dedisp_execute(plan,h.nsamp,input,h.nbit,(dedisp_byte *)output,nbits,DEDISP_USE_DEFAULT);
-  if (error!=DEDISP_NO_ERROR) {
-    printf("\nERROR: Failed to execute dedispersion plan: %s\n",dedisp_get_error_string(error));
-    return -1;
-  }
-  error=dedisp_sync();
-  if (error!=DEDISP_NO_ERROR) {
-    printf("\nERROR: Failed to synchronize: %s\n",dedisp_get_error_string(error));
-    return -1;
-  }
+  plan.execute(h.nsamp,input,h.nbit,(dedisp_byte *)output,nbits,DEDISP_USE_DEFAULT);
+  plan.sync();
   if (verbose) printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
 
   // Output length
@@ -334,7 +301,6 @@ int main(int argc,char *argv[])
   // Clean up
   free(input);
   free(output);
-  dedisp_destroy_plan(plan);
 
   return 0;
 }
