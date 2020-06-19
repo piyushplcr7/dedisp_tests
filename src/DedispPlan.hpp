@@ -17,12 +17,6 @@ namespace dedisp
 {
 
 class DedispPlan {
-    // Private members
-    //dedisp_plan_struct m_plan;
-
-    // No copying or assignment
-    //DedispPlan(const DedispPlan& other);
-    //DedispPlan& operator=(const DedispPlan& other);
 
 public:
     // Public types
