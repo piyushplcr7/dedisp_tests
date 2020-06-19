@@ -35,13 +35,6 @@ endif()
 
 
 ################################################################################
-# stopwatch class
-################################################################################
-add_library(stopwatch OBJECT src/external/Stopwatch.cpp)
-set_property(TARGET stopwatch PROPERTY POSITION_INDEPENDENT_CODE on)
-
-
-################################################################################
 # cuda configuration
 ################################################################################
 
@@ -56,53 +49,18 @@ endif()
 
 
 ################################################################################
-# transpose library
+# helper libraries
 ################################################################################
 
-cuda_add_library(transpose SHARED src/transpose/transpose.cu)
+# include directory for common header files
+include_directories(${CMAKE_SOURCE_DIR}/src/common)
 
-install(
-    TARGETS
-        transpose
-    LIBRARY
-        DESTINATION lib
-)
-
-
-################################################################################
-# dedisperse library
-################################################################################
-
-cuda_add_library(dedisperse SHARED src/dedisperse/dedisperse.cu)
-
-target_include_directories(dedisperse PUBLIC
-    src
-)
-
-install(
-    TARGETS
-        dedisperse
-    LIBRARY
-        DESTINATION lib
-)
-
-
-################################################################################
-# unpack library
-################################################################################
-
-cuda_add_library(unpack SHARED src/unpack/unpack.cu)
-
-target_include_directories(unpack PUBLIC
-    src
-)
-
-install(
-    TARGETS
-        unpack
-    LIBRARY
-        DESTINATION lib
-)
+# add subdirectories for individual libraries
+add_subdirectory(src/common)
+add_subdirectory(src/transpose)
+add_subdirectory(src/dedisperse)
+add_subdirectory(src/unpack)
+add_subdirectory(src/external)
 
 
 ################################################################################
@@ -110,18 +68,14 @@ install(
 ################################################################################
 
 cuda_add_library(dedisp SHARED
-    src/dedisp_error.cpp
     src/dedisp_kernels.cpp
     src/DedispPlan.cu
 )
 
-target_include_directories(dedisp PUBLIC
-    src
-)
-
 target_link_libraries(dedisp
     ${CUDA_CUDART_LIBRARY}
-    stopwatch
+    common
+    external
     transpose
     dedisperse
     unpack)
