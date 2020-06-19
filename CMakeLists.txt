@@ -56,6 +56,19 @@ endif()
 
 
 ################################################################################
+# transpose library
+################################################################################
+
+cuda_add_library(transpose SHARED src/transpose/transpose.cu)
+
+install(
+    TARGETS
+        transpose
+    LIBRARY
+        DESTINATION lib
+)
+
+################################################################################
 # dedisp library
 ################################################################################
 
@@ -69,7 +82,7 @@ target_include_directories(dedisp PUBLIC
     src
 )
 
-target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY} stopwatch)
+target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY} stopwatch transpose)
 
 set_target_properties(dedisp PROPERTIES PUBLIC_HEADER src/DedispPlan.hpp)
 

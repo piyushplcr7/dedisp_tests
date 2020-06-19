@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 
 #include "DedispPlan.hpp"
-#include "transpose.hpp"
+#include "transpose/transpose.hpp"
 #include "gpu_memory.hpp"
 
 #include "dedisp_defines.h"
@@ -475,11 +475,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
         transpose_timer->Start();
 #endif
         // Transpose the words in the input
-        Transpose<dedisp_word> transpose;
-        transpose.transpose(d_in,
-                            nchan_words, nsamps_gulp,
-                            in_buf_stride_words, nsamps_padded_gulp,
-                            d_transposed);
+        transpose(d_in,
+                  nchan_words, nsamps_gulp,
+                  in_buf_stride_words, nsamps_padded_gulp,
+                  d_transposed);
 #ifdef DEDISP_BENCHMARK
         cudaThreadSynchronize();
         transpose_timer->Pause();
