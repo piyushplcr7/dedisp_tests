@@ -16,32 +16,32 @@ namespace cu {
         Error checking
     */
     inline void __assertCudaCall(
-        CUresult result,
+        cudaError_t result,
         char const *const func,
         const char *const file,
         int const line)
     {
-        if (result != CUDA_SUCCESS) {
+        if (result != cudaSuccess) {
             const char *msg;
-            cuGetErrorString(result, &msg);
+            msg = cudaGetErrorString(result);
             std::cerr << "CUDA Error at " << file;
             std::cerr << ":" << line;
             std::cerr << " in function " << func;
             std::cerr << ": " << msg;
             std::cerr << std::endl;
-            throw Error<CUresult>(result);
+            throw Error<cudaError_t>(result);
         }
     }
 
     inline void __checkCudaCall(
-        CUresult result,
+        cudaError_t result,
         char const *const func,
         const char *const file,
         int const line)
     {
         try {
             __assertCudaCall(result, func, file, line);
-        } catch (Error<CUresult>& error) {
+        } catch (Error<cudaError_t>& error) {
             // pass
         }
     }
@@ -54,7 +54,7 @@ namespace cu {
         m_capacity = size;
         m_size = size;
         m_flags = flags;
-        assertCudaCall(cuMemHostAlloc(&m_ptr, size, m_flags));
+        assertCudaCall(cudaHostAlloc(&m_ptr, size, m_flags));
     }
 
     HostMemory::~HostMemory() {
@@ -66,13 +66,13 @@ namespace cu {
         m_size = size;
         if (size > m_capacity) {
             release();
-            assertCudaCall(cuMemHostAlloc(&m_ptr, size, m_flags));
+            assertCudaCall(cudaHostAlloc(&m_ptr, size, m_flags));
             m_capacity = size;
         }
     }
 
     void HostMemory::release() {
-        assertCudaCall(cuMemFreeHost(m_ptr));
+        assertCudaCall(cudaFreeHost(m_ptr));
     }
 
     void HostMemory::zero() {
@@ -87,7 +87,7 @@ namespace cu {
         m_capacity = size;
         m_size = size;
         if (size) {
-            assertCudaCall(cuMemAlloc((CUdeviceptr *) &m_ptr, size));
+            assertCudaCall(cudaMalloc(&m_ptr, size));
         }
     }
 
@@ -100,24 +100,24 @@ namespace cu {
         m_size = size;
         if (size > m_capacity) {
             release();
-            assertCudaCall(cuMemAlloc((CUdeviceptr *) &m_ptr, size));
+            assertCudaCall(cudaMalloc(&m_ptr, size));
             m_capacity = size;
         }
     }
 
     void DeviceMemory::release() {
         if (m_capacity) {
-            assertCudaCall(cuMemFree((CUdeviceptr) m_ptr));
+            assertCudaCall(cudaFree(m_ptr));
         }
     }
 
-    void DeviceMemory::zero(CUstream stream) {
+    void DeviceMemory::zero(cudaStream_t stream) {
         if (m_size)
         {
             if (stream != NULL) {
-                cuMemsetD8Async((CUdeviceptr) m_ptr, 0, m_size, stream);
+                cudaMemsetAsync(m_ptr, 0, m_size, stream);
             } else {
-                cuMemsetD8((CUdeviceptr) m_ptr, 0, m_size);
+                cudaMemset(m_ptr, 0, m_size);
             }
         }
     }
@@ -127,24 +127,24 @@ namespace cu {
         Event
     */
     Event::Event(int flags) {
-        assertCudaCall(cuEventCreate(&m_event, flags));
+        assertCudaCall(cudaEventCreate(&m_event, flags));
     }
 
     Event::~Event() {
-        assertCudaCall(cuEventDestroy(m_event));
+        assertCudaCall(cudaEventDestroy(m_event));
     }
 
     void Event::synchronize() {
-        assertCudaCall(cuEventSynchronize(m_event));
+        assertCudaCall(cudaEventSynchronize(m_event));
     }
 
     float Event::elapsedTime(Event &second) {
         float ms;
-        assertCudaCall(cuEventElapsedTime(&ms, second, m_event));
+        assertCudaCall(cudaEventElapsedTime(&ms, second, m_event));
         return ms;
     }
 
-    Event::operator CUevent() {
+    Event::operator cudaEvent_t() {
         return m_event;
     }
 
@@ -153,38 +153,38 @@ namespace cu {
         Stream
     */
     Stream::Stream(int flags) {
-        assertCudaCall(cuStreamCreate(&m_stream, flags));
+        assertCudaCall(cudaStreamCreateWithFlags(&m_stream, flags));
     }
 
     Stream::~Stream() {
-        assertCudaCall(cuStreamDestroy(m_stream));
+        assertCudaCall(cudaStreamDestroy(m_stream));
     }
 
-    void Stream::memcpyHtoDAsync(CUdeviceptr devPtr, const void *hostPtr, size_t size) {
-        assertCudaCall(cuMemcpyHtoDAsync(devPtr, hostPtr, size, m_stream));
+    void Stream::memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size) {
+        assertCudaCall(cudaMemcpyAsync(devPtr, hostPtr, size, cudaMemcpyHostToDevice, m_stream));
     }
 
-    void Stream::memcpyDtoHAsync(void *hostPtr, CUdeviceptr devPtr, size_t size) {
-        assertCudaCall(cuMemcpyDtoHAsync(hostPtr, devPtr, size, m_stream));
+    void Stream::memcpyDtoHAsync(void *hostPtr, void *devPtr, size_t size) {
+        assertCudaCall(cudaMemcpyAsync(hostPtr, devPtr, size, cudaMemcpyDeviceToHost, m_stream));
     }
 
-    void Stream::memcpyDtoDAsync(CUdeviceptr dstPtr, CUdeviceptr srcPtr, size_t size) {
-        assertCudaCall(cuMemcpyDtoDAsync(dstPtr, srcPtr, size, m_stream));
+    void Stream::memcpyDtoDAsync(void *dstPtr, void *srcPtr, size_t size) {
+        assertCudaCall(cudaMemcpyAsync(dstPtr, srcPtr, size, cudaMemcpyDeviceToDevice, m_stream));
     }
 
     void Stream::synchronize() {
-        assertCudaCall(cuStreamSynchronize(m_stream));
+        assertCudaCall(cudaStreamSynchronize(m_stream));
     }
 
     void Stream::waitEvent(Event &event) {
-        assertCudaCall(cuStreamWaitEvent(m_stream, event, 0));
+        assertCudaCall(cudaStreamWaitEvent(m_stream, event, 0));
     }
 
     void Stream::record(Event &event) {
-        assertCudaCall(cuEventRecord(event, m_stream));
+        assertCudaCall(cudaEventRecord(event, m_stream));
     }
 
-    Stream::operator CUstream() {
+    Stream::operator cudaStream_t() {
         return m_stream;
     }
 

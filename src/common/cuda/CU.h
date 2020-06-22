@@ -3,7 +3,7 @@
 
 #include <stdexcept>
 
-#include <cuda.h>
+#include <cuda_runtime.h>
 
 namespace cu {
 
@@ -23,7 +23,7 @@ namespace cu {
 
     class Memory {
         public:
-            void* ptr() { return m_ptr; }
+            void* data() { return m_ptr; }
             size_t size() { return m_size; }
             virtual void resize(size_t size) = 0;
             template <typename T> operator T *() {
@@ -38,7 +38,7 @@ namespace cu {
 
     class HostMemory : public virtual Memory {
         public:
-            HostMemory(size_t size = 0, int flags = CU_MEMHOSTALLOC_PORTABLE);
+            HostMemory(size_t size = 0, int flags = cudaHostAllocDefault);
             virtual ~HostMemory();
 
             void resize(size_t size) override;
@@ -52,13 +52,15 @@ namespace cu {
     class DeviceMemory : public virtual Memory {
 
         public:
-            DeviceMemory(size_t size);
+            DeviceMemory(size_t size = 0);
             ~DeviceMemory();
 
-            size_t capacity();
-            size_t size();
             void resize(size_t size);
-            void zero(CUstream stream = NULL);
+            void zero(cudaStream_t stream = NULL);
+
+            template <typename T> operator T () {
+                return static_cast<T>(m_ptr);
+            }
 
         private:
             void release();
@@ -66,34 +68,34 @@ namespace cu {
 
     class Event {
         public:
-            Event(int flags = CU_EVENT_DEFAULT);
+            Event(int flags = cudaEventDefault);
             ~Event();
 
             void synchronize();
             float elapsedTime(Event &second);
 
-            operator CUevent();
+            operator cudaEvent_t();
 
         private:
-            CUevent m_event;
+            cudaEvent_t m_event;
     };
 
     class Stream {
         public:
-            Stream(int flags = CU_STREAM_DEFAULT);
+            Stream(int flags = cudaStreamDefault);
             ~Stream();
 
-            void memcpyHtoDAsync(CUdeviceptr devPtr, const void *hostPtr, size_t size);
-            void memcpyDtoHAsync(void *hostPtr, CUdeviceptr devPtr, size_t size);
-            void memcpyDtoDAsync(CUdeviceptr dstPtr, CUdeviceptr srcPtr, size_t size);
+            void memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size);
+            void memcpyDtoHAsync(void *hostPtr, void *devPtr, size_t size);
+            void memcpyDtoDAsync(void *dstPtr, void *srcPtr, size_t size);
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);
 
-            operator CUstream();
+            operator cudaStream_t();
 
         private:
-            CUstream m_stream;
+            cudaStream_t m_stream;
     };
 
 } // end namespace cu
