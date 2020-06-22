@@ -35,13 +35,6 @@ endif()
 
 
 ################################################################################
-# stopwatch class
-################################################################################
-add_library(stopwatch OBJECT src/external/Stopwatch.cpp)
-set_property(TARGET stopwatch PROPERTY POSITION_INDEPENDENT_CODE on)
-
-
-################################################################################
 # cuda configuration
 ################################################################################
 
@@ -56,94 +49,22 @@ endif()
 
 
 ################################################################################
-# dedisp library
+# library
 ################################################################################
-
-cuda_add_library(dedisp SHARED
-    src/dedisp_error.cpp
-    src/dedisp_kernels.cpp
-    src/DedispPlan.cu
-)
-
-target_include_directories(dedisp PUBLIC
-    src
-)
-
-target_link_libraries(dedisp ${CUDA_CUDART_LIBRARY} stopwatch)
-
-set_target_properties(dedisp PROPERTIES PUBLIC_HEADER src/DedispPlan.hpp)
-
-set_target_properties(
-    dedisp PROPERTIES
-    VERSION ${DEDISP_VERSION}
-    SOVERSION ${DEDISP_VERSION_MAJOR}
-)
-
-install(
-    TARGETS
-        dedisp
-    LIBRARY
-        DESTINATION lib
-    PUBLIC_HEADER
-        DESTINATION include
-)
-
-# make sure that all subsequent binaries can find the dedisp library
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+add_subdirectory(src)
 
 
 ################################################################################
-# dedisp_fil binary
+# binaries
 ################################################################################
+add_subdirectory(bin)
 
-add_executable(dedisp_fil bin/dedisp_fil/dedisp_fil.cpp)
-
-target_include_directories(dedisp_fil PRIVATE src)
-
-target_link_libraries(dedisp_fil dedisp m)
-
-install(
-    TARGETS
-        dedisp_fil
-    RUNTIME
-        DESTINATION bin
-)
-
-
-################################################################################
-# testdedisp binary
-################################################################################
-
-add_executable(testdedisp bin/testdedisp/testdedisp.cpp)
-
-target_include_directories(testdedisp PRIVATE src)
-
-target_link_libraries(testdedisp dedisp m)
-
-install(
-    TARGETS
-        testdedisp
-    RUNTIME
-        DESTINATION bin
-)
 
 
 ################################################################################
 # python binaries
 ################################################################################
-
-install(
-    FILES
-        python/filterbank.py
-        python/plot_burst.py
-        python/psr_constants.py
-        python/sigproc.py
-    DESTINATION bin
-    PERMISSIONS
-        OWNER_READ OWNER_WRITE OWNER_EXECUTE
-        GROUP_READ GROUP_READ  GROUP_EXECUTE
-        WORLD_READ WORLD_READ  WORLD_EXECUTE
-)
+add_subdirectory(python)
 
 
 ################################################################################

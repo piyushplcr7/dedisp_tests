@@ -11,6 +11,7 @@
 
 #include <ctime>
 #include <random>
+#include <functional>
 
 #include <DedispPlan.hpp>
 
@@ -143,18 +144,16 @@ int main(int argc, char* argv[])
   printf("\n");
 
   /* Initialize random number generator */
-  std::srand(std::time(nullptr));
-  std::random_device rd;
-  std::mt19937 mt(rd());
-  std::normal_distribution<> dist(0, 1);
+  std::mt19937::result_type seed = std::time(0);
+  auto random = std::bind(std::normal_distribution<float>(0, 1),
+                          std::mt19937(seed));
 
   /* First build 2-D array of floats with our signal in it */
   rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
-  #include <random>
 
   for (ns=0; ns<nsamps; ns++) {
     for (nc=0; nc<nchans; nc++) {
-      rawdata[ns*nchans+nc] = datarms*dist(mt);
+      rawdata[ns*nchans+nc] = datarms*random();
     }
   }
 

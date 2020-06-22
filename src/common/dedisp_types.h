@@ -1,6 +1,8 @@
 #ifndef DEDISP_TYPES_H_INCLUDE_GUARD
 #define DEDISP_TYPES_H_INCLUDE_GUARD
 
+#include "dedisp_defines.h"
+
 // Types
 // -----
 typedef float                      dedisp_float;
@@ -32,5 +34,10 @@ typedef enum {
 	DEDISP_WAIT              = 1 << 3,
 	DEDISP_ASYNC             = 1 << 4
 } dedisp_flag;
+
+// Summation type metafunction
+template<int IN_NBITS> struct SumType { typedef dedisp_word type; };
+// Note: For 32-bit input, we must accumulate using a larger data type
+template<> struct SumType<32> { typedef unsigned long long type; };
 
 #endif // DEDISP_TYPES_H_INCLUDE_GUARD

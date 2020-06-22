@@ -1,20 +1,4 @@
 /*
- *  Copyright 2012 Ben Barsdell
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *      distributed under the License is distributed on an "AS IS" BASIS,
- *      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
-
-/*
   This is a simple C++ wrapper class for the dedisp library
 */
 
@@ -25,20 +9,13 @@
 #include <sstream>
 #include <vector>
 
-#include <thrust/device_vector.h>
-
 #include "dedisp_types.h"
+#include "common/cuda/CU.h"
 
 namespace dedisp
 {
 
 class DedispPlan {
-    // Private members
-    //dedisp_plan_struct m_plan;
-
-    // No copying or assignment
-    //DedispPlan(const DedispPlan& other);
-    //DedispPlan& operator=(const DedispPlan& other);
 
 public:
     // Public types
@@ -125,9 +102,6 @@ public:
                       unsigned         flags);
     void sync();
 
-    // Private method
-    void update_scrunch_list();
-
 private:
     // Size parameters
     dedisp_size  m_dm_count;
@@ -144,20 +118,28 @@ private:
     std::vector<dedisp_float> h_dm_list;      // size = dm_count
     std::vector<dedisp_float> h_delay_table;  // size = nchans
     std::vector<dedisp_bool>  h_killmask;     // size = nchans
-    std::vector<dedisp_size>  h_scrunch_list; // size = dm_count
 
     // Device arrays
-    thrust::device_vector<dedisp_float> d_dm_list;
-    thrust::device_vector<dedisp_float> d_delay_table;
-    thrust::device_vector<dedisp_bool>  d_killmask;
-    thrust::device_vector<dedisp_size>  d_scrunch_list;
+    cu::DeviceMemory d_dm_list;     // type = dedisp_float
+    cu::DeviceMemory d_delay_table; // type = dedisp_float
+    cu::DeviceMemory d_killmask;    // type = dedisp_bool
 
-    //StreamType m_stream;
+    // Streams
+    cu::Stream htodstream;
+    cu::Stream dtohstream;
 
-    // Scrunching parameters
-    dedisp_bool  m_scrunching_enabled;
-    dedisp_float m_pulse_width;
-    dedisp_float m_scrunch_tol;
+    // Helper methods
+    void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
+                              dedisp_float dt, dedisp_float f0, dedisp_float df);
+
+    dedisp_float get_smearing(dedisp_float dt, dedisp_float pulse_width,
+                              dedisp_float f0, dedisp_size nchans, dedisp_float df,
+                              dedisp_float DM, dedisp_float deltaDM);
+
+    void generate_dm_list(std::vector<dedisp_float>& dm_table,
+                          dedisp_float dm_start, dedisp_float dm_end,
+                          double dt, double ti, double f0, double df,
+                          dedisp_size nchans, double tol);
 };
 
 } // end namespace dedisp
