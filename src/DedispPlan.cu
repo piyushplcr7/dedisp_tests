@@ -9,6 +9,7 @@
 #include "dedisp_kernels.hpp"
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"
+#include "common/cuda/CU.h"
 
 #if defined(DEDISP_BENCHMARK)
 #include <iostream>
@@ -301,14 +302,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
         throw_error(DEDISP_UNSUPPORTED_OUT_NBITS);
     }
 
-    bool using_host_memory = false;
-    if( flags & DEDISP_HOST_POINTERS && flags & DEDISP_DEVICE_POINTERS ) {
-        throw_error(DEDISP_INVALID_FLAG_COMBINATION);
-    }
-    else {
-        using_host_memory = !(flags & DEDISP_DEVICE_POINTERS);
-    }
-
     // Copy the lookup tables to constant memory on the device
     copy_delay_table(thrust::raw_pointer_cast(&d_delay_table[0]),
                      m_nchans * sizeof(dedisp_float),
@@ -319,15 +312,9 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // Compute the problem decomposition
     dedisp_size nsamps_computed = nsamps - m_max_delay;
+
     // Specify the maximum gulp size
-    dedisp_size nsamps_computed_gulp_max;
-    if( using_host_memory ) {
-        nsamps_computed_gulp_max = min(m_gulp_size, nsamps_computed);
-    }
-    else {
-        // Just do it in one gulp if given device pointers
-        nsamps_computed_gulp_max = nsamps_computed;
-    }
+    dedisp_size nsamps_computed_gulp_max = min(m_gulp_size, nsamps_computed);
 
     // Just to be sure
     // TODO: This seems quite wrong. Why was it here?
@@ -344,7 +331,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // We use words for processing but allow arbitrary byte strides, which are
     //   not necessarily friendly.
-    bool friendly_in_stride = (0 == in_stride % BYTES_PER_WORD);
+    //bool friendly_in_stride = (0 == in_stride % BYTES_PER_WORD);
 
     // Note: If desired, this could be rounded up, e.g., to a power of 2
     dedisp_size in_buf_stride_words      = nchan_words;
@@ -373,38 +360,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // Organise device memory pointers
     // -------------------------------
-    const dedisp_word* d_in = 0;
-    dedisp_word*       d_transposed = 0;
-    dedisp_word*       d_unpacked = 0;
-    dedisp_byte*       d_out = 0;
-    thrust::device_vector<dedisp_word> d_in_buf;
-    thrust::device_vector<dedisp_word> d_transposed_buf;
-    thrust::device_vector<dedisp_word> d_unpacked_buf;
-    thrust::device_vector<dedisp_byte> d_out_buf;
-    // Allocate temporary buffers on the device where necessary
-    if( using_host_memory || !friendly_in_stride ) {
-        try { d_in_buf.resize(in_count_gulp_max); }
-        catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-        d_in = thrust::raw_pointer_cast(&d_in_buf[0]);
-    }
-    else {
-        d_in = (dedisp_word*)in;
-    }
-    if( using_host_memory ) {
-        try { d_out_buf.resize(out_count_gulp_max); }
-        catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-        d_out = thrust::raw_pointer_cast(&d_out_buf[0]);
-    }
-    else {
-        d_out = out;
-    }
-    try { d_transposed_buf.resize(in_count_padded_gulp_max); }
-    catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-    d_transposed = thrust::raw_pointer_cast(&d_transposed_buf[0]);
-
-    try { d_unpacked_buf.resize(unpacked_count_padded_gulp_max); }
-    catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-    d_unpacked = thrust::raw_pointer_cast(&d_unpacked_buf[0]);
+    cu::DeviceMemory d_in(in_count_gulp_max * sizeof(dedisp_word));
+    cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
+    cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
+    cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
     // -------------------------------
 
     // TODO: Eventually re-implement streams
@@ -432,28 +391,14 @@ void DedispPlan::execute_guru(size_type        nsamps,
 #ifdef DEDISP_BENCHMARK
         copy_to_timer->Start();
 #endif
-        // Copy the input data from host to device if necessary
-        if( using_host_memory ) {
-            // Allowing arbitrary byte strides means we must do a strided copy
-            if( !copy_host_to_device_2d((dedisp_byte*)d_in,
-                                        in_buf_stride_words * BYTES_PER_WORD,
-                                        in + gulp_samp_idx*in_stride,
-                                        in_stride,
-                                        nchan_words * BYTES_PER_WORD,
-                                        nsamps_gulp) ) {
-                throw_error(DEDISP_MEM_COPY_FAILED);
-            }
-        }
-        else if( !friendly_in_stride ) {
-            // Device pointers with unfriendly stride
-            if( !copy_device_to_device_2d((dedisp_byte*)d_in,
-                                          in_buf_stride_words * BYTES_PER_WORD,
-                                          in + gulp_samp_idx*in_stride,
-                                          in_stride,
-                                          nchan_words * BYTES_PER_WORD,
-                                          nsamps_gulp) ) {
-                throw_error(DEDISP_MEM_COPY_FAILED);
-            }
+        // Copy the input data from host to device
+        if( !copy_host_to_device_2d((dedisp_byte*)d_in,
+                                    in_buf_stride_words * BYTES_PER_WORD,
+                                    in + gulp_samp_idx*in_stride,
+                                    in_stride,
+                                    nchan_words * BYTES_PER_WORD,
+                                    nsamps_gulp) ) {
+            throw_error(DEDISP_MEM_COPY_FAILED);
         }
 #ifdef DEDISP_BENCHMARK
         cudaThreadSynchronize();
@@ -461,10 +406,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
         transpose_timer->Start();
 #endif
         // Transpose the words in the input
-        transpose(d_in,
+        transpose((dedisp_word *) d_in,
                   nchan_words, nsamps_gulp,
                   in_buf_stride_words, nsamps_padded_gulp,
-                  d_transposed);
+                  (dedisp_word *) d_transposed);
 #ifdef DEDISP_BENCHMARK
         cudaThreadSynchronize();
         transpose_timer->Pause();
@@ -499,24 +444,22 @@ void DedispPlan::execute_guru(size_type        nsamps,
         cudaThreadSynchronize();
         kernel_timer->Pause();
 #endif
-        // Copy output back to host memory if necessary
-        if( using_host_memory ) {
-            dedisp_size gulp_samp_byte_idx = gulp_samp_idx * out_bytes_per_sample;
-            dedisp_size nsamp_bytes_computed_gulp = nsamps_computed_gulp * out_bytes_per_sample;
+        // Copy output back to host memory
+        dedisp_size gulp_samp_byte_idx = gulp_samp_idx * out_bytes_per_sample;
+        dedisp_size nsamp_bytes_computed_gulp = nsamps_computed_gulp * out_bytes_per_sample;
 #ifdef DEDISP_BENCHMARK
-            copy_from_timer->Start();
+        copy_from_timer->Start();
 #endif
-            copy_device_to_host_2d(out + gulp_samp_byte_idx,  // dst
-                                   out_stride,                // dst stride
-                                   d_out,                     // src
-                                   out_stride_gulp_bytes,     // src stride
-                                   nsamp_bytes_computed_gulp, // width bytes
-                                   dm_count);                 // height
+        copy_device_to_host_2d(out + gulp_samp_byte_idx,  // dst
+                                out_stride,                // dst stride
+                                (byte_type *) d_out,       // src
+                                out_stride_gulp_bytes,     // src stride
+                                nsamp_bytes_computed_gulp, // width bytes
+                                dm_count);                 // height
 #ifdef DEDISP_BENCHMARK
-            cudaThreadSynchronize();
-            copy_from_timer->Pause();
+        cudaThreadSynchronize();
+        copy_from_timer->Pause();
 #endif
-        }
 
     } // End of gulp loop
 
