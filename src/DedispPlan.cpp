@@ -130,20 +130,7 @@ void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,
 
 // Public interface
 void DedispPlan::set_device(int device_idx) {
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
-
-    cudaError_t error = cudaSetDevice(device_idx);
-    // Note: cudaErrorInvalidValue isn't a documented return value, but
-    //         it still gets returned :/
-    if( cudaErrorInvalidDevice == error ||
-        cudaErrorInvalidValue == error )
-        throw_error(DEDISP_INVALID_DEVICE_INDEX);
-    else if( cudaErrorSetOnActiveProcess == error )
-        throw_error(DEDISP_DEVICE_ALREADY_SET);
-    else if( cudaSuccess != error )
-        throw_error(DEDISP_UNKNOWN_ERROR);
+    cu::Device device(device_idx);
 }
 
 void DedispPlan::set_gulp_size(size_type gulp_size) {

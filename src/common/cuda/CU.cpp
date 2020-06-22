@@ -48,6 +48,14 @@ namespace cu {
 
 
     /*
+        Device
+    */
+    Device::Device(int device) {
+        checkCudaCall(cudaSetDevice(device));
+    }
+
+
+    /*
         HostMemory
     */
     HostMemory::HostMemory(size_t size, int flags) {

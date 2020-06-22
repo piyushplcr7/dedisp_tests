@@ -21,6 +21,11 @@ namespace cu {
             T _result;
     };
 
+    class Device {
+        public:
+            Device(int device);
+    };
+
     class Memory {
         public:
             void* data() { return m_ptr; }
