@@ -365,6 +365,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // Organise host memory pointers
     cu::HostMemory h_in(in_count_gulp_max * sizeof(dedisp_word));
+    cu::HostMemory h_out(out_count_gulp_max * sizeof(dedisp_word));
 
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
@@ -451,7 +452,11 @@ void DedispPlan::execute_guru(size_type        nsamps,
 #ifdef DEDISP_BENCHMARK
         copy_from_timer->Start();
 #endif
-        dtohstream.memcpyDtoH2DAsync(
+        dtohstream.memcpyDtoHAsync(
+            h_out, // dst
+            d_out, // src
+            out_count_gulp_max);
+        dtohstream.memcpyHtoH2DAsync(
             out + gulp_samp_byte_idx,  // dst
             out_stride,                // dst stride
             (byte_type *) d_out,       // src

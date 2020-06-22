@@ -47,7 +47,7 @@ namespace cu {
 
     class HostMemory : public virtual Memory {
         public:
-            HostMemory(size_t size = 0, int flags = cudaHostAllocDefault);
+            HostMemory(size_t size = 0, int flags = cudaHostAllocPortable);
             virtual ~HostMemory();
 
             void resize(size_t size) override;
