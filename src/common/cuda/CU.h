@@ -105,6 +105,10 @@ namespace cu {
                 void *dstPtr, size_t dstStride,
                 const void *srcPtr, size_t srcStride,
                 size_t width_bytes, size_t height);
+            void memcpyHtoH2DAsync(
+                void *dstPtr, size_t dstStride,
+                const void *srcPtr, size_t srcStride,
+                size_t width_bytes, size_t height);
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);

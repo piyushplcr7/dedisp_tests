@@ -363,6 +363,9 @@ void DedispPlan::execute_guru(size_type        nsamps,
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
 
+    // Organise host memory pointers
+    cu::HostMemory h_in(in_count_gulp_max * sizeof(dedisp_word));
+
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
@@ -386,13 +389,17 @@ void DedispPlan::execute_guru(size_type        nsamps,
         copy_to_timer->Start();
 #endif
         // Copy the input data from host to device
-        htodstream.memcpyHtoD2DAsync(
-            d_in,                                 // dst
+        htodstream.memcpyHtoH2DAsync(
+            h_in,                                 // dst
             in_buf_stride_words * BYTES_PER_WORD, // dst stride
             in + gulp_samp_idx*in_stride,         // src
             in_stride,                            // src stride
             nchan_words * BYTES_PER_WORD,         // width bytes
             nsamps_gulp);                         // height
+        htodstream.memcpyHtoDAsync(
+            d_in, // dst
+            h_in, // src
+            nchan_words * nsamps_gulp * BYTES_PER_WORD);
         htodstream.synchronize();
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();

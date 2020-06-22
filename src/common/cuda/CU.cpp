@@ -214,6 +214,18 @@ namespace cu {
             cudaMemcpyDeviceToHost));
     }
 
+    void Stream::memcpyHtoH2DAsync(
+        void *dstPtr, size_t dstStride,
+        const void *srcPtr, size_t srcStride,
+        size_t widthBytes, size_t height)
+    {
+        assertCudaCall(cudaMemcpy2DAsync(
+            dstPtr, dstStride,
+            srcPtr, srcStride,
+            widthBytes, height,
+            cudaMemcpyHostToHost));
+    }
+
     void Stream::synchronize() {
         assertCudaCall(cudaStreamSynchronize(m_stream));
     }
