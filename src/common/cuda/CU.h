@@ -88,6 +88,14 @@ namespace cu {
             void memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size);
             void memcpyDtoHAsync(void *hostPtr, void *devPtr, size_t size);
             void memcpyDtoDAsync(void *dstPtr, void *srcPtr, size_t size);
+            void memcpyHtoD2DAsync(
+                void *dstPtr, size_t dstStride,
+                const void *srcPtr, size_t srcStride,
+                size_t width_bytes, size_t height);
+            void memcpyDtoH2DAsync(
+                void *dstPtr, size_t dstStride,
+                const void *srcPtr, size_t srcStride,
+                size_t width_bytes, size_t height);
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);

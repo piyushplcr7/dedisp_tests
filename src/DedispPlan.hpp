@@ -126,6 +126,7 @@ private:
 
     // Streams
     cu::Stream htodstream;
+    cu::Stream dtohstream;
 };
 
 } // end namespace dedisp

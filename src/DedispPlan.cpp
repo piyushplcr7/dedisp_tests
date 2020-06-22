@@ -357,14 +357,14 @@ void DedispPlan::execute_guru(size_type        nsamps,
         copy_to_timer->Start();
 #endif
         // Copy the input data from host to device
-        if( !copy_host_to_device_2d((dedisp_byte*)d_in,
-                                    in_buf_stride_words * BYTES_PER_WORD,
-                                    in + gulp_samp_idx*in_stride,
-                                    in_stride,
-                                    nchan_words * BYTES_PER_WORD,
-                                    nsamps_gulp) ) {
-            throw_error(DEDISP_MEM_COPY_FAILED);
-        }
+        htodstream.memcpyHtoD2DAsync(
+            d_in,                                 // dst
+            in_buf_stride_words * BYTES_PER_WORD, // dst stride
+            in + gulp_samp_idx*in_stride,         // src
+            in_stride,                            // src stride
+            nchan_words * BYTES_PER_WORD,         // width bytes
+            nsamps_gulp);                         // height
+        htodstream.synchronize();
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
         copy_to_timer->Pause();
@@ -415,12 +415,14 @@ void DedispPlan::execute_guru(size_type        nsamps,
 #ifdef DEDISP_BENCHMARK
         copy_from_timer->Start();
 #endif
-        copy_device_to_host_2d(out + gulp_samp_byte_idx,  // dst
-                                out_stride,                // dst stride
-                                (byte_type *) d_out,       // src
-                                out_stride_gulp_bytes,     // src stride
-                                nsamp_bytes_computed_gulp, // width bytes
-                                dm_count);                 // height
+        dtohstream.memcpyDtoH2DAsync(
+            out + gulp_samp_byte_idx,  // dst
+            out_stride,                // dst stride
+            (byte_type *) d_out,       // src
+            out_stride_gulp_bytes,     // src stride
+            nsamp_bytes_computed_gulp, // width bytes
+            dm_count);                 // height
+        dtohstream.synchronize();
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
         copy_from_timer->Pause();

@@ -172,6 +172,30 @@ namespace cu {
         assertCudaCall(cudaMemcpyAsync(dstPtr, srcPtr, size, cudaMemcpyDeviceToDevice, m_stream));
     }
 
+    void Stream::memcpyHtoD2DAsync(
+        void *dstPtr, size_t dstStride,
+        const void *srcPtr, size_t srcStride,
+        size_t widthBytes, size_t height)
+    {
+        assertCudaCall(cudaMemcpy2DAsync(
+            dstPtr, dstStride,
+            srcPtr, srcStride,
+            widthBytes, height,
+            cudaMemcpyHostToDevice));
+    }
+
+    void Stream::memcpyDtoH2DAsync(
+        void *dstPtr, size_t dstStride,
+        const void *srcPtr, size_t srcStride,
+        size_t widthBytes, size_t height)
+    {
+        assertCudaCall(cudaMemcpy2DAsync(
+            dstPtr, dstStride,
+            srcPtr, srcStride,
+            widthBytes, height,
+            cudaMemcpyDeviceToHost));
+    }
+
     void Stream::synchronize() {
         assertCudaCall(cudaStreamSynchronize(m_stream));
     }
