@@ -2,7 +2,6 @@
 
 #include "DedispPlan.hpp"
 #include "transpose/transpose.hpp"
-#include "gpu_memory.hpp"
 
 #include "dedisp_defines.h"
 #include "dedisp_error.hpp"
