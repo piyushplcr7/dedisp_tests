@@ -1,4 +1,6 @@
 #include <cmath>
+#include <memory>
+#include <iostream>
 
 #include <cuda_runtime.h>
 
@@ -358,19 +360,23 @@ void DedispPlan::execute_guru(size_type        nsamps,
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
     // Organise device memory pointers
-    cu::DeviceMemory d_in(in_count_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
+
+    // Two input buffers for double buffering
+    std::vector<cu::DeviceMemory> d_in_(2);
+    for (auto& d_in : d_in_)
+    {
+        d_in.resize(in_count_padded_gulp_max * sizeof(dedisp_word));
+    }
 
     // Organise host memory pointers
     cu::HostMemory h_in(in_count_gulp_max * sizeof(dedisp_word));
     cu::HostMemory h_out(out_count_gulp_max * sizeof(dedisp_word));
 
-    // Events
-    cu::Event inputStart, inputEnd;
-    cu::Event computeStart, computeEnd;
-    cu::Event outputStart, outputEnd;
+    // Compute the number of gulps (jobs)
+    unsigned int nr_gulps = div_round_up(nsamps_computed, nsamps_computed_gulp_max);
 
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
@@ -379,44 +385,95 @@ void DedispPlan::execute_guru(size_type        nsamps,
     std::unique_ptr<Stopwatch> kernel_timer(Stopwatch::create());
 #endif
 
+    struct JobData {
+        dedisp_size gulp_samp_idx;
+        dedisp_size nsamps_computed_gulp;
+        dedisp_size nsamps_gulp;
+        dedisp_size nsamps_padded_gulp;
+        void *in_ptr;
+        cu::Event inputStart, inputEnd;
+        cu::Event computeStart, computeEnd;
+        cu::Event outputStart, outputEnd;
+    };
+
+    std::vector<JobData> jobs(nr_gulps);
+
+    for (unsigned int gulp = 0; gulp < nr_gulps; gulp++)
+    {
+        JobData& job = jobs[gulp];
+        job.gulp_samp_idx        = gulp == 0 ? 0 : jobs[gulp - 1].gulp_samp_idx
+                                   + nsamps_computed_gulp_max;
+        job.nsamps_computed_gulp = std::min(nsamps_computed_gulp_max,
+                                   nsamps_computed-job.gulp_samp_idx);
+        job.nsamps_gulp          = job.nsamps_computed_gulp + m_max_delay;
+        job.nsamps_padded_gulp   = div_round_up(job.nsamps_computed_gulp,
+                                    DEDISP_SAMPS_PER_THREAD)
+                                  * DEDISP_SAMPS_PER_THREAD + m_max_delay;
+    }
+
     // Gulp loop
-    for( dedisp_size gulp_samp_idx=0;
-         gulp_samp_idx<nsamps_computed;
-         gulp_samp_idx+=nsamps_computed_gulp_max ) {
+    for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
+    {
+        // Id for double buffering
+        int buffer_id          = job_id % 2;
+        unsigned job_id_next   = job_id + 1;
+        unsigned buffer_id_next = (buffer_id + 1) % 2;
 
-        dedisp_size nsamps_computed_gulp = std::min(nsamps_computed_gulp_max,
-                                               nsamps_computed-gulp_samp_idx);
-        dedisp_size nsamps_gulp          = nsamps_computed_gulp + m_max_delay;
-        dedisp_size nsamps_padded_gulp   = div_round_up(nsamps_computed_gulp,
-                                                        DEDISP_SAMPS_PER_THREAD)
-            * DEDISP_SAMPS_PER_THREAD + m_max_delay;
+        auto& job = jobs[job_id];
 
-        // Copy the input data from host to device
-        htodstream.record(inputStart);
-        htodstream.memcpyHtoH2DAsync(
-            h_in,                                 // dst
-            in_buf_stride_words * BYTES_PER_WORD, // dst stride
-            in + gulp_samp_idx*in_stride,         // src
-            in_stride,                            // src stride
-            nchan_words * BYTES_PER_WORD,         // width bytes
-            nsamps_gulp);                         // height
-        htodstream.memcpyHtoDAsync(
-            d_in, // dst
-            h_in, // src
-            nchan_words * nsamps_gulp * BYTES_PER_WORD);
-        htodstream.record(inputEnd);
+        // Copy the input data for the first job
+        if (job_id == 0)
+        {
+            htodstream.record(job.inputStart);
+            htodstream.memcpyHtoH2DAsync(
+                h_in,                                 // dst
+                in_buf_stride_words * BYTES_PER_WORD, // dst stride
+                in + job.gulp_samp_idx*in_stride,     // src
+                in_stride,                            // src stride
+                nchan_words * BYTES_PER_WORD,         // width bytes
+                job.nsamps_gulp);                     // height
+            htodstream.memcpyHtoDAsync(
+                d_in_[buffer_id], // dst
+                h_in,             // src
+                nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
+            htodstream.record(job.inputEnd);
+        }
+
+        // Copy the input data for the next job
+        if (job_id_next < jobs.size())
+        {
+            auto& job_next = jobs[job_id_next];
+            htodstream.record(job_next.inputStart);
+            htodstream.memcpyHtoH2DAsync(
+                h_in,                                  // dst
+                in_buf_stride_words * BYTES_PER_WORD,  // dst stride
+                in + job_next.gulp_samp_idx*in_stride, // src
+                in_stride,                             // src stride
+                nchan_words * BYTES_PER_WORD,          // width bytes
+                job_next.nsamps_gulp);                 // height
+            htodstream.memcpyHtoDAsync(
+                d_in_[buffer_id_next], // dst
+                h_in,                  // src
+                nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
+            htodstream.record(job_next.inputEnd);
+        }
 
         // Transpose the words in the input
-        executestream.waitEvent(inputEnd);
-        executestream.record(computeStart);
-        transpose((dedisp_word *) d_in,
-                  nchan_words, nsamps_gulp,
-                  in_buf_stride_words, nsamps_padded_gulp,
+        executestream.waitEvent(job.inputEnd);
+        executestream.record(job.computeStart);
+        transpose((dedisp_word *) d_in_[buffer_id],
+                  nchan_words, job.nsamps_gulp,
+                  in_buf_stride_words, job.nsamps_padded_gulp,
                   (dedisp_word *) d_transposed,
                   executestream);
 
+        // This synchronize is needed to make sure that the unpack,
+        // which always seems to run on the default stream, executes after
+        // the transpose.
+        job.inputEnd.synchronize();
+
         // Unpack the transposed data
-        unpack(d_transposed, nsamps_padded_gulp, nchan_words,
+        unpack(d_transposed, job.nsamps_padded_gulp, nchan_words,
                d_unpacked,
                in_nbits, unpacked_in_nbits,
                executestream);
@@ -424,8 +481,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
         // Perform direct dedispersion without scrunching
         if( !dedisperse(//d_transposed,
                         d_unpacked,
-                        nsamps_padded_gulp,
-                        nsamps_computed_gulp,
+                        job.nsamps_padded_gulp,
+                        job.nsamps_computed_gulp,
                         unpacked_in_nbits, //in_nbits,
                         m_nchans,
                         1,
@@ -439,13 +496,13 @@ void DedispPlan::execute_guru(size_type        nsamps,
                         executestream) ) {
             throw_error(DEDISP_INTERNAL_GPU_ERROR);
         }
-        executestream.record(computeEnd);
+        executestream.record(job.computeEnd);
 
         // Copy output back to host memory
-        dedisp_size gulp_samp_byte_idx = gulp_samp_idx * out_bytes_per_sample;
-        dedisp_size nsamp_bytes_computed_gulp = nsamps_computed_gulp * out_bytes_per_sample;
-        dtohstream.waitEvent(computeEnd);
-        dtohstream.record(outputStart);
+        dedisp_size gulp_samp_byte_idx = job.gulp_samp_idx * out_bytes_per_sample;
+        dedisp_size nsamp_bytes_computed_gulp = job.nsamps_computed_gulp * out_bytes_per_sample;
+        dtohstream.waitEvent(job.computeEnd);
+        dtohstream.record(job.outputStart);
         dtohstream.memcpyDtoHAsync(
             h_out, // dst
             d_out, // src
@@ -457,13 +514,13 @@ void DedispPlan::execute_guru(size_type        nsamps,
             out_stride_gulp_bytes,     // src stride
             nsamp_bytes_computed_gulp, // width bytes
             dm_count);                 // height
-        dtohstream.record(outputEnd);
-        dtohstream.synchronize();
+        dtohstream.record(job.outputEnd);
+        job.outputEnd.synchronize();
 
 #ifdef DEDISP_BENCHMARK
-        copy_to_timer->Add(inputEnd.elapsedTime(inputStart));
-        copy_from_timer->Add(outputEnd.elapsedTime(outputStart));
-        kernel_timer->Add(computeEnd.elapsedTime(computeStart));
+        copy_to_timer->Add(job.inputEnd.elapsedTime(job.inputStart));
+        copy_from_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
+        kernel_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
 #endif
     } // End of gulp loop
 
