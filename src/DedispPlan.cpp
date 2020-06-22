@@ -29,9 +29,7 @@ DedispPlan::DedispPlan(size_type  nchans,
                        float_type f0,
                        float_type df)
 {
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
+    cu::checkError();
 
     int device_idx;
     cudaGetDevice(&device_idx);
@@ -139,9 +137,8 @@ void DedispPlan::set_gulp_size(size_type gulp_size) {
 
 void DedispPlan::set_killmask(const bool_type* killmask)
 {
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
+    cu::checkError();
+
     if( 0 != killmask ) {
         // Copy killmask to plan (both host and device)
         h_killmask.assign(killmask, killmask + m_nchans);
@@ -160,9 +157,7 @@ void DedispPlan::set_dm_list(const float_type* dm_list,
     if( !dm_list ) {
         throw_error(DEDISP_INVALID_POINTER);
     }
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
+    cu::checkError();
 
     m_dm_count = count;
     h_dm_list.assign(dm_list, dm_list+count);
@@ -182,9 +177,7 @@ void DedispPlan::generate_dm_list(float_type dm_start,
                                   float_type ti,
                                   float_type tol)
 {
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
+    cu::checkError();
 
     // Generate the DM list (on the host)
     h_dm_list.clear();
@@ -263,9 +256,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                               size_type        dm_count,
                               unsigned         flags)
 {
-    if( cudaGetLastError() != cudaSuccess ) {
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
-    }
+    cu::checkError();
 
     enum {
         BITS_PER_BYTE  = 8,
@@ -492,8 +483,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
 void DedispPlan::sync()
 {
-    if( cudaDeviceSynchronize() != cudaSuccess )
-        throw_error(DEDISP_PRIOR_GPU_ERROR);
+    cu::checkError(cudaDeviceSynchronize());
 }
 
 } // end namespace dedisp

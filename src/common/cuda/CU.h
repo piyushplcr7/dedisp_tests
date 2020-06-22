@@ -21,6 +21,10 @@ namespace cu {
             T _result;
     };
 
+    void checkError();
+    void checkError(cudaError_t error);
+
+
     class Device {
         public:
             Device(int device);

@@ -46,6 +46,16 @@ namespace cu {
         }
     }
 
+    void checkError()
+    {
+        assertCudaCall(cudaGetLastError());
+    }
+
+    void checkError(cudaError_t error)
+    {
+        assertCudaCall(error);
+    }
+
 
     /*
         Device
