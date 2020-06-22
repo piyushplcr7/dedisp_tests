@@ -43,7 +43,7 @@ DedispPlan::DedispPlan(size_type  nchans,
 
     // Force the df parameter to be negative such that
     //   freq[chan] = f0 + chan * df.
-    df = -abs(df);
+    df = -std::abs(df);
 
     m_dm_count      = 0;
     m_nchans        = nchans;
@@ -73,8 +73,6 @@ DedispPlan::~DedispPlan() {
 }
 
 // Private helper functions
-template<typename T>
-T min(T a, T b) { return a<b ? a : b; }
 unsigned long div_round_up(unsigned long a, unsigned long b) {
     return (a-1) / b + 1;
 }
@@ -286,7 +284,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
     dedisp_size nsamps_computed = nsamps - m_max_delay;
 
     // Specify the maximum gulp size
-    dedisp_size nsamps_computed_gulp_max = min(m_gulp_size, nsamps_computed);
+    dedisp_size nsamps_computed_gulp_max = std::min(m_gulp_size, nsamps_computed);
 
     // Just to be sure
     // TODO: This seems quite wrong. Why was it here?
@@ -317,7 +315,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // TODO: Make this a parameter?
     dedisp_size min_in_nbits = 0;
-    dedisp_size unpacked_in_nbits = max((int)in_nbits, (int)min_in_nbits);
+    dedisp_size unpacked_in_nbits = std::max((int)in_nbits, (int)min_in_nbits);
     dedisp_size unpacked_chans_per_word =
         sizeof(dedisp_word)*BITS_PER_BYTE / unpacked_in_nbits;
     dedisp_size unpacked_nchan_words = m_nchans / unpacked_chans_per_word;
@@ -348,7 +346,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
          gulp_samp_idx<nsamps_computed;
          gulp_samp_idx+=nsamps_computed_gulp_max ) {
 
-        dedisp_size nsamps_computed_gulp = min(nsamps_computed_gulp_max,
+        dedisp_size nsamps_computed_gulp = std::min(nsamps_computed_gulp_max,
                                                nsamps_computed-gulp_samp_idx);
         dedisp_size nsamps_gulp          = nsamps_computed_gulp + m_max_delay;
         dedisp_size nsamps_padded_gulp   = div_round_up(nsamps_computed_gulp,

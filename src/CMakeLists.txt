@@ -18,9 +18,9 @@ add_subdirectory(external)
 # dedisp library
 ################################################################################
 
-cuda_add_library(dedisp SHARED
+add_library(dedisp SHARED
     dedisp_kernels.cpp
-    DedispPlan.cu
+    DedispPlan.cpp
 )
 
 target_link_libraries(dedisp
