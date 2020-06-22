@@ -19,7 +19,6 @@ add_subdirectory(external)
 ################################################################################
 
 add_library(dedisp SHARED
-    dedisp_kernels.cpp
     DedispPlan.cpp
 )
 

@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <cuda_runtime.h>
 
 #include "DedispPlan.hpp"
@@ -5,7 +7,6 @@
 
 #include "dedisp_defines.h"
 #include "dedisp_error.hpp"
-#include "dedisp_kernels.hpp"
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"
 #include "common/cuda/CU.h"
@@ -55,7 +56,7 @@ DedispPlan::DedispPlan(size_type  nchans,
     // Generate delay table and copy to device memory
     // Note: The DM factor is left out and applied during dedispersion
     h_delay_table.resize(nchans);
-    kernel::generate_delay_table(h_delay_table.data(), nchans, dt, f0, df);
+    generate_delay_table(h_delay_table.data(), nchans, dt, f0, df);
     d_delay_table.resize(nchans * sizeof(dedisp_float));
     htodstream.memcpyHtoDAsync(d_delay_table, h_delay_table.data(), d_delay_table.size());
 
@@ -74,6 +75,57 @@ DedispPlan::~DedispPlan() {
 // Private helper functions
 unsigned long div_round_up(unsigned long a, unsigned long b) {
     return (a-1) / b + 1;
+}
+
+void DedispPlan::generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
+                                      dedisp_float dt, dedisp_float f0, dedisp_float df)
+{
+    for( dedisp_size c=0; c<nchans; ++c ) {
+        dedisp_float a = 1.f / (f0+c*df);
+        dedisp_float b = 1.f / f0;
+        // Note: To higher precision, the constant is 4.148741601e3
+        h_delay_table[c] = 4.15e3/dt * (a*a - b*b);
+    }
+}
+
+dedisp_float DedispPlan::get_smearing(dedisp_float dt, dedisp_float pulse_width,
+                                      dedisp_float f0, dedisp_size nchans, dedisp_float df,
+                                      dedisp_float DM, dedisp_float deltaDM)
+{
+    dedisp_float W         = pulse_width;
+    dedisp_float BW        = nchans * abs(df);
+    dedisp_float fc        = f0 - BW/2;
+    dedisp_float inv_fc3   = 1./(fc*fc*fc);
+    dedisp_float t_DM      = 8.3*BW*DM*inv_fc3;
+    dedisp_float t_deltaDM = 8.3/4*BW*nchans*deltaDM*inv_fc3;
+    dedisp_float t_smear   = std::sqrt(dt*dt + W*W + t_DM*t_DM + t_deltaDM*t_deltaDM);
+    return t_smear;
+}
+
+void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,
+                                  dedisp_float dm_start, dedisp_float dm_end,
+                                  double dt, double ti, double f0, double df,
+                                  dedisp_size nchans, double tol)
+{
+    // Note: This algorithm originates from Lina Levin
+    // Note: Computation done in double precision to match MB's code
+
+    dt *= 1e6;
+    double f    = (f0 + ((nchans/2) - 0.5) * df) * 1e-3;
+    double tol2 = tol*tol;
+    double a    = 8.3 * df / (f*f*f);
+    double a2   = a*a;
+    double b2   = a2 * (double)(nchans*nchans / 16.0);
+    double c    = (dt*dt + ti*ti) * (tol2 - 1.0);
+
+    dm_table.push_back(dm_start);
+    while( dm_table.back() < dm_end ) {
+        double prev     = dm_table.back();
+        double prev2    = prev*prev;
+        double k        = c + tol2*a2*prev2;
+        double dm = ((b2*prev + std::sqrt(-a2*b2*prev2 + (a2+b2)*k)) / (a2+b2));
+        dm_table.push_back(dm);
+    }
 }
 
 // Public interface
@@ -149,7 +201,7 @@ void DedispPlan::generate_dm_list(float_type dm_start,
 
     // Generate the DM list (on the host)
     h_dm_list.clear();
-    kernel::generate_dm_list(
+    generate_dm_list(
         h_dm_list,
         dm_start, dm_end,
         m_dt, ti, m_f0, m_df,
