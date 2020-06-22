@@ -367,6 +367,11 @@ void DedispPlan::execute_guru(size_type        nsamps,
     cu::HostMemory h_in(in_count_gulp_max * sizeof(dedisp_word));
     cu::HostMemory h_out(out_count_gulp_max * sizeof(dedisp_word));
 
+    // Events
+    cu::Event inputStart, inputEnd;
+    cu::Event computeStart, computeEnd;
+    cu::Event outputStart, outputEnd;
+
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
@@ -386,10 +391,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
                                                         DEDISP_SAMPS_PER_THREAD)
             * DEDISP_SAMPS_PER_THREAD + m_max_delay;
 
-#ifdef DEDISP_BENCHMARK
-        copy_to_timer->Start();
-#endif
         // Copy the input data from host to device
+        htodstream.record(inputStart);
         htodstream.memcpyHtoH2DAsync(
             h_in,                                 // dst
             in_buf_stride_words * BYTES_PER_WORD, // dst stride
@@ -401,28 +404,22 @@ void DedispPlan::execute_guru(size_type        nsamps,
             d_in, // dst
             h_in, // src
             nchan_words * nsamps_gulp * BYTES_PER_WORD);
-        htodstream.synchronize();
-#ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
-        copy_to_timer->Pause();
-        transpose_timer->Start();
-#endif
+        htodstream.record(inputEnd);
+
         // Transpose the words in the input
+        executestream.waitEvent(inputEnd);
+        executestream.record(computeStart);
         transpose((dedisp_word *) d_in,
                   nchan_words, nsamps_gulp,
                   in_buf_stride_words, nsamps_padded_gulp,
-                  (dedisp_word *) d_transposed);
-#ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
-        transpose_timer->Pause();
-
-        kernel_timer->Start();
-#endif
+                  (dedisp_word *) d_transposed,
+                  executestream);
 
         // Unpack the transposed data
         unpack(d_transposed, nsamps_padded_gulp, nchan_words,
                d_unpacked,
-               in_nbits, unpacked_in_nbits);
+               in_nbits, unpacked_in_nbits,
+               executestream);
 
         // Perform direct dedispersion without scrunching
         if( !dedisperse(//d_transposed,
@@ -438,20 +435,17 @@ void DedispPlan::execute_guru(size_type        nsamps,
                         d_out,
                         out_stride_gulp_samples,
                         out_nbits,
-                        1, 0, 0, 0, 0) ) {
+                        1, 0, 0, 0, 0,
+                        executestream) ) {
             throw_error(DEDISP_INTERNAL_GPU_ERROR);
         }
+        executestream.record(computeEnd);
 
-#ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
-        kernel_timer->Pause();
-#endif
         // Copy output back to host memory
         dedisp_size gulp_samp_byte_idx = gulp_samp_idx * out_bytes_per_sample;
         dedisp_size nsamp_bytes_computed_gulp = nsamps_computed_gulp * out_bytes_per_sample;
-#ifdef DEDISP_BENCHMARK
-        copy_from_timer->Start();
-#endif
+        dtohstream.waitEvent(computeEnd);
+        dtohstream.record(outputStart);
         dtohstream.memcpyDtoHAsync(
             h_out, // dst
             d_out, // src
@@ -463,22 +457,22 @@ void DedispPlan::execute_guru(size_type        nsamps,
             out_stride_gulp_bytes,     // src stride
             nsamp_bytes_computed_gulp, // width bytes
             dm_count);                 // height
+        dtohstream.record(outputEnd);
         dtohstream.synchronize();
-#ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
-        copy_from_timer->Pause();
-#endif
 
+#ifdef DEDISP_BENCHMARK
+        copy_to_timer->Add(inputEnd.elapsedTime(inputStart));
+        copy_from_timer->Add(outputEnd.elapsedTime(outputStart));
+        kernel_timer->Add(computeEnd.elapsedTime(computeStart));
+#endif
     } // End of gulp loop
 
 #ifdef DEDISP_BENCHMARK
     cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
     cout << "Copy from time: " << copy_from_timer->ToString() << endl;
-    cout << "Transpose time: " << transpose_timer->ToString() << endl;
     cout << "Kernel time:    " << kernel_timer->ToString() << endl;
     auto total_time = copy_to_timer->Milliseconds() +
                       copy_from_timer->Milliseconds() +
-                      transpose_timer->Milliseconds() +
                       kernel_timer->Milliseconds();
     cout << "Total time:     " << Stopwatch::ToString(total_time) << endl;
 

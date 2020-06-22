@@ -152,18 +152,6 @@ void Transpose<T>::transpose(const T* in,
                      block_count.y,
                      log2(grid.y));
             }
-
-#ifndef NDEBUG
-            cudaStreamSynchronize(stream);
-            cudaError_t error = cudaGetLastError();
-            if( error != cudaSuccess ) {
-                /*
-                throw std::runtime_error(
-                    std::string("Transpose: CUDA error in kernel: ") +
-                    cudaGetErrorString(error));
-                */
-            }
-#endif
         }
     }
 }

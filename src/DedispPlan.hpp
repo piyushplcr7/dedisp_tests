@@ -127,6 +127,7 @@ private:
     // Streams
     cu::Stream htodstream;
     cu::Stream dtohstream;
+    cu::Stream executestream;
 
     // Helper methods
     void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,

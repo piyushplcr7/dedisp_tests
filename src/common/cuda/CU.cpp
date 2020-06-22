@@ -199,7 +199,8 @@ namespace cu {
             dstPtr, dstStride,
             srcPtr, srcStride,
             widthBytes, height,
-            cudaMemcpyHostToDevice));
+            cudaMemcpyHostToDevice,
+            m_stream));
     }
 
     void Stream::memcpyDtoH2DAsync(
@@ -211,7 +212,8 @@ namespace cu {
             dstPtr, dstStride,
             srcPtr, srcStride,
             widthBytes, height,
-            cudaMemcpyDeviceToHost));
+            cudaMemcpyDeviceToHost,
+            m_stream));
     }
 
     void Stream::memcpyHtoH2DAsync(
@@ -223,7 +225,8 @@ namespace cu {
             dstPtr, dstStride,
             srcPtr, srcStride,
             widthBytes, height,
-            cudaMemcpyHostToHost));
+            cudaMemcpyHostToHost,
+            m_stream));
     }
 
     void Stream::synchronize() {
