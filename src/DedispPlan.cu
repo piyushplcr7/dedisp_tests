@@ -14,6 +14,7 @@
 #if defined(DEDISP_BENCHMARK)
 #include <iostream>
 #include <fstream>
+#include <memory>
 using std::cout;
 using std::endl;
 #include "external/Stopwatch.h"
@@ -26,8 +27,7 @@ namespace dedisp
 DedispPlan::DedispPlan(size_type  nchans,
                        float_type dt,
                        float_type f0,
-                       float_type df) :
-    d_dm_list(0)
+                       float_type df)
 {
     if( cudaGetLastError() != cudaSuccess ) {
         throw_error(DEDISP_PRIOR_GPU_ERROR);
@@ -52,34 +52,20 @@ DedispPlan::DedispPlan(size_type  nchans,
     m_dt            = dt;
     m_f0            = f0;
     m_df            = df;
-    //m_stream        = 0;
 
     // Generate delay table and copy to device memory
     // Note: The DM factor is left out and applied during dedispersion
     h_delay_table.resize(nchans);
     kernel::generate_delay_table(h_delay_table.data(), nchans, dt, f0, df);
-    try {
-        d_delay_table.resize(nchans);
-    }
-    catch(...) {
-        throw_error(DEDISP_MEM_ALLOC_FAILED);
-    }
-    try {
-        d_delay_table = h_delay_table;
-    }
-    catch(...) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
+    d_delay_table.resize(nchans * sizeof(dedisp_float));
+    htodstream.memcpyHtoDAsync(d_delay_table, h_delay_table.data(), d_delay_table.size());
 
     // Initialise the killmask
     h_killmask.resize(nchans, (dedisp_bool)true);
-    try {
-        d_killmask.resize(nchans);
-    }
-    catch(...) {
-        throw_error(DEDISP_MEM_ALLOC_FAILED);
-    }
+    d_killmask.resize(nchans * sizeof(dedisp_bool));
     set_killmask((dedisp_bool*)0);
+
+    htodstream.synchronize();
 }
 
 // Destructor
@@ -123,16 +109,12 @@ void DedispPlan::set_killmask(const bool_type* killmask)
     if( 0 != killmask ) {
         // Copy killmask to plan (both host and device)
         h_killmask.assign(killmask, killmask + m_nchans);
-        try {
-            d_killmask = h_killmask;
-        }
-        catch(...) { throw_error(DEDISP_MEM_COPY_FAILED); }
+        htodstream.memcpyHtoDAsync(d_killmask, h_killmask.data(), d_killmask.size());
     }
     else {
         // Set the killmask to all true
         std::fill(h_killmask.begin(), h_killmask.end(), (dedisp_bool)true);
-        thrust::fill(d_killmask.begin(), d_killmask.end(),
-                     (dedisp_bool)true);
+        htodstream.memcpyHtoDAsync(d_killmask, h_killmask.data(), d_killmask.size());
     }
 }
 
@@ -150,14 +132,9 @@ void DedispPlan::set_dm_list(const float_type* dm_list,
     h_dm_list.assign(dm_list, dm_list+count);
 
     // Copy to the device
-    try {
-        d_dm_list.resize(m_dm_count);
-    }
-    catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-    try {
-        d_dm_list = h_dm_list;
-    }
-    catch(...) { throw_error(DEDISP_MEM_COPY_FAILED); }
+    d_dm_list.resize(m_dm_count * sizeof(dedisp_float));
+    htodstream.memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
+    htodstream.synchronize();
 
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
@@ -183,14 +160,9 @@ void DedispPlan::generate_dm_list(float_type dm_start,
     m_dm_count = h_dm_list.size();
 
     // Allocate device memory for the DM list
-    try {
-        d_dm_list.resize(m_dm_count);
-    }
-    catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-    try {
-        d_dm_list = h_dm_list;
-    }
-    catch(...) { throw_error(DEDISP_MEM_COPY_FAILED); }
+    d_dm_list.resize(m_dm_count * sizeof(dedisp_float));
+    htodstream.memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
+    htodstream.synchronize();
 
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
@@ -303,10 +275,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
     }
 
     // Copy the lookup tables to constant memory on the device
-    copy_delay_table(thrust::raw_pointer_cast(&d_delay_table[0]),
+    copy_delay_table(d_delay_table,
                      m_nchans * sizeof(dedisp_float),
                      0, 0);
-    copy_killmask(thrust::raw_pointer_cast(&d_killmask[0]),
+    copy_killmask(d_killmask,
                   m_nchans * sizeof(dedisp_bool),
                   0, 0);
 
@@ -359,15 +331,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
     // Organise device memory pointers
-    // -------------------------------
     cu::DeviceMemory d_in(in_count_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
-    // -------------------------------
-
-    // TODO: Eventually re-implement streams
-    cudaStream_t stream = 0;//(cudaStream_t)m_stream;
 
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
@@ -401,7 +368,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
             throw_error(DEDISP_MEM_COPY_FAILED);
         }
 #ifdef DEDISP_BENCHMARK
-        cudaThreadSynchronize();
+        cudaDeviceSynchronize();
         copy_to_timer->Pause();
         transpose_timer->Start();
 #endif
@@ -411,7 +378,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                   in_buf_stride_words, nsamps_padded_gulp,
                   (dedisp_word *) d_transposed);
 #ifdef DEDISP_BENCHMARK
-        cudaThreadSynchronize();
+        cudaDeviceSynchronize();
         transpose_timer->Pause();
 
         kernel_timer->Start();
@@ -430,7 +397,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                         unpacked_in_nbits, //in_nbits,
                         m_nchans,
                         1,
-                        thrust::raw_pointer_cast(&d_dm_list[first_dm_idx]),
+                        d_dm_list,
                         dm_count,
                         1,
                         d_out,
@@ -441,7 +408,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
 
 #ifdef DEDISP_BENCHMARK
-        cudaThreadSynchronize();
+        cudaDeviceSynchronize();
         kernel_timer->Pause();
 #endif
         // Copy output back to host memory
@@ -457,7 +424,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                                 nsamp_bytes_computed_gulp, // width bytes
                                 dm_count);                 // height
 #ifdef DEDISP_BENCHMARK
-        cudaThreadSynchronize();
+        cudaDeviceSynchronize();
         copy_from_timer->Pause();
 #endif
 
@@ -483,15 +450,11 @@ void DedispPlan::execute_guru(size_type        nsamps,
               << Stopwatch::ToString(total_time) << endl;
     perf_file.close();
 #endif
-
-    if( !(flags & DEDISP_ASYNC) ) {
-        cudaStreamSynchronize(stream);
-    }
 }
 
 void DedispPlan::sync()
 {
-    if( cudaThreadSynchronize() != cudaSuccess )
+    if( cudaDeviceSynchronize() != cudaSuccess )
         throw_error(DEDISP_PRIOR_GPU_ERROR);
 }
 

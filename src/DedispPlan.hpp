@@ -9,9 +9,8 @@
 #include <sstream>
 #include <vector>
 
-#include <thrust/device_vector.h>
-
 #include "dedisp_types.h"
+#include "common/cuda/CU.h"
 
 namespace dedisp
 {
@@ -121,11 +120,12 @@ private:
     std::vector<dedisp_bool>  h_killmask;     // size = nchans
 
     // Device arrays
-    thrust::device_vector<dedisp_float> d_dm_list;
-    thrust::device_vector<dedisp_float> d_delay_table;
-    thrust::device_vector<dedisp_bool>  d_killmask;
+    cu::DeviceMemory d_dm_list;     // type = dedisp_float
+    cu::DeviceMemory d_delay_table; // type = dedisp_float
+    cu::DeviceMemory d_killmask;    // type = dedisp_bool
 
-    //StreamType m_stream;
+    // Streams
+    cu::Stream htodstream;
 };
 
 } // end namespace dedisp
