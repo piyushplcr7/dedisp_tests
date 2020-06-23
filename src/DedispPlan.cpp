@@ -414,7 +414,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         dedisp_size nsamps_padded_gulp;
         void *h_in_ptr;
         void *d_in_ptr;
-        std::mutex lockCPU, lockGPU;
+        std::mutex input_lock, output_lock;
         cu::Event inputStart, inputEnd;
         cu::Event computeStart, computeEnd;
         cu::Event outputStart, outputEnd;
@@ -435,8 +435,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
                                   * DEDISP_SAMPS_PER_THREAD + m_max_delay;
         job.h_in_ptr             = h_in_[gulp % 2];
         job.d_in_ptr             = d_in_[gulp % 2];
-        job.lockCPU.lock();
-        job.lockGPU.lock();
+        job.input_lock.lock();
+        job.output_lock.lock();
     }
 
     std::thread input_thread = std::thread([&]()
@@ -453,7 +453,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                 job.nsamps_gulp);                     // height
 
             // Signal that the job can start
-            job.lockCPU.unlock();
+            job.input_lock.unlock();
         }
     });
 
@@ -462,7 +462,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         for (auto& job : jobs)
         {
             // Wait for the GPU to finish
-            job.lockGPU.lock();
+            job.output_lock.lock();
             job.outputEnd.synchronize();
 
             dedisp_size gulp_samp_byte_idx = job.gulp_samp_idx * out_bytes_per_sample;
@@ -490,7 +490,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         // Copy the input data for the first job
         if (job_id == 0)
         {
-            job.lockCPU.lock();
+            job.input_lock.lock();
             htodstream.record(job.inputStart);
             htodstream.memcpyHtoDAsync(
                 job.d_in_ptr, // dst
@@ -503,7 +503,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         if (job_id_next < jobs.size())
         {
             auto& job_next = jobs[job_id_next];
-            job_next.lockCPU.lock();
+            job_next.input_lock.lock();
             htodstream.record(job_next.inputStart);
             htodstream.memcpyHtoDAsync(
                 job_next.d_in_ptr, // dst
@@ -555,7 +555,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
             d_out, // src
             out_count_gulp_max);
         dtohstream.record(job.outputEnd);
-        job.lockGPU.unlock();
+        job.output_lock.unlock();
 
     } // End of gulp loop
 
