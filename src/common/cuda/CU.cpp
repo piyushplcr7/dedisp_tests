@@ -5,8 +5,6 @@
 #include <cstring>
 #include <cassert>
 
-#include <vector_types.h>
-
 #define assertCudaCall(val) __assertCudaCall(val, #val, __FILE__, __LINE__)
 #define checkCudaCall(val)  __checkCudaCall(val, #val, __FILE__, __LINE__)
 
