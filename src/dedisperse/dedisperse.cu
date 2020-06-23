@@ -5,7 +5,6 @@
 // Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256
 #define DEDISP_BLOCK_SAMPS      8
-#define DEDISP_SAMPS_PER_THREAD 2 // 4 is better for Fermi?
 
 /*
  * Helper functions
