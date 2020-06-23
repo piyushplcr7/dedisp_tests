@@ -46,6 +46,12 @@ void StopwatchImpl::Reset()
     m_time_sum = std::chrono::duration<double>::zero();
 }
 
+void StopwatchImpl::Add(
+    int64_t ms)
+{
+    m_time_sum += std::chrono::milliseconds(ms);
+}
+
 std::string Stopwatch::ToString(
     int64_t ms)
 {

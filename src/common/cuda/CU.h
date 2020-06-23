@@ -47,7 +47,7 @@ namespace cu {
 
     class HostMemory : public virtual Memory {
         public:
-            HostMemory(size_t size = 0, int flags = cudaHostAllocDefault);
+            HostMemory(size_t size = 0, int flags = cudaHostAllocPortable);
             virtual ~HostMemory();
 
             void resize(size_t size) override;
@@ -98,13 +98,17 @@ namespace cu {
             void memcpyDtoHAsync(void *hostPtr, void *devPtr, size_t size);
             void memcpyDtoDAsync(void *dstPtr, void *srcPtr, size_t size);
             void memcpyHtoD2DAsync(
-                void *dstPtr, size_t dstStride,
-                const void *srcPtr, size_t srcStride,
-                size_t width_bytes, size_t height);
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
             void memcpyDtoH2DAsync(
-                void *dstPtr, size_t dstStride,
-                const void *srcPtr, size_t srcStride,
-                size_t width_bytes, size_t height);
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
+            void memcpyHtoH2DAsync(
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);

@@ -62,19 +62,19 @@ struct unpack_functor
 void unpack(const dedisp_word* d_transposed,
             dedisp_size nsamps, dedisp_size nchan_words,
             dedisp_word* d_unpacked,
-            dedisp_size in_nbits, dedisp_size out_nbits)
+            dedisp_size in_nbits, dedisp_size out_nbits,
+            cudaStream_t stream)
 {
-    thrust::device_ptr<dedisp_word> d_unpacked_begin(d_unpacked);
-
     dedisp_size expansion = out_nbits / in_nbits;
     dedisp_size in_count  = nsamps * nchan_words;
     dedisp_size out_count = in_count * expansion;
 
     using thrust::make_counting_iterator;
 
-    thrust::transform(make_counting_iterator<unsigned int>(0),
+    thrust::transform(thrust::cuda::par.on(stream),
+                      make_counting_iterator<unsigned int>(0),
                       make_counting_iterator<unsigned int>(out_count),
-                      d_unpacked_begin,
+                      d_unpacked,
                       unpack_functor<dedisp_word>(d_transposed, nsamps,
                                                   in_nbits, out_nbits));
 }

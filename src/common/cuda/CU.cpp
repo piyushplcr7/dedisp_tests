@@ -5,8 +5,6 @@
 #include <cstring>
 #include <cassert>
 
-#include <vector_types.h>
-
 #define assertCudaCall(val) __assertCudaCall(val, #val, __FILE__, __LINE__)
 #define checkCudaCall(val)  __checkCudaCall(val, #val, __FILE__, __LINE__)
 
@@ -191,27 +189,42 @@ namespace cu {
     }
 
     void Stream::memcpyHtoD2DAsync(
-        void *dstPtr, size_t dstStride,
-        const void *srcPtr, size_t srcStride,
+        void *dstPtr, size_t dstWidth,
+        const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height)
     {
         assertCudaCall(cudaMemcpy2DAsync(
-            dstPtr, dstStride,
-            srcPtr, srcStride,
+            dstPtr, dstWidth,
+            srcPtr, srcWidth,
             widthBytes, height,
-            cudaMemcpyHostToDevice));
+            cudaMemcpyHostToDevice,
+            m_stream));
     }
 
     void Stream::memcpyDtoH2DAsync(
-        void *dstPtr, size_t dstStride,
-        const void *srcPtr, size_t srcStride,
+        void *dstPtr, size_t dstWidth,
+        const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height)
     {
         assertCudaCall(cudaMemcpy2DAsync(
-            dstPtr, dstStride,
-            srcPtr, srcStride,
+            dstPtr, dstWidth,
+            srcPtr, srcWidth,
             widthBytes, height,
-            cudaMemcpyDeviceToHost));
+            cudaMemcpyDeviceToHost,
+            m_stream));
+    }
+
+    void Stream::memcpyHtoH2DAsync(
+        void *dstPtr, size_t dstWidth,
+        const void *srcPtr, size_t srcWidth,
+        size_t widthBytes, size_t height)
+    {
+        assertCudaCall(cudaMemcpy2DAsync(
+            dstPtr, dstWidth,
+            srcPtr, srcWidth,
+            widthBytes, height,
+            cudaMemcpyHostToHost,
+            m_stream));
     }
 
     void Stream::synchronize() {

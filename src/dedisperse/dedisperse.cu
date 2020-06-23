@@ -74,7 +74,9 @@ bool dedisperse(const dedisp_word*  d_in,
                 dedisp_size         batch_in_stride,
                 dedisp_size         batch_dm_stride,
                 dedisp_size         batch_chan_stride,
-                dedisp_size         batch_out_stride) {
+                dedisp_size         batch_out_stride,
+                cudaStream_t        stream)
+{
     enum {
         BITS_PER_BYTE            = 8,
         BYTES_PER_WORD           = sizeof(dedisp_word) / sizeof(dedisp_byte),
@@ -135,8 +137,6 @@ bool dedisperse(const dedisp_word*  d_in,
 
     // Divide and round up
     dedisp_size nsamps_reduced = (nsamps - 1) / DEDISP_SAMPS_PER_THREAD + 1;
-
-    cudaStream_t stream = 0;
 
     // Execute the kernel
 #define DEDISP_CALL_KERNEL(NBITS, USE_TEXTURE_MEM)						\

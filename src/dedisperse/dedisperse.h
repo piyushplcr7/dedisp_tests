@@ -30,4 +30,5 @@ bool dedisperse(const dedisp_word*  d_in,
                 dedisp_size         batch_in_stride,
                 dedisp_size         batch_dm_stride,
                 dedisp_size         batch_chan_stride,
-                dedisp_size         batch_out_stride);
+                dedisp_size         batch_out_stride,
+                cudaStream_t        stream = 0);
