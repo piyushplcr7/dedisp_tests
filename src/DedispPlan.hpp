@@ -141,6 +141,11 @@ private:
                           dedisp_float dm_start, dedisp_float dm_end,
                           double dt, double ti, double f0, double df,
                           dedisp_size nchans, double tol);
+
+    void memcpy2D(
+        void *dstPtr, size_t dstWidth,
+        const void *srcPtr, size_t srcWidth,
+        size_t widthBytes, size_t height);
 };
 
 } // end namespace dedisp
