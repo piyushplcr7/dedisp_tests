@@ -144,9 +144,8 @@ int main(int argc, char* argv[])
   printf("\n");
 
   /* Initialize random number generator */
-  std::mt19937::result_type seed = std::time(0);
   auto random = std::bind(std::normal_distribution<float>(0, 1),
-                          std::mt19937(seed));
+                          std::mt19937(0));
 
   /* First build 2-D array of floats with our signal in it */
   rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
