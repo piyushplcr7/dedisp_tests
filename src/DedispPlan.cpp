@@ -392,7 +392,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> transpose_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> kernel_timer(Stopwatch::create());
 #endif
 
@@ -573,7 +572,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
     std::ofstream perf_file("perf.log", std::ios::app);
     perf_file << copy_to_timer->ToString() << "\t"
               << copy_from_timer->ToString() << "\t"
-              << transpose_timer->ToString() << "\t"
               << kernel_timer->ToString() << "\t"
               << Stopwatch::ToString(total_time) << endl;
     perf_file.close();
