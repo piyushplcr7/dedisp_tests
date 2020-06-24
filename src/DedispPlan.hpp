@@ -79,8 +79,7 @@ public:
                  const byte_type* in,
                  size_type        in_nbits,
                  byte_type*       out,
-                 size_type        out_nbits,
-                 unsigned         flags);
+                 size_type        out_nbits);
 
     void execute_adv(size_type        nsamps,
                      const byte_type* in,
@@ -88,8 +87,7 @@ public:
                      size_type        in_stride,
                      byte_type*       out,
                      size_type        out_nbits,
-                     size_type        out_stride,
-                     unsigned         flags);
+                     size_type        out_stride);
 
     void execute_guru(size_type        nsamps,
                       const byte_type* in,
@@ -99,8 +97,7 @@ public:
                       size_type        out_nbits,
                       size_type        out_stride,
                       dedisp_size      first_dm_idx,
-                      dedisp_size      dm_count,
-                      unsigned         flags);
+                      dedisp_size      dm_count);
     void sync();
 
 private:

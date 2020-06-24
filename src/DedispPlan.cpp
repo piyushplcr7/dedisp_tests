@@ -235,8 +235,7 @@ void DedispPlan::execute(size_type        nsamps,
                          const byte_type* in,
                          size_type        in_nbits,
                          byte_type*       out,
-                         size_type        out_nbits,
-                         unsigned         flags)
+                         size_type        out_nbits)
 {
     enum {
         BITS_PER_BYTE = 8
@@ -254,8 +253,7 @@ void DedispPlan::execute(size_type        nsamps,
     execute_adv(
         nsamps,
         in, in_nbits, in_stride,
-        out, out_nbits, out_stride,
-        flags);
+        out, out_nbits, out_stride);
 }
 
 void DedispPlan::execute_adv(size_type        nsamps,
@@ -264,8 +262,7 @@ void DedispPlan::execute_adv(size_type        nsamps,
                              size_type        in_stride,
                              byte_type*       out,
                              size_type        out_nbits,
-                             size_type        out_stride,
-                             unsigned         flags)
+                             size_type        out_stride)
 {
     dedisp_size first_dm_idx = 0;
     dedisp_size dm_count = m_dm_count;
@@ -274,8 +271,7 @@ void DedispPlan::execute_adv(size_type        nsamps,
         nsamps,
         in, in_nbits, in_stride,
         out, out_nbits, out_stride,
-        first_dm_idx, dm_count,
-        flags);
+        first_dm_idx, dm_count);
 }
 
 void DedispPlan::execute_guru(size_type        nsamps,
@@ -286,8 +282,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                               size_type        out_nbits,
                               size_type        out_stride,
                               size_type        first_dm_idx,
-                              size_type        dm_count,
-                              unsigned         flags)
+                              size_type        dm_count)
 {
     cu::checkError();
 
@@ -312,11 +307,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
     }
     if( nsamps < m_max_delay ) {
         throw_error(DEDISP_TOO_FEW_NSAMPS);
-    }
-
-    // Check for valid synchronisation flags
-    if( flags & DEDISP_ASYNC && flags & DEDISP_WAIT ) {
-        throw_error(DEDISP_INVALID_FLAG_COMBINATION);
     }
 
     // Check for valid nbits values

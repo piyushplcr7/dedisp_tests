@@ -264,7 +264,7 @@ int main(int argc,char *argv[])
   // Perform computation
   if (verbose) printf("Dedispersing on the GPU\n");
   startclock=clock();
-  plan.execute(h.nsamp,input,h.nbit,(dedisp_byte *)output,nbits,DEDISP_USE_DEFAULT);
+  plan.execute(h.nsamp,input,h.nbit,(dedisp_byte *)output,nbits);
   plan.sync();
   if (verbose) printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
 
