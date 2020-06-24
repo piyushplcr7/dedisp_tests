@@ -249,8 +249,7 @@ int main(int argc, char* argv[])
   // Compute the dedispersion transform on the GPU
   plan.execute(nsamps,
 			 input, in_nbits,
-			 (dedisp_byte *)output, out_nbits,
-			 DEDISP_USE_DEFAULT);
+			 (dedisp_byte *)output, out_nbits);
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
         
   // Look for significant peaks 

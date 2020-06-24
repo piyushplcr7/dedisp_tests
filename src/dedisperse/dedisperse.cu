@@ -5,7 +5,6 @@
 // Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256
 #define DEDISP_BLOCK_SAMPS      8
-#define DEDISP_SAMPS_PER_THREAD 2 // 4 is better for Fermi?
 
 /*
  * Helper functions
@@ -16,8 +15,8 @@ bool check_use_texture_mem() {
     cudaGetDevice(&device_idx);
     cudaDeviceProp device_props;
     cudaGetDeviceProperties(&device_props, device_idx);
-    // Fermi runs worse with texture mem
-    bool use_texture_mem = (device_props.major < 2);
+    // Don't use texture memory on Fermi
+    bool use_texture_mem = device_props.major != 2;
     return use_texture_mem;
 }
 
@@ -31,11 +30,6 @@ void copy_delay_table(
                             src,
                             count, offset,
                             cudaMemcpyDeviceToDevice, stream);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
 }
 
 void copy_killmask(
@@ -48,11 +42,11 @@ void copy_killmask(
                             src,
                             count, offset,
                             cudaMemcpyDeviceToDevice, stream);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
+}
+
+unsigned int get_nsamps_per_thread()
+{
+    return DEDISP_SAMPS_PER_THREAD;
 }
 
 /*
@@ -70,11 +64,6 @@ bool dedisperse(const dedisp_word*  d_in,
                 dedisp_byte*        d_out,
                 dedisp_size         out_stride,
                 dedisp_size         out_nbits,
-                dedisp_size         batch_size,
-                dedisp_size         batch_in_stride,
-                dedisp_size         batch_dm_stride,
-                dedisp_size         batch_chan_stride,
-                dedisp_size         batch_out_stride,
                 cudaStream_t        stream)
 {
     enum {
@@ -117,8 +106,7 @@ bool dedisperse(const dedisp_word*  d_in,
     // Note: Block dimensions x and y represent time samples and DMs respectively
     dim3 block(BLOCK_DIM_X,
                BLOCK_DIM_Y);
-    // Note: Grid dimension x represents time samples. Dimension y represents
-    //         DMs and batch jobs flattened together.
+    // Note: Grid dimension x represents time samples. Dimension y represents DMs
 
     // Divide and round up
     dedisp_size nsamp_blocks = (nsamps - 1)
@@ -126,14 +114,10 @@ bool dedisperse(const dedisp_word*  d_in,
     dedisp_size ndm_blocks   = (dm_count - 1) / (dedisp_size)block.y + 1;
 
     // Constrain the grid size to the maximum allowed
-    // TODO: Consider cropping the batch size dimension instead and looping over it
-    //         inside the kernel
     ndm_blocks = min((unsigned int)ndm_blocks,
-                     (unsigned int)(MAX_CUDA_GRID_SIZE_Y/batch_size));
+                     (unsigned int)(MAX_CUDA_GRID_SIZE_Y));
 
-    // Note: We combine the DM and batch dimensions into one
-    dim3 grid(nsamp_blocks,
-              ndm_blocks * batch_size);
+    dim3 grid(nsamp_blocks, ndm_blocks);
 
     // Divide and round up
     dedisp_size nsamps_reduced = (nsamps - 1) / DEDISP_SAMPS_PER_THREAD + 1;
@@ -155,11 +139,7 @@ bool dedisperse(const dedisp_word*  d_in,
                                      d_out,								\
                                      out_nbits,							\
                                      out_stride,						\
-                                     d_dm_list,							\
-                                     batch_in_stride,					\
-                                     batch_dm_stride,					\
-                                     batch_chan_stride,					\
-                                     batch_out_stride)
+                                     d_dm_list)
     // Note: Here we dispatch dynamically on nbits for supported values
     if( use_texture_mem ) {
         switch( in_nbits ) {

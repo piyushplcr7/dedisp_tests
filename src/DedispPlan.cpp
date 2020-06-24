@@ -1,6 +1,5 @@
 #include <cmath>
 #include <cstring>
-#include <memory>
 #include <iostream>
 #include <thread>
 #include <mutex>
@@ -10,7 +9,6 @@
 #include "DedispPlan.hpp"
 #include "transpose/transpose.hpp"
 
-#include "dedisp_defines.h"
 #include "dedisp_error.hpp"
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"
@@ -36,11 +34,10 @@ DedispPlan::DedispPlan(size_type  nchans,
 {
     cu::checkError();
 
-    int device_idx;
-    cudaGetDevice(&device_idx);
+    set_device();
 
     // Check for parameter errors
-    if( nchans > DEDISP_MAX_NCHANS ) {
+    if( nchans > compute_max_nchans() ) {
         throw_error(DEDISP_NCHANS_EXCEEDS_LIMIT);
     }
 
@@ -50,7 +47,7 @@ DedispPlan::DedispPlan(size_type  nchans,
 
     m_dm_count      = 0;
     m_nchans        = nchans;
-    m_gulp_size     = DEDISP_DEFAULT_GULP_SIZE;
+    m_gulp_size     = compute_gulp_size();
     m_max_delay     = 0;
     m_dt            = dt;
     m_f0            = f0;
@@ -105,6 +102,19 @@ dedisp_float DedispPlan::get_smearing(dedisp_float dt, dedisp_float pulse_width,
     return t_smear;
 }
 
+dedisp_size DedispPlan::compute_gulp_size()
+{
+    return 65536;
+}
+
+dedisp_size DedispPlan::compute_max_nchans()
+{
+    size_t const_mem_bytes = m_device->get_total_const_memory();
+    size_t bytes_per_chan = sizeof(dedisp_float) + sizeof(dedisp_bool);
+    size_t max_nr_channels = const_mem_bytes / bytes_per_chan;
+    return max_nr_channels;
+};
+
 void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,
                                   dedisp_float dm_start, dedisp_float dm_end,
                                   double dt, double ti, double f0, double df,
@@ -151,7 +161,7 @@ void DedispPlan::memcpy2D(
 
 // Public interface
 void DedispPlan::set_device(int device_idx) {
-    cu::Device device(device_idx);
+    m_device.reset(new cu::Device(device_idx));
 }
 
 void DedispPlan::set_gulp_size(size_type gulp_size) {
@@ -225,8 +235,7 @@ void DedispPlan::execute(size_type        nsamps,
                          const byte_type* in,
                          size_type        in_nbits,
                          byte_type*       out,
-                         size_type        out_nbits,
-                         unsigned         flags)
+                         size_type        out_nbits)
 {
     enum {
         BITS_PER_BYTE = 8
@@ -244,8 +253,7 @@ void DedispPlan::execute(size_type        nsamps,
     execute_adv(
         nsamps,
         in, in_nbits, in_stride,
-        out, out_nbits, out_stride,
-        flags);
+        out, out_nbits, out_stride);
 }
 
 void DedispPlan::execute_adv(size_type        nsamps,
@@ -254,8 +262,7 @@ void DedispPlan::execute_adv(size_type        nsamps,
                              size_type        in_stride,
                              byte_type*       out,
                              size_type        out_nbits,
-                             size_type        out_stride,
-                             unsigned         flags)
+                             size_type        out_stride)
 {
     dedisp_size first_dm_idx = 0;
     dedisp_size dm_count = m_dm_count;
@@ -264,8 +271,7 @@ void DedispPlan::execute_adv(size_type        nsamps,
         nsamps,
         in, in_nbits, in_stride,
         out, out_nbits, out_stride,
-        first_dm_idx, dm_count,
-        flags);
+        first_dm_idx, dm_count);
 }
 
 void DedispPlan::execute_guru(size_type        nsamps,
@@ -276,8 +282,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                               size_type        out_nbits,
                               size_type        out_stride,
                               size_type        first_dm_idx,
-                              size_type        dm_count,
-                              unsigned         flags)
+                              size_type        dm_count)
 {
     cu::checkError();
 
@@ -304,11 +309,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
         throw_error(DEDISP_TOO_FEW_NSAMPS);
     }
 
-    // Check for valid synchronisation flags
-    if( flags & DEDISP_ASYNC && flags & DEDISP_WAIT ) {
-        throw_error(DEDISP_INVALID_FLAG_COMBINATION);
-    }
-
     // Check for valid nbits values
     if( in_nbits  != 1 &&
         in_nbits  != 2 &&
@@ -327,10 +327,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Copy the lookup tables to constant memory on the device
     copy_delay_table(d_delay_table,
                      m_nchans * sizeof(dedisp_float),
-                     0, 0);
+                     0, htodstream);
     copy_killmask(d_killmask,
                   m_nchans * sizeof(dedisp_bool),
-                  0, 0);
+                  0, htodstream);
 
     // Compute the problem decomposition
     dedisp_size nsamps_computed = nsamps - m_max_delay;
@@ -338,30 +338,19 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Specify the maximum gulp size
     dedisp_size nsamps_computed_gulp_max = std::min(m_gulp_size, nsamps_computed);
 
-    // Just to be sure
-    // TODO: This seems quite wrong. Why was it here?
-    /*
-    if( nsamps_computed_gulp_max < m_max_delay ) {
-        throw_error(DEDISP_TOO_FEW_NSAMPS);
-    }
-    */
-
     // Compute derived counts for maximum gulp size [dedisp_word == 4 bytes]
     dedisp_size nsamps_gulp_max = nsamps_computed_gulp_max + m_max_delay;
     dedisp_size chans_per_word  = sizeof(dedisp_word)*BITS_PER_BYTE / in_nbits;
     dedisp_size nchan_words     = m_nchans / chans_per_word;
 
-    // We use words for processing but allow arbitrary byte strides, which are
-    //   not necessarily friendly.
-    //bool friendly_in_stride = (0 == in_stride % BYTES_PER_WORD);
-
     // Note: If desired, this could be rounded up, e.g., to a power of 2
     dedisp_size in_buf_stride_words      = nchan_words;
     dedisp_size in_count_gulp_max        = nsamps_gulp_max * in_buf_stride_words;
+    dedisp_size samps_per_thread         = get_nsamps_per_thread();
 
     dedisp_size nsamps_padded_gulp_max   = div_round_up(nsamps_computed_gulp_max,
-                                                        DEDISP_SAMPS_PER_THREAD)
-        * DEDISP_SAMPS_PER_THREAD + m_max_delay;
+                                                        samps_per_thread)
+                                                      * samps_per_thread + m_max_delay;
     dedisp_size in_count_padded_gulp_max =
         nsamps_padded_gulp_max * in_buf_stride_words;
 
@@ -403,7 +392,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> transpose_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> kernel_timer(Stopwatch::create());
 #endif
 
@@ -431,8 +419,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
                                    nsamps_computed-job.gulp_samp_idx);
         job.nsamps_gulp          = job.nsamps_computed_gulp + m_max_delay;
         job.nsamps_padded_gulp   = div_round_up(job.nsamps_computed_gulp,
-                                    DEDISP_SAMPS_PER_THREAD)
-                                  * DEDISP_SAMPS_PER_THREAD + m_max_delay;
+                                                samps_per_thread)
+                                              * samps_per_thread + m_max_delay;
         job.h_in_ptr             = h_in_[gulp % 2];
         job.d_in_ptr             = d_in_[gulp % 2];
         job.input_lock.lock();
@@ -528,20 +516,18 @@ void DedispPlan::execute_guru(size_type        nsamps,
                executestream);
 
         // Perform direct dedispersion without scrunching
-        if( !dedisperse(//d_transposed,
-                        d_unpacked,
-                        job.nsamps_padded_gulp,
-                        job.nsamps_computed_gulp,
-                        unpacked_in_nbits, //in_nbits,
-                        m_nchans,
-                        1,
-                        d_dm_list,
-                        dm_count,
-                        1,
-                        d_out,
-                        out_stride_gulp_samples,
-                        out_nbits,
-                        1, 0, 0, 0, 0,
+        if( !dedisperse(d_unpacked,               // d_in
+                        job.nsamps_padded_gulp,   // in_stride
+                        job.nsamps_computed_gulp, // nsamps
+                        unpacked_in_nbits,        // in_nbits,
+                        m_nchans,                 // nchans
+                        1,                        // chan_stride
+                        d_dm_list,                // d_dm_list
+                        dm_count,                 // dm_count
+                        1,                        // dm_stride
+                        d_out,                    // d_out
+                        out_stride_gulp_samples,  // out_stride
+                        out_nbits,                // out_nbits
                         executestream) ) {
             throw_error(DEDISP_INTERNAL_GPU_ERROR);
         }
@@ -586,7 +572,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
     std::ofstream perf_file("perf.log", std::ios::app);
     perf_file << copy_to_timer->ToString() << "\t"
               << copy_from_timer->ToString() << "\t"
-              << transpose_timer->ToString() << "\t"
               << kernel_timer->ToString() << "\t"
               << Stopwatch::ToString(total_time) << endl;
     perf_file.close();

@@ -8,6 +8,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <memory>
 
 #include "dedisp_types.h"
 #include "common/cuda/CU.h"
@@ -48,9 +49,9 @@ public:
      */
     ~DedispPlan();
 
-    static void set_device(int device_idx);
-
     // Public interface
+    void set_device(int device_idx = 0);
+
     void set_gulp_size(size_type gulp_size);
 
     void set_killmask(const bool_type* killmask);
@@ -78,8 +79,7 @@ public:
                  const byte_type* in,
                  size_type        in_nbits,
                  byte_type*       out,
-                 size_type        out_nbits,
-                 unsigned         flags);
+                 size_type        out_nbits);
 
     void execute_adv(size_type        nsamps,
                      const byte_type* in,
@@ -87,8 +87,7 @@ public:
                      size_type        in_stride,
                      byte_type*       out,
                      size_type        out_nbits,
-                     size_type        out_stride,
-                     unsigned         flags);
+                     size_type        out_stride);
 
     void execute_guru(size_type        nsamps,
                       const byte_type* in,
@@ -98,8 +97,7 @@ public:
                       size_type        out_nbits,
                       size_type        out_stride,
                       dedisp_size      first_dm_idx,
-                      dedisp_size      dm_count,
-                      unsigned         flags);
+                      dedisp_size      dm_count);
     void sync();
 
 private:
@@ -113,6 +111,9 @@ private:
     dedisp_float m_dt;
     dedisp_float m_f0;
     dedisp_float m_df;
+
+    // Device
+    std::unique_ptr<cu::Device> m_device;
 
     // Host arrays
     std::vector<dedisp_float> h_dm_list;      // size = dm_count
@@ -146,6 +147,10 @@ private:
         void *dstPtr, size_t dstWidth,
         const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height);
+
+    dedisp_size compute_gulp_size();
+
+    dedisp_size compute_max_nchans();
 };
 
 } // end namespace dedisp

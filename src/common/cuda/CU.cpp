@@ -59,7 +59,14 @@ namespace cu {
         Device
     */
     Device::Device(int device) {
+        m_device = device;
         checkCudaCall(cudaSetDevice(device));
+    }
+
+    size_t Device::get_total_const_memory() {
+        cudaDeviceProp device_props;
+        cudaGetDeviceProperties(&device_props, m_device);
+        return device_props.totalConstMem;
     }
 
 
