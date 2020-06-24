@@ -338,22 +338,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Specify the maximum gulp size
     dedisp_size nsamps_computed_gulp_max = std::min(m_gulp_size, nsamps_computed);
 
-    // Just to be sure
-    // TODO: This seems quite wrong. Why was it here?
-    /*
-    if( nsamps_computed_gulp_max < m_max_delay ) {
-        throw_error(DEDISP_TOO_FEW_NSAMPS);
-    }
-    */
-
     // Compute derived counts for maximum gulp size [dedisp_word == 4 bytes]
     dedisp_size nsamps_gulp_max = nsamps_computed_gulp_max + m_max_delay;
     dedisp_size chans_per_word  = sizeof(dedisp_word)*BITS_PER_BYTE / in_nbits;
     dedisp_size nchan_words     = m_nchans / chans_per_word;
-
-    // We use words for processing but allow arbitrary byte strides, which are
-    //   not necessarily friendly.
-    //bool friendly_in_stride = (0 == in_stride % BYTES_PER_WORD);
 
     // Note: If desired, this could be rounded up, e.g., to a power of 2
     dedisp_size in_buf_stride_words      = nchan_words;
