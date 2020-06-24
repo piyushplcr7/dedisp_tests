@@ -1,6 +1,5 @@
 #include <cmath>
 #include <cstring>
-#include <memory>
 #include <iostream>
 #include <thread>
 #include <mutex>
@@ -39,7 +38,7 @@ DedispPlan::DedispPlan(size_type  nchans,
     set_device();
 
     // Check for parameter errors
-    if( nchans > DEDISP_MAX_NCHANS ) {
+    if( nchans > compute_max_nchans() ) {
         throw_error(DEDISP_NCHANS_EXCEEDS_LIMIT);
     }
 
@@ -108,6 +107,14 @@ dedisp_size DedispPlan::compute_gulp_size()
 {
     return 65536;
 }
+
+dedisp_size DedispPlan::compute_max_nchans()
+{
+    size_t const_mem_bytes = m_device->get_total_const_memory();
+    size_t bytes_per_chan = sizeof(dedisp_float) + sizeof(dedisp_bool);
+    size_t max_nr_channels = const_mem_bytes / bytes_per_chan;
+    return max_nr_channels;
+};
 
 void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,
                                   dedisp_float dm_start, dedisp_float dm_end,

@@ -28,6 +28,11 @@ namespace cu {
     class Device {
         public:
             Device(int device);
+
+            size_t get_total_const_memory();
+
+        private:
+            int m_device;
     };
 
     class Memory {

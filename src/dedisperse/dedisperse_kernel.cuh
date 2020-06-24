@@ -1,6 +1,11 @@
 // Texture reference for input data
 texture<dedisp_word, 1, cudaReadModeElementType> t_in;
 
+// This value is set according to the constant memory size
+// for all NVIDIA GPUs to date, which is 64 KB and
+// sizeof(dedisp_float) = 4, sizeof(dedisp_bool) == 4
+#define DEDISP_MAX_NCHANS 8192
+
 // Constant reference for input data
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 __constant__ dedisp_bool  c_killmask[DEDISP_MAX_NCHANS];

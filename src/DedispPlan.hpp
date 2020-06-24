@@ -152,6 +152,8 @@ private:
         size_t widthBytes, size_t height);
 
     dedisp_size compute_gulp_size();
+
+    dedisp_size compute_max_nchans();
 };
 
 } // end namespace dedisp

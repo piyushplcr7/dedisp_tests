@@ -1,10 +1,6 @@
 #ifndef DEDISP_DEFINES_H_INCLUDE_GUARD
 #define DEDISP_DEFINES_H_INCLUDE_GUARD
 
-// TODO: Make sure this doesn't limit GPU constant memory
-//         available to users.
-#define DEDISP_MAX_NCHANS 8192
-
 // Internal word type used for transpose and dedispersion kernel
 typedef unsigned int dedisp_word;
 
