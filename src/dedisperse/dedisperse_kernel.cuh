@@ -162,9 +162,8 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 
                         // Extract the desired subword and accumulate
                         sum[s] +=
-                            // TODO: Pre-Fermi cards are faster with 24-bit mul
-                            /*__umul24*/(c_killmask[chan_idx] *//,
-                                     extract_subword<IN_NBITS>(sample,chan_sub));
+                            c_killmask[chan_idx]*
+                            extract_subword<IN_NBITS>(sample,chan_sub);
                     }
                 }
                 else { // Fermi path
