@@ -91,11 +91,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                        dedisp_byte*        d_out,
                        dedisp_size         out_nbits,
                        dedisp_size         out_stride,
-                       const dedisp_float* d_dm_list,
-                       dedisp_size         batch_in_stride,
-                       dedisp_size         batch_dm_stride,
-                       dedisp_size         batch_chan_stride,
-                       dedisp_size         batch_out_stride)
+                       const dedisp_float* d_dm_list)
 {
     // Compute compile-time constants
     enum {
@@ -106,11 +102,9 @@ void dedisperse_kernel(const dedisp_word*  d_in,
     // Compute the thread decomposition
     dedisp_size samp_block    = blockIdx.x;
     dedisp_size dm_block      = blockIdx.y % ndm_blocks;
-    dedisp_size batch_block   = blockIdx.y / ndm_blocks;
 
     dedisp_size samp_idx      = samp_block   * BLOCK_DIM_X + threadIdx.x;
     dedisp_size dm_idx        = dm_block     * BLOCK_DIM_Y + threadIdx.y;
-    dedisp_size batch_idx     = batch_block;
     dedisp_size nsamp_threads = nsamp_blocks * BLOCK_DIM_X;
 
     dedisp_size ndm_threads   = ndm_blocks * BLOCK_DIM_Y;
@@ -119,9 +113,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
     for( ; dm_idx < dm_count; dm_idx += ndm_threads ) {
 
     // Look up the dispersion measure
-    // Note: The dm_stride and batch_dm_stride params are only used for the
-    //         sub-band method.
-    dedisp_float dm = d_dm_list[dm_idx*dm_stride + batch_idx*batch_dm_stride];
+    dedisp_float dm = d_dm_list[dm_idx*dm_stride];
 
     // Loop over samples
     for( ; samp_idx < nsamps_reduced; samp_idx += nsamp_threads ) {
@@ -139,13 +131,11 @@ void dedisperse_kernel(const dedisp_word*  d_in,
             // Pre-compute the memory offset
             dedisp_size offset =
                 samp_idx*SAMPS_PER_THREAD
-                + chan_word/CHANS_PER_WORD * stride
-                + batch_idx * batch_in_stride;
+                + chan_word/CHANS_PER_WORD * stride;
 
             // Loop over channel subwords
             for( dedisp_size chan_sub=0; chan_sub<CHANS_PER_WORD; ++chan_sub ) {
-                dedisp_size chan_idx = (chan_word + chan_sub)*chan_stride
-                    + batch_idx*batch_chan_stride;
+                dedisp_size chan_idx = (chan_word + chan_sub)*chan_stride;
 
                 // Look up the fractional delay
                 dedisp_float frac_delay = c_delay_table[chan_idx];
@@ -171,8 +161,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 
         // Write sums to global mem
         dedisp_size out_idx = ( samp_idx*SAMPS_PER_THREAD +
-                                dm_idx * out_stride +
-                                batch_idx * batch_out_stride );
+                                dm_idx * out_stride);
         #pragma unroll
         for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
             if( samp_idx*SAMPS_PER_THREAD + s < nsamps )

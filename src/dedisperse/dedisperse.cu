@@ -71,13 +71,6 @@ bool dedisperse(const dedisp_word*  d_in,
                 dedisp_size         out_nbits,
                 cudaStream_t        stream)
 {
-    // TODO: remove
-    dedisp_size batch_size = 1;
-    dedisp_size batch_in_stride = 0;
-    dedisp_size batch_dm_stride = 0;
-    dedisp_size batch_chan_stride = 0;
-    dedisp_size batch_out_stride = 0;
-
     enum {
         BITS_PER_BYTE            = 8,
         BYTES_PER_WORD           = sizeof(dedisp_word) / sizeof(dedisp_byte),
@@ -127,7 +120,7 @@ bool dedisperse(const dedisp_word*  d_in,
 
     // Constrain the grid size to the maximum allowed
     ndm_blocks = min((unsigned int)ndm_blocks,
-                     (unsigned int)(MAX_CUDA_GRID_SIZE_Y/batch_size));
+                     (unsigned int)(MAX_CUDA_GRID_SIZE_Y));
 
     dim3 grid(nsamp_blocks, ndm_blocks);
 
@@ -151,11 +144,7 @@ bool dedisperse(const dedisp_word*  d_in,
                                      d_out,								\
                                      out_nbits,							\
                                      out_stride,						\
-                                     d_dm_list,							\
-                                     batch_in_stride,					\
-                                     batch_dm_stride,					\
-                                     batch_chan_stride,					\
-                                     batch_out_stride)
+                                     d_dm_list)
     // Note: Here we dispatch dynamically on nbits for supported values
     if( use_texture_mem ) {
         switch( in_nbits ) {
