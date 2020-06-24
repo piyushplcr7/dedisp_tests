@@ -69,13 +69,15 @@ bool dedisperse(const dedisp_word*  d_in,
                 dedisp_byte*        d_out,
                 dedisp_size         out_stride,
                 dedisp_size         out_nbits,
-                dedisp_size         batch_size,
-                dedisp_size         batch_in_stride,
-                dedisp_size         batch_dm_stride,
-                dedisp_size         batch_chan_stride,
-                dedisp_size         batch_out_stride,
                 cudaStream_t        stream)
 {
+    // TODO: remove
+    dedisp_size batch_size = 1;
+    dedisp_size batch_in_stride = 0;
+    dedisp_size batch_dm_stride = 0;
+    dedisp_size batch_chan_stride = 0;
+    dedisp_size batch_out_stride = 0;
+
     enum {
         BITS_PER_BYTE            = 8,
         BYTES_PER_WORD           = sizeof(dedisp_word) / sizeof(dedisp_byte),
@@ -116,8 +118,7 @@ bool dedisperse(const dedisp_word*  d_in,
     // Note: Block dimensions x and y represent time samples and DMs respectively
     dim3 block(BLOCK_DIM_X,
                BLOCK_DIM_Y);
-    // Note: Grid dimension x represents time samples. Dimension y represents
-    //         DMs and batch jobs flattened together.
+    // Note: Grid dimension x represents time samples. Dimension y represents DMs
 
     // Divide and round up
     dedisp_size nsamp_blocks = (nsamps - 1)
@@ -125,14 +126,10 @@ bool dedisperse(const dedisp_word*  d_in,
     dedisp_size ndm_blocks   = (dm_count - 1) / (dedisp_size)block.y + 1;
 
     // Constrain the grid size to the maximum allowed
-    // TODO: Consider cropping the batch size dimension instead and looping over it
-    //         inside the kernel
     ndm_blocks = min((unsigned int)ndm_blocks,
                      (unsigned int)(MAX_CUDA_GRID_SIZE_Y/batch_size));
 
-    // Note: We combine the DM and batch dimensions into one
-    dim3 grid(nsamp_blocks,
-              ndm_blocks * batch_size);
+    dim3 grid(nsamp_blocks, ndm_blocks);
 
     // Divide and round up
     dedisp_size nsamps_reduced = (nsamps - 1) / DEDISP_SAMPS_PER_THREAD + 1;

@@ -528,20 +528,18 @@ void DedispPlan::execute_guru(size_type        nsamps,
                executestream);
 
         // Perform direct dedispersion without scrunching
-        if( !dedisperse(//d_transposed,
-                        d_unpacked,
-                        job.nsamps_padded_gulp,
-                        job.nsamps_computed_gulp,
-                        unpacked_in_nbits, //in_nbits,
-                        m_nchans,
-                        1,
-                        d_dm_list,
-                        dm_count,
-                        1,
-                        d_out,
-                        out_stride_gulp_samples,
-                        out_nbits,
-                        1, 0, 0, 0, 0,
+        if( !dedisperse(d_unpacked,               // d_in
+                        job.nsamps_padded_gulp,   // in_stride
+                        job.nsamps_computed_gulp, // nsamps
+                        unpacked_in_nbits,        // in_nbits,
+                        m_nchans,                 // nchans
+                        1,                        // chan_stride
+                        d_dm_list,                // d_dm_list
+                        dm_count,                 // dm_count
+                        1,                        // dm_stride
+                        d_out,                    // d_out
+                        out_stride_gulp_samples,  // out_stride
+                        out_nbits,                // out_nbits
                         executestream) ) {
             throw_error(DEDISP_INTERNAL_GPU_ERROR);
         }
