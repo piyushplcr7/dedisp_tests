@@ -1,14 +1,15 @@
 #ifndef DEDISP_TYPES_H_INCLUDE_GUARD
 #define DEDISP_TYPES_H_INCLUDE_GUARD
 
-#include "dedisp_defines.h"
-
 // Types
 // -----
 typedef float                      dedisp_float;
 typedef unsigned char              dedisp_byte;
 typedef unsigned long              dedisp_size;
 typedef int                        dedisp_bool;
+
+// Internal word type used for transpose and dedispersion kernel
+typedef unsigned int dedisp_word;
 
 /*! \typedef dedisp_float
  * The floating-point data-type used by the library. This is currently
