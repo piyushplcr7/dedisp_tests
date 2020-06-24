@@ -15,8 +15,8 @@ bool check_use_texture_mem() {
     cudaGetDevice(&device_idx);
     cudaDeviceProp device_props;
     cudaGetDeviceProperties(&device_props, device_idx);
-    // Fermi runs worse with texture mem
-    bool use_texture_mem = (device_props.major < 2);
+    // Don't use texture memory on Fermi
+    bool use_texture_mem = device_props.major != 2;
     return use_texture_mem;
 }
 
