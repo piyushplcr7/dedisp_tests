@@ -152,32 +152,19 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                 // Compute the integer delay
                 dedisp_size delay = __float2uint_rn(dm * frac_delay);
 
-                if( USE_TEXTURE_MEM ) { // Pre-Fermi path
-                    // Loop over samples per thread
-                    // Note: Unrolled to ensure the sum[] array is stored in regs
-                    #pragma unroll
-                    for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
-                        // Grab the word containing the sample from texture mem
-                        dedisp_word sample = tex1Dfetch(t_in, offset+s + delay);
+                // Loop over samples per thread
+                // Note: Unrolled to ensure the sum[] array is stored in regs
+                #pragma unroll
+                for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
+                    // Grab the word containing the sample
+                    dedisp_word sample = USE_TEXTURE_MEM
+                        ? tex1Dfetch(t_in, offset+s + delay)
+                        : d_in[offset + s + delay];
 
-                        // Extract the desired subword and accumulate
-                        sum[s] +=
-                            c_killmask[chan_idx]*
-                            extract_subword<IN_NBITS>(sample,chan_sub);
-                    }
-                }
-                else { // Fermi path
-                    // Note: Unrolled to ensure the sum[] array is stored in regs
-                    #pragma unroll
-                    for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
-                        // Grab the word containing the sample from global mem
-                        dedisp_word sample = d_in[offset + s + delay];
-
-                        // Extract the desired subword and accumulate
-                        sum[s] +=
-                            c_killmask[chan_idx] *
-                            extract_subword<IN_NBITS>(sample, chan_sub);
-                    }
+                    // Extract the desired subword and accumulate
+                    sum[s] +=
+                        c_killmask[chan_idx]*
+                        extract_subword<IN_NBITS>(sample,chan_sub);
                 }
             }
         }
