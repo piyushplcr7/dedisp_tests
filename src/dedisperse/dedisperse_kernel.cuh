@@ -25,44 +25,12 @@ template<int IN_NBITS, typename T, typename SumType>
 inline __host__ __device__
 T scale_output(SumType sum, dedisp_size nchans) {
     enum { BITS_PER_BYTE = 8 };
-    // This emulates dedisperse_all, but is specific to 8-bit output
-    // Note: This also breaks the sub-band algorithm
-    //return (dedisp_word)(((unsigned int)sum >> 4) - 128 - 128);
-    // HACK
-    //return (T)(sum / 16 - 128 - 128);
 
-    // This uses the full range of the output bits
-    //return (T)((double)sum / ((double)nchans * max_value<IN_NBITS>::value)
-    //		   * max_value<sizeof(T)*BITS_PER_BYTE>::value );
-    /*
-    // This assumes the input data have mean=range/2 and then scales by
-    //   assuming the SNR goes like sqrt(nchans).
-    double in_range  = max_value<IN_NBITS>::value;
-    double mean      = 0.5 *      (double)nchans  * in_range;
-    double max_val   = 0.5 * sqrt((double)nchans) * in_range;
-
-    // TODO: There are problems with the output scaling when in_nbits is small
-    //         (e.g., in_nbits < 8). Not sure what to do about it at this stage.
-
-    // TESTING This fixes 1-bit
-    // TODO: See test_quantised_rms.py for further exploration of this
-    //double max       = 0.5 * sqrt((double)nchans) * in_range * 2*4.545454; // HACK
-    // TESTING This fixes 2-bit
-    //double max       = 0.5 * sqrt((double)nchans) * in_range * 0.8*4.545454; // HACK
-    // TESTING This fixes 4-bit
-    //double max       = 0.5 * sqrt((double)nchans) * in_range * 0.28*4.545454; // HACK
-    double out_range = max_value<sizeof(T)*BITS_PER_BYTE>::value;
-    double out_mean  = 0.5 * out_range;
-    double out_max   = 0.5 * out_range;
-    double scaled = floor((sum-mean)/max_val * out_max + out_mean + 0.5);
-    */
     float in_range  = max_value<IN_NBITS>::value;
+
     // Note: We use floats when out_nbits == 32, and scale to a range of [0:1]
     float out_range = (sizeof(T)==4) ? 1.f
                                      : max_value<sizeof(T)*BITS_PER_BYTE>::value;
-    //float scaled = (float)sum / in_range / sqrt((float)nchans) * out_range;
-    //float scaled = (float)sum / (in_range * nchans) * out_range;
-    //float scaled = sum * ((float)out_range / in_range / 85.f) / 16.f;
 
     // Note: This emulates what dedisperse_all does for 2-bit HTRU data --> 8-bit
     //         (and will adapt linearly to changes in in/out_nbits or nchans)
