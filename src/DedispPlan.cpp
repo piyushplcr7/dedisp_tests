@@ -327,10 +327,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Copy the lookup tables to constant memory on the device
     copy_delay_table(d_delay_table,
                      m_nchans * sizeof(dedisp_float),
-                     0, 0);
+                     0, htodstream);
     copy_killmask(d_killmask,
                   m_nchans * sizeof(dedisp_bool),
-                  0, 0);
+                  0, htodstream);
 
     // Compute the problem decomposition
     dedisp_size nsamps_computed = nsamps - m_max_delay;

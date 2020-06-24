@@ -30,11 +30,6 @@ void copy_delay_table(
                             src,
                             count, offset,
                             cudaMemcpyDeviceToDevice, stream);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
 }
 
 void copy_killmask(
@@ -47,11 +42,6 @@ void copy_killmask(
                             src,
                             count, offset,
                             cudaMemcpyDeviceToDevice, stream);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
-        throw_error(DEDISP_MEM_COPY_FAILED);
-    }
 }
 
 unsigned int get_nsamps_per_thread()
