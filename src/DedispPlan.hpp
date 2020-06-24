@@ -8,6 +8,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <memory>
 
 #include "dedisp_types.h"
 #include "common/cuda/CU.h"
@@ -48,9 +49,9 @@ public:
      */
     ~DedispPlan();
 
-    static void set_device(int device_idx);
-
     // Public interface
+    void set_device(int device_idx = 0);
+
     void set_gulp_size(size_type gulp_size);
 
     void set_killmask(const bool_type* killmask);
@@ -113,6 +114,9 @@ private:
     dedisp_float m_dt;
     dedisp_float m_f0;
     dedisp_float m_df;
+
+    // Device
+    std::unique_ptr<cu::Device> m_device;
 
     // Host arrays
     std::vector<dedisp_float> h_dm_list;      // size = dm_count

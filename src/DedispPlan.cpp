@@ -36,8 +36,7 @@ DedispPlan::DedispPlan(size_type  nchans,
 {
     cu::checkError();
 
-    int device_idx;
-    cudaGetDevice(&device_idx);
+    set_device();
 
     // Check for parameter errors
     if( nchans > DEDISP_MAX_NCHANS ) {
@@ -156,7 +155,7 @@ void DedispPlan::memcpy2D(
 
 // Public interface
 void DedispPlan::set_device(int device_idx) {
-    cu::Device device(device_idx);
+    m_device.reset(new cu::Device(device_idx));
 }
 
 void DedispPlan::set_gulp_size(size_type gulp_size) {
