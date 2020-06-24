@@ -50,7 +50,7 @@ DedispPlan::DedispPlan(size_type  nchans,
 
     m_dm_count      = 0;
     m_nchans        = nchans;
-    m_gulp_size     = DEDISP_DEFAULT_GULP_SIZE;
+    m_gulp_size     = compute_gulp_size();
     m_max_delay     = 0;
     m_dt            = dt;
     m_f0            = f0;
@@ -103,6 +103,11 @@ dedisp_float DedispPlan::get_smearing(dedisp_float dt, dedisp_float pulse_width,
     dedisp_float t_deltaDM = 8.3/4*BW*nchans*deltaDM*inv_fc3;
     dedisp_float t_smear   = std::sqrt(dt*dt + W*W + t_DM*t_DM + t_deltaDM*t_deltaDM);
     return t_smear;
+}
+
+dedisp_size DedispPlan::compute_gulp_size()
+{
+    return 65536;
 }
 
 void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,

@@ -146,6 +146,8 @@ private:
         void *dstPtr, size_t dstWidth,
         const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height);
+
+    dedisp_size compute_gulp_size();
 };
 
 } // end namespace dedisp
