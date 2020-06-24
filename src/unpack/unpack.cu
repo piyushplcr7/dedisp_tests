@@ -2,7 +2,6 @@
 #include <thrust/functional.h>
 #include <thrust/device_ptr.h>
 
-#include "dedisp_defines.h"
 #include "dedisp_types.h"
 
 template<typename WordType>

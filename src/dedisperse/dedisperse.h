@@ -1,5 +1,4 @@
 #include "dedisp_types.h"
-#include "dedisp_defines.h"
 #include "dedisp_error.hpp"
 
 void copy_delay_table(

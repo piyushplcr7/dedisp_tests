@@ -9,7 +9,6 @@
 #include "DedispPlan.hpp"
 #include "transpose/transpose.hpp"
 
-#include "dedisp_defines.h"
 #include "dedisp_error.hpp"
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"
