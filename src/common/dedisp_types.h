@@ -9,7 +9,7 @@ typedef unsigned long              dedisp_size;
 typedef int                        dedisp_bool;
 
 // Internal word type used for transpose and dedispersion kernel
-typedef unsigned int dedisp_word;
+typedef unsigned int               dedisp_word;
 
 /*! \typedef dedisp_float
  * The floating-point data-type used by the library. This is currently

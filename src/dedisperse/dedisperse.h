@@ -14,6 +14,8 @@ void copy_killmask(
     size_t offset,
     cudaStream_t stream);
 
+unsigned int get_nsamps_per_thread();
+
 bool dedisperse(const dedisp_word*  d_in,
                 dedisp_size         in_stride,
                 dedisp_size         nsamps,

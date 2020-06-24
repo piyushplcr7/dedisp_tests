@@ -10,6 +10,8 @@ texture<dedisp_word, 1, cudaReadModeElementType> t_in;
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 __constant__ dedisp_bool  c_killmask[DEDISP_MAX_NCHANS];
 
+// Kernel tuning parameters
+#define DEDISP_SAMPS_PER_THREAD 2
 
 /*
  * Helper functions

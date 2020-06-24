@@ -54,6 +54,11 @@ void copy_killmask(
     }
 }
 
+unsigned int get_nsamps_per_thread()
+{
+    return DEDISP_SAMPS_PER_THREAD;
+}
+
 /*
  * dedisperse routine
  */

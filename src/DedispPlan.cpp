@@ -369,10 +369,11 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Note: If desired, this could be rounded up, e.g., to a power of 2
     dedisp_size in_buf_stride_words      = nchan_words;
     dedisp_size in_count_gulp_max        = nsamps_gulp_max * in_buf_stride_words;
+    dedisp_size samps_per_thread         = get_nsamps_per_thread();
 
     dedisp_size nsamps_padded_gulp_max   = div_round_up(nsamps_computed_gulp_max,
-                                                        DEDISP_SAMPS_PER_THREAD)
-        * DEDISP_SAMPS_PER_THREAD + m_max_delay;
+                                                        samps_per_thread)
+                                                      * samps_per_thread + m_max_delay;
     dedisp_size in_count_padded_gulp_max =
         nsamps_padded_gulp_max * in_buf_stride_words;
 
@@ -442,8 +443,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
                                    nsamps_computed-job.gulp_samp_idx);
         job.nsamps_gulp          = job.nsamps_computed_gulp + m_max_delay;
         job.nsamps_padded_gulp   = div_round_up(job.nsamps_computed_gulp,
-                                    DEDISP_SAMPS_PER_THREAD)
-                                  * DEDISP_SAMPS_PER_THREAD + m_max_delay;
+                                                samps_per_thread)
+                                              * samps_per_thread + m_max_delay;
         job.h_in_ptr             = h_in_[gulp % 2];
         job.d_in_ptr             = d_in_[gulp % 2];
         job.input_lock.lock();
