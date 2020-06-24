@@ -42,11 +42,27 @@ T scale_output(SumType sum, dedisp_size nchans) {
     return (T)scaled;
 }
 
-template<typename T, int IN_NBITS, typename SumType>
+template<int IN_NBITS, typename SumType>
 inline __host__ __device__
-void set_out_val(dedisp_byte* d_out, dedisp_size idx,
-                 SumType sum, dedisp_size nchans) {
-    ((T*)d_out)[idx] = scale_output<IN_NBITS,T>(sum, nchans);
+void set_out_val(dedisp_byte* d_out,
+                 dedisp_size out_nbits,
+                 dedisp_size idx,
+                 SumType sum,
+                 dedisp_size nchans) {
+    switch( out_nbits ) {
+        case 8:
+            ((unsigned char*)d_out)[idx] = scale_output<IN_NBITS, unsigned char>(sum, nchans);
+            break;
+        case 16:
+            ((unsigned short*)d_out)[idx] = scale_output<IN_NBITS, unsigned short>(sum, nchans);
+            break;
+        case 32:
+            ((float*)d_out)[idx] = scale_output<IN_NBITS, float>(sum, nchans);
+            break;
+        default:
+            // Error
+            break;
+    };
 }
 
 
@@ -168,38 +184,15 @@ void dedisperse_kernel(const dedisp_word*  d_in,
         }
 
         // Write sums to global mem
-        // Note: This is ugly, but easy, and doesn't hurt performance
         dedisp_size out_idx = ( samp_idx*SAMPS_PER_THREAD +
                                 dm_idx * out_stride +
                                 batch_idx * batch_out_stride );
-        switch( out_nbits ) {
-            case 8:
-                #pragma unroll
-                for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
-                    if( samp_idx*SAMPS_PER_THREAD + s < nsamps )
-                        set_out_val<unsigned char, IN_NBITS>(d_out, out_idx + s,
-                                                             sum[s], nchans);
-                }
-                break;
-            case 16:
-                #pragma unroll
-                for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
-                    if( samp_idx*SAMPS_PER_THREAD + s < nsamps )
-                        set_out_val<unsigned short, IN_NBITS>(d_out, out_idx + s,
-                                                              sum[s], nchans);
-                }
-                break;
-            case 32:
-                #pragma unroll
-                for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
-                    if( samp_idx*SAMPS_PER_THREAD + s < nsamps )
-                        set_out_val<float, IN_NBITS>(d_out, out_idx + s,
-                                                     sum[s], nchans);
-                }
-                break;
-            default:
-                // Error
-                break;
+        #pragma unroll
+        for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
+            if( samp_idx*SAMPS_PER_THREAD + s < nsamps )
+                set_out_val<IN_NBITS>(d_out, out_nbits,
+                                      out_idx + s,
+                                      sum[s], nchans);
         }
 
     } // End of sample loop
