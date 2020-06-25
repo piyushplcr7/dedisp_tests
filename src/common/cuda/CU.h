@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include <cuda_runtime.h>
+#include <nvToolsExt.h>
 
 namespace cu {
 
@@ -122,6 +123,30 @@ namespace cu {
 
         private:
             cudaStream_t m_stream;
+    };
+
+    class Marker {
+        public:
+
+            enum Color {
+              red , green, blue, yellow, black
+            };
+
+            Marker(
+              const char *message,
+              Marker::Color color = Color::red);
+
+            void start();
+            void end();
+            void start(
+              cu::Event& event);
+            void end(
+              cu::Event& event);
+
+        private:
+          unsigned int convert(Color color);
+          nvtxEventAttributes_t _attributes;
+          nvtxRangeId_t _id;
     };
 
 } // end namespace cu
