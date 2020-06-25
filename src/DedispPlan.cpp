@@ -51,6 +51,9 @@ DedispPlan::DedispPlan(size_type  nchans,
     m_f0            = f0;
     m_df            = df;
 
+    cu::Marker marker("constructor", cu::Marker::blue);
+    marker.start();
+
     // Generate delay table and copy to device memory
     // Note: The DM factor is left out and applied during dedispersion
     h_delay_table.resize(nchans);
@@ -62,6 +65,8 @@ DedispPlan::DedispPlan(size_type  nchans,
     h_killmask.resize(nchans, (dedisp_bool)true);
     d_killmask.resize(nchans * sizeof(dedisp_bool));
     set_killmask((dedisp_bool*)0);
+
+    marker.end();
 }
 
 // Destructor
