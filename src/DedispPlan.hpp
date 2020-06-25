@@ -13,6 +13,8 @@
 #include "dedisp_types.h"
 #include "common/cuda/CU.h"
 
+#include "dedisperse/DedispKernel.hpp"
+
 namespace dedisp
 {
 
@@ -112,6 +114,9 @@ private:
     dedisp_float m_f0;
     dedisp_float m_df;
 
+    // DedispKernel
+    DedispKernel m_kernel;
+
     // Device
     std::unique_ptr<cu::Device> m_device;
 
@@ -126,9 +131,9 @@ private:
     cu::DeviceMemory d_killmask;    // type = dedisp_bool
 
     // Streams
-    cu::Stream htodstream;
-    cu::Stream dtohstream;
-    cu::Stream executestream;
+    std::unique_ptr<cu::Stream> htodstream;
+    std::unique_ptr<cu::Stream> dtohstream;
+    std::unique_ptr<cu::Stream> executestream;
 
     // Helper methods
     void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
@@ -151,6 +156,8 @@ private:
     dedisp_size compute_gulp_size();
 
     dedisp_size compute_max_nchans();
+
+    void initialize_kernel();
 };
 
 } // end namespace dedisp

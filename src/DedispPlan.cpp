@@ -6,13 +6,14 @@
 
 #include <cuda_runtime.h>
 
+#include "common/cuda/CU.h"
+
 #include "DedispPlan.hpp"
-#include "transpose/transpose.hpp"
+#include "dedisperse/DedispKernel.hpp"
 
 #include "dedisp_error.hpp"
-#include "dedisperse/dedisperse.h"
+#include "transpose/transpose.hpp"
 #include "unpack/unpack.h"
-#include "common/cuda/CU.h"
 
 #if defined(DEDISP_BENCHMARK)
 #include <iostream>
@@ -32,8 +33,6 @@ DedispPlan::DedispPlan(size_type  nchans,
                        float_type f0,
                        float_type df)
 {
-    cu::checkError();
-
     set_device();
 
     // Check for parameter errors
@@ -53,19 +52,30 @@ DedispPlan::DedispPlan(size_type  nchans,
     m_f0            = f0;
     m_df            = df;
 
+    cu::Marker marker("constructor", cu::Marker::blue);
+    marker.start();
+
+    // Initialize streams
+    htodstream.reset(new cu::Stream());
+    dtohstream.reset(new cu::Stream());
+    executestream.reset(new cu::Stream());
+
     // Generate delay table and copy to device memory
     // Note: The DM factor is left out and applied during dedispersion
     h_delay_table.resize(nchans);
     generate_delay_table(h_delay_table.data(), nchans, dt, f0, df);
     d_delay_table.resize(nchans * sizeof(dedisp_float));
-    htodstream.memcpyHtoDAsync(d_delay_table, h_delay_table.data(), d_delay_table.size());
+    htodstream->memcpyHtoDAsync(d_delay_table, h_delay_table.data(), d_delay_table.size());
 
     // Initialise the killmask
     h_killmask.resize(nchans, (dedisp_bool)true);
     d_killmask.resize(nchans * sizeof(dedisp_bool));
     set_killmask((dedisp_bool*)0);
 
-    htodstream.synchronize();
+    // Initialize kernel
+    initialize_kernel();
+
+    marker.end();
 }
 
 // Destructor
@@ -114,6 +124,17 @@ dedisp_size DedispPlan::compute_max_nchans()
     size_t max_nr_channels = const_mem_bytes / bytes_per_chan;
     return max_nr_channels;
 };
+
+void DedispPlan::initialize_kernel()
+{
+    // Configure texture memory based on compute capability
+    auto capability = m_device->get_capability();
+    if (capability < 20 ||                    // Pre Fermi
+        capability == 60 || capability == 61) // Pascal
+    {
+        m_kernel.use_texture_memory(true);
+    }
+}
 
 void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,
                                   dedisp_float dm_start, dedisp_float dm_end,
@@ -170,17 +191,15 @@ void DedispPlan::set_gulp_size(size_type gulp_size) {
 
 void DedispPlan::set_killmask(const bool_type* killmask)
 {
-    cu::checkError();
-
     if( 0 != killmask ) {
         // Copy killmask to plan (both host and device)
         h_killmask.assign(killmask, killmask + m_nchans);
-        htodstream.memcpyHtoDAsync(d_killmask, h_killmask.data(), d_killmask.size());
+        htodstream->memcpyHtoDAsync(d_killmask, h_killmask.data(), d_killmask.size());
     }
     else {
         // Set the killmask to all true
         std::fill(h_killmask.begin(), h_killmask.end(), (dedisp_bool)true);
-        htodstream.memcpyHtoDAsync(d_killmask, h_killmask.data(), d_killmask.size());
+        htodstream->memcpyHtoDAsync(d_killmask, h_killmask.data(), d_killmask.size());
     }
 }
 
@@ -190,15 +209,13 @@ void DedispPlan::set_dm_list(const float_type* dm_list,
     if( !dm_list ) {
         throw_error(DEDISP_INVALID_POINTER);
     }
-    cu::checkError();
 
     m_dm_count = count;
     h_dm_list.assign(dm_list, dm_list+count);
 
     // Copy to the device
     d_dm_list.resize(m_dm_count * sizeof(dedisp_float));
-    htodstream.memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
-    htodstream.synchronize();
+    htodstream->memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
 
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
@@ -210,8 +227,6 @@ void DedispPlan::generate_dm_list(float_type dm_start,
                                   float_type ti,
                                   float_type tol)
 {
-    cu::checkError();
-
     // Generate the DM list (on the host)
     h_dm_list.clear();
     generate_dm_list(
@@ -223,8 +238,7 @@ void DedispPlan::generate_dm_list(float_type dm_start,
 
     // Allocate device memory for the DM list
     d_dm_list.resize(m_dm_count * sizeof(dedisp_float));
-    htodstream.memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
-    htodstream.synchronize();
+    htodstream->memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
 
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
@@ -284,8 +298,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
                               size_type        first_dm_idx,
                               size_type        dm_count)
 {
-    cu::checkError();
-
     enum {
         BITS_PER_BYTE  = 8,
         BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
@@ -325,12 +337,17 @@ void DedispPlan::execute_guru(size_type        nsamps,
     }
 
     // Copy the lookup tables to constant memory on the device
-    copy_delay_table(d_delay_table,
-                     m_nchans * sizeof(dedisp_float),
-                     0, htodstream);
-    copy_killmask(d_killmask,
-                  m_nchans * sizeof(dedisp_bool),
-                  0, htodstream);
+    cu::Marker constantMarker("copy_constant_memory", cu::Marker::yellow);
+    constantMarker.start();
+    m_kernel.copy_delay_table(
+        d_delay_table,
+        m_nchans * sizeof(dedisp_float),
+        0, *htodstream);
+    m_kernel.copy_killmask(
+        d_killmask,
+        m_nchans * sizeof(dedisp_bool),
+        0, *htodstream);
+    constantMarker.end();
 
     // Compute the problem decomposition
     dedisp_size nsamps_computed = nsamps - m_max_delay;
@@ -346,7 +363,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Note: If desired, this could be rounded up, e.g., to a power of 2
     dedisp_size in_buf_stride_words      = nchan_words;
     dedisp_size in_count_gulp_max        = nsamps_gulp_max * in_buf_stride_words;
-    dedisp_size samps_per_thread         = get_nsamps_per_thread();
+    dedisp_size samps_per_thread         = m_kernel.get_nsamps_per_thread();
 
     dedisp_size nsamps_padded_gulp_max   = div_round_up(nsamps_computed_gulp_max,
                                                         samps_per_thread)
@@ -368,6 +385,9 @@ void DedispPlan::execute_guru(size_type        nsamps,
     dedisp_size out_stride_gulp_bytes    =
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
+
+    cu::Marker initMarker("initialization", cu::Marker::red);
+    initMarker.start();
 
     // Organise device memory pointers
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
@@ -467,6 +487,13 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
     });
 
+    initMarker.end();
+
+    cu::Event gulpStart, gulpEnd;
+    htodstream->record(gulpStart);
+    cu::Marker gulpMarker("gulp_loop", cu::Marker::black);
+    gulpMarker.start(gulpStart);
+
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
@@ -479,12 +506,12 @@ void DedispPlan::execute_guru(size_type        nsamps,
         if (job_id == 0)
         {
             job.input_lock.lock();
-            htodstream.record(job.inputStart);
-            htodstream.memcpyHtoDAsync(
+            htodstream->record(job.inputStart);
+            htodstream->memcpyHtoDAsync(
                 job.d_in_ptr, // dst
                 job.h_in_ptr, // src
                 nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-            htodstream.record(job.inputEnd);
+            htodstream->record(job.inputEnd);
         }
 
         // Copy the input data for the next job
@@ -492,63 +519,63 @@ void DedispPlan::execute_guru(size_type        nsamps,
         {
             auto& job_next = jobs[job_id_next];
             job_next.input_lock.lock();
-            htodstream.record(job_next.inputStart);
-            htodstream.memcpyHtoDAsync(
+            htodstream->record(job_next.inputStart);
+            htodstream->memcpyHtoDAsync(
                 job_next.d_in_ptr, // dst
                 job_next.h_in_ptr, // src
                 nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-            htodstream.record(job_next.inputEnd);
+            htodstream->record(job_next.inputEnd);
         }
 
         // Transpose the words in the input
-        executestream.waitEvent(job.inputEnd);
-        executestream.record(job.computeStart);
+        executestream->waitEvent(job.inputEnd);
+        executestream->record(job.computeStart);
         transpose((dedisp_word *) job.d_in_ptr,
                   nchan_words, job.nsamps_gulp,
                   in_buf_stride_words, job.nsamps_padded_gulp,
                   (dedisp_word *) d_transposed,
-                  executestream);
+                  *executestream);
 
         // Unpack the transposed data
         unpack(d_transposed, job.nsamps_padded_gulp, nchan_words,
                d_unpacked,
                in_nbits, unpacked_in_nbits,
-               executestream);
+               *executestream);
 
         // Perform direct dedispersion without scrunching
-        if( !dedisperse(d_unpacked,               // d_in
-                        job.nsamps_padded_gulp,   // in_stride
-                        job.nsamps_computed_gulp, // nsamps
-                        unpacked_in_nbits,        // in_nbits,
-                        m_nchans,                 // nchans
-                        1,                        // chan_stride
-                        d_dm_list,                // d_dm_list
-                        dm_count,                 // dm_count
-                        1,                        // dm_stride
-                        d_out,                    // d_out
-                        out_stride_gulp_samples,  // out_stride
-                        out_nbits,                // out_nbits
-                        executestream) ) {
-            throw_error(DEDISP_INTERNAL_GPU_ERROR);
-        }
-        executestream.record(job.computeEnd);
+        m_kernel.launch(
+            d_unpacked,               // d_in
+            job.nsamps_padded_gulp,   // in_stride
+            job.nsamps_computed_gulp, // nsamps
+            unpacked_in_nbits,        // in_nbits,
+            m_nchans,                 // nchans
+            1,                        // chan_stride
+            d_dm_list,                // d_dm_list
+            dm_count,                 // dm_count
+            1,                        // dm_stride
+            d_out,                    // d_out
+            out_stride_gulp_samples,  // out_stride
+            out_nbits,                // out_nbits
+            *executestream);
+        executestream->record(job.computeEnd);
 
         // Copy output back to host memory
-        dtohstream.waitEvent(job.computeEnd);
-        dtohstream.record(job.outputStart);
-        dtohstream.memcpyDtoHAsync(
+        dtohstream->waitEvent(job.computeEnd);
+        dtohstream->record(job.outputStart);
+        dtohstream->memcpyDtoHAsync(
             h_out, // dst
             d_out, // src
             out_count_gulp_max);
-        dtohstream.record(job.outputEnd);
+        dtohstream->record(job.outputEnd);
         job.output_lock.unlock();
 
     } // End of gulp loop
 
+    dtohstream->record(gulpEnd);
+    gulpMarker.end(gulpEnd);
+
     if (input_thread.joinable()) { input_thread.join(); }
     if (output_thread.joinable()) { output_thread.join(); }
-
-    dtohstream.synchronize();
 
 #ifdef DEDISP_BENCHMARK
     for (auto& job : jobs)
@@ -563,17 +590,15 @@ void DedispPlan::execute_guru(size_type        nsamps,
     cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
     cout << "Copy from time: " << copy_from_timer->ToString() << endl;
     cout << "Kernel time:    " << kernel_timer->ToString() << endl;
-    auto total_time = copy_to_timer->Milliseconds() +
-                      copy_from_timer->Milliseconds() +
-                      kernel_timer->Milliseconds();
-    cout << "Total time:     " << Stopwatch::ToString(total_time) << endl;
+    auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
+    cout << "Total time:     " << total_time << endl;
 
     // Append the timing results to a log file
     std::ofstream perf_file("perf.log", std::ios::app);
     perf_file << copy_to_timer->ToString() << "\t"
               << copy_from_timer->ToString() << "\t"
               << kernel_timer->ToString() << "\t"
-              << Stopwatch::ToString(total_time) << endl;
+              << total_time << endl;
     perf_file.close();
 #endif
 }
