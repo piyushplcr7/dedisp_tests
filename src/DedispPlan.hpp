@@ -13,6 +13,8 @@
 #include "dedisp_types.h"
 #include "common/cuda/CU.h"
 
+#include "dedisperse/dedisperse.h"
+
 namespace dedisp
 {
 
@@ -112,6 +114,9 @@ private:
     dedisp_float m_f0;
     dedisp_float m_df;
 
+    // DedispKernel
+    DedispKernel m_kernel;
+
     // Device
     std::unique_ptr<cu::Device> m_device;
 
@@ -151,6 +156,8 @@ private:
     dedisp_size compute_gulp_size();
 
     dedisp_size compute_max_nchans();
+
+    void initialize_kernel();
 };
 
 } // end namespace dedisp

@@ -1,6 +1,8 @@
 #include "dedisperse.h"
 #include "dedisperse_kernel.cuh"
 
+#include "CU.h"
+
 
 // Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256
@@ -9,42 +11,35 @@
 /*
  * Helper functions
  */
-bool check_use_texture_mem() {
-    // Decides based on GPU architecture
-    int device_idx;
-    cudaGetDevice(&device_idx);
-    cudaDeviceProp device_props;
-    cudaGetDeviceProperties(&device_props, device_idx);
-    // Don't use texture memory on Fermi
-    bool use_texture_mem = device_props.major != 2;
-    return use_texture_mem;
-}
-
-void copy_delay_table(
+void DedispKernel::copy_delay_table(
     const void* src,
     size_t count,
     size_t offset,
     cudaStream_t stream)
 {
-    cudaMemcpyToSymbolAsync(c_delay_table,
-                            src,
-                            count, offset,
-                            cudaMemcpyDeviceToDevice, stream);
+    cu::checkError(cudaMemcpyToSymbolAsync(
+        c_delay_table,
+        src,
+        count, offset,
+        cudaMemcpyDeviceToDevice, stream)
+    );
 }
 
-void copy_killmask(
+void DedispKernel::copy_killmask(
     const void* src,
     size_t count,
     size_t offset,
     cudaStream_t stream)
 {
-    cudaMemcpyToSymbolAsync(c_killmask,
-                            src,
-                            count, offset,
-                            cudaMemcpyDeviceToDevice, stream);
+    cu::checkError(cudaMemcpyToSymbolAsync(
+        c_killmask,
+        src,
+        count, offset,
+        cudaMemcpyDeviceToDevice, stream)
+    );
 }
 
-unsigned int get_nsamps_per_thread()
+unsigned int DedispKernel::get_nsamps_per_thread()
 {
     return DEDISP_SAMPS_PER_THREAD;
 }
@@ -52,19 +47,20 @@ unsigned int get_nsamps_per_thread()
 /*
  * dedisperse routine
  */
-bool dedisperse(const dedisp_word*  d_in,
-                dedisp_size         in_stride,
-                dedisp_size         nsamps,
-                dedisp_size         in_nbits,
-                dedisp_size         nchans,
-                dedisp_size         chan_stride,
-                const dedisp_float* d_dm_list,
-                dedisp_size         dm_count,
-                dedisp_size         dm_stride,
-                dedisp_byte*        d_out,
-                dedisp_size         out_stride,
-                dedisp_size         out_nbits,
-                cudaStream_t        stream)
+void DedispKernel::launch(
+    const dedisp_word*  d_in,
+    dedisp_size         in_stride,
+    dedisp_size         nsamps,
+    dedisp_size         in_nbits,
+    dedisp_size         nchans,
+    dedisp_size         chan_stride,
+    const dedisp_float* d_dm_list,
+    dedisp_size         dm_count,
+    dedisp_size         dm_stride,
+    dedisp_byte*        d_out,
+    dedisp_size         out_stride,
+    dedisp_size         out_nbits,
+    cudaStream_t        stream)
 {
     enum {
         BITS_PER_BYTE            = 8,
@@ -78,27 +74,25 @@ bool dedisperse(const dedisp_word*  d_in,
 
     // Initialise texture memory if necessary
     // --------------------------------------
-    // Determine whether we should use texture memory
-    bool use_texture_mem = check_use_texture_mem();
-    if( use_texture_mem ) {
+    if (m_use_texture_mem && d_in != m_d_in)
+    {
+        m_d_in = (dedisp_word *) d_in;
+
         dedisp_size chans_per_word = sizeof(dedisp_word)*BITS_PER_BYTE / in_nbits;
         dedisp_size nchan_words    = nchans / chans_per_word;
         dedisp_size input_words    = in_stride * nchan_words;
 
         // Check the texture size limit
         if( input_words > MAX_CUDA_1D_TEXTURE_SIZE ) {
-            return false;
+            throw_error(DEDISP_INTERNAL_GPU_ERROR);
         }
+
         // Bind the texture memory
         cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc<dedisp_word>();
-        cudaBindTexture(0, t_in, d_in, channel_desc,
-                        input_words * sizeof(dedisp_word));
-#ifdef DEDISP_DEBUG
-        cudaError_t cuda_error = cudaGetLastError();
-        if( cuda_error != cudaSuccess ) {
-            return false;
-        }
-#endif // DEDISP_DEBUG
+        cu::checkError(cudaBindTexture(
+            0, t_in, d_in, channel_desc,
+            input_words * sizeof(dedisp_word))
+        );
     }
     // --------------------------------------
 
@@ -141,7 +135,7 @@ bool dedisperse(const dedisp_word*  d_in,
                                      out_stride,						\
                                      d_dm_list)
     // Note: Here we dispatch dynamically on nbits for supported values
-    if( use_texture_mem ) {
+    if( m_use_texture_mem ) {
         switch( in_nbits ) {
             case 1:  DEDISP_CALL_KERNEL(1,true);  break;
             case 2:  DEDISP_CALL_KERNEL(2,true);  break;
@@ -164,16 +158,4 @@ bool dedisperse(const dedisp_word*  d_in,
         }
     }
 #undef DEDISP_CALL_KERNEL
-
-    // Check for kernel errors
-#ifdef DEDISP_DEBUG
-    //cudaStreamSynchronize(stream);
-    cudaDeviceSynchronize();
-    cudaError_t cuda_error = cudaGetLastError();
-    if( cuda_error != cudaSuccess ) {
-        return false;
-    }
-#endif // DEDISP_DEBUG
-
-    return true;
 }

@@ -71,6 +71,9 @@ DedispPlan::DedispPlan(size_type  nchans,
     d_killmask.resize(nchans * sizeof(dedisp_bool));
     set_killmask((dedisp_bool*)0);
 
+    // Initialize kernel
+    initialize_kernel();
+
     marker.end();
 }
 
@@ -120,6 +123,17 @@ dedisp_size DedispPlan::compute_max_nchans()
     size_t max_nr_channels = const_mem_bytes / bytes_per_chan;
     return max_nr_channels;
 };
+
+void DedispPlan::initialize_kernel()
+{
+    // Configure texture memory based on compute capability
+    auto capability = m_device->get_capability();
+    if (capability < 20 ||                    // Pre Fermi
+        capability == 60 || capability == 61) // Pascal
+    {
+        m_kernel.use_texture_memory(true);
+    }
+}
 
 void DedispPlan::generate_dm_list(std::vector<dedisp_float>& dm_table,
                                   dedisp_float dm_start, dedisp_float dm_end,
@@ -324,12 +338,14 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Copy the lookup tables to constant memory on the device
     cu::Marker constant_marker("copy_constant_memory", cu::Marker::yellow);
     constant_marker.start();
-    copy_delay_table(d_delay_table,
-                     m_nchans * sizeof(dedisp_float),
-                     0, *htodstream);
-    copy_killmask(d_killmask,
-                  m_nchans * sizeof(dedisp_bool),
-                  0, *htodstream);
+    m_kernel.copy_delay_table(
+        d_delay_table,
+        m_nchans * sizeof(dedisp_float),
+        0, *htodstream);
+    m_kernel.copy_killmask(
+        d_killmask,
+        m_nchans * sizeof(dedisp_bool),
+        0, *htodstream);
     constant_marker.end();
 
     // Compute the problem decomposition
@@ -346,7 +362,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Note: If desired, this could be rounded up, e.g., to a power of 2
     dedisp_size in_buf_stride_words      = nchan_words;
     dedisp_size in_count_gulp_max        = nsamps_gulp_max * in_buf_stride_words;
-    dedisp_size samps_per_thread         = get_nsamps_per_thread();
+    dedisp_size samps_per_thread         = m_kernel.get_nsamps_per_thread();
 
     dedisp_size nsamps_padded_gulp_max   = div_round_up(nsamps_computed_gulp_max,
                                                         samps_per_thread)
@@ -524,21 +540,20 @@ void DedispPlan::execute_guru(size_type        nsamps,
                *executestream);
 
         // Perform direct dedispersion without scrunching
-        if( !dedisperse(d_unpacked,               // d_in
-                        job.nsamps_padded_gulp,   // in_stride
-                        job.nsamps_computed_gulp, // nsamps
-                        unpacked_in_nbits,        // in_nbits,
-                        m_nchans,                 // nchans
-                        1,                        // chan_stride
-                        d_dm_list,                // d_dm_list
-                        dm_count,                 // dm_count
-                        1,                        // dm_stride
-                        d_out,                    // d_out
-                        out_stride_gulp_samples,  // out_stride
-                        out_nbits,                // out_nbits
-                        *executestream) ) {
-            throw_error(DEDISP_INTERNAL_GPU_ERROR);
-        }
+        m_kernel.launch(
+            d_unpacked,               // d_in
+            job.nsamps_padded_gulp,   // in_stride
+            job.nsamps_computed_gulp, // nsamps
+            unpacked_in_nbits,        // in_nbits,
+            m_nchans,                 // nchans
+            1,                        // chan_stride
+            d_dm_list,                // d_dm_list
+            dm_count,                 // dm_count
+            1,                        // dm_stride
+            d_out,                    // d_out
+            out_stride_gulp_samples,  // out_stride
+            out_nbits,                // out_nbits
+            *executestream);
         executestream->record(job.computeEnd);
 
         // Copy output back to host memory
