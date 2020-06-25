@@ -32,8 +32,6 @@ DedispPlan::DedispPlan(size_type  nchans,
                        float_type f0,
                        float_type df)
 {
-    cu::checkError();
-
     set_device();
 
     // Check for parameter errors
@@ -64,8 +62,6 @@ DedispPlan::DedispPlan(size_type  nchans,
     h_killmask.resize(nchans, (dedisp_bool)true);
     d_killmask.resize(nchans * sizeof(dedisp_bool));
     set_killmask((dedisp_bool*)0);
-
-    htodstream.synchronize();
 }
 
 // Destructor
@@ -170,8 +166,6 @@ void DedispPlan::set_gulp_size(size_type gulp_size) {
 
 void DedispPlan::set_killmask(const bool_type* killmask)
 {
-    cu::checkError();
-
     if( 0 != killmask ) {
         // Copy killmask to plan (both host and device)
         h_killmask.assign(killmask, killmask + m_nchans);
@@ -190,7 +184,6 @@ void DedispPlan::set_dm_list(const float_type* dm_list,
     if( !dm_list ) {
         throw_error(DEDISP_INVALID_POINTER);
     }
-    cu::checkError();
 
     m_dm_count = count;
     h_dm_list.assign(dm_list, dm_list+count);
@@ -198,7 +191,6 @@ void DedispPlan::set_dm_list(const float_type* dm_list,
     // Copy to the device
     d_dm_list.resize(m_dm_count * sizeof(dedisp_float));
     htodstream.memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
-    htodstream.synchronize();
 
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
@@ -210,8 +202,6 @@ void DedispPlan::generate_dm_list(float_type dm_start,
                                   float_type ti,
                                   float_type tol)
 {
-    cu::checkError();
-
     // Generate the DM list (on the host)
     h_dm_list.clear();
     generate_dm_list(
@@ -224,7 +214,6 @@ void DedispPlan::generate_dm_list(float_type dm_start,
     // Allocate device memory for the DM list
     d_dm_list.resize(m_dm_count * sizeof(dedisp_float));
     htodstream.memcpyHtoDAsync(d_dm_list, h_dm_list.data(), d_dm_list.size());
-    htodstream.synchronize();
 
     // Calculate the maximum delay and store it in the plan
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
@@ -284,8 +273,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
                               size_type        first_dm_idx,
                               size_type        dm_count)
 {
-    cu::checkError();
-
     enum {
         BITS_PER_BYTE  = 8,
         BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
