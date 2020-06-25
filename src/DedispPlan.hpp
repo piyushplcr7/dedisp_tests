@@ -126,9 +126,9 @@ private:
     cu::DeviceMemory d_killmask;    // type = dedisp_bool
 
     // Streams
-    cu::Stream htodstream;
-    cu::Stream dtohstream;
-    cu::Stream executestream;
+    std::unique_ptr<cu::Stream> htodstream;
+    std::unique_ptr<cu::Stream> dtohstream;
+    std::unique_ptr<cu::Stream> executestream;
 
     // Helper methods
     void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
