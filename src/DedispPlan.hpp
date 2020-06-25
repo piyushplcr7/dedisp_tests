@@ -13,7 +13,7 @@
 #include "dedisp_types.h"
 #include "common/cuda/CU.h"
 
-#include "dedisperse/dedisperse.h"
+#include "dedisperse/DedispKernel.hpp"
 
 namespace dedisp
 {

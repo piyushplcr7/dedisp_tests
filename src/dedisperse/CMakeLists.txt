@@ -1,5 +1,5 @@
 cuda_add_library(dedisperse SHARED
-    ${CMAKE_SOURCE_DIR}/src/dedisperse/dedisperse.cu
+    ${CMAKE_SOURCE_DIR}/src/dedisperse/DedispKernel.cu
 )
 
 target_include_directories(dedisperse

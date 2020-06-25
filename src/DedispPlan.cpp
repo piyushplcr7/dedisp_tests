@@ -6,13 +6,14 @@
 
 #include <cuda_runtime.h>
 
+#include "common/cuda/CU.h"
+
 #include "DedispPlan.hpp"
-#include "transpose/transpose.hpp"
+#include "dedisperse/DedispKernel.hpp"
 
 #include "dedisp_error.hpp"
-#include "dedisperse/dedisperse.h"
+#include "transpose/transpose.hpp"
 #include "unpack/unpack.h"
-#include "common/cuda/CU.h"
 
 #if defined(DEDISP_BENCHMARK)
 #include <iostream>

@@ -1,4 +1,5 @@
-#include "dedisperse.h"
+#include "DedispKernel.hpp"
+
 #include "dedisperse_kernel.cuh"
 
 #include "CU.h"
