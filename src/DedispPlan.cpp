@@ -337,8 +337,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
     }
 
     // Copy the lookup tables to constant memory on the device
-    cu::Marker constant_marker("copy_constant_memory", cu::Marker::yellow);
-    constant_marker.start();
+    cu::Marker constantMarker("copy_constant_memory", cu::Marker::yellow);
+    constantMarker.start();
     m_kernel.copy_delay_table(
         d_delay_table,
         m_nchans * sizeof(dedisp_float),
@@ -347,7 +347,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         d_killmask,
         m_nchans * sizeof(dedisp_bool),
         0, *htodstream);
-    constant_marker.end();
+    constantMarker.end();
 
     // Compute the problem decomposition
     dedisp_size nsamps_computed = nsamps - m_max_delay;
@@ -386,8 +386,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
-    cu::Marker initialize_marker("initialization", cu::Marker::red);
-    initialize_marker.start();
+    cu::Marker initMarker("initialization", cu::Marker::red);
+    initMarker.start();
 
     // Organise device memory pointers
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
@@ -487,10 +487,12 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
     });
 
-    initialize_marker.end();
+    initMarker.end();
 
-    cu::Marker gulp_marker("gulp_loop", cu::Marker::black);
-    gulp_marker.start();
+    cu::Event gulpStart, gulpEnd;
+    htodstream->record(gulpStart);
+    cu::Marker gulpMarker("gulp_loop", cu::Marker::black);
+    gulpMarker.start(gulpStart);
 
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
@@ -569,12 +571,11 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     } // End of gulp loop
 
-    gulp_marker.end();
+    dtohstream->record(gulpEnd);
+    gulpMarker.end(gulpEnd);
 
     if (input_thread.joinable()) { input_thread.join(); }
     if (output_thread.joinable()) { output_thread.join(); }
-
-    dtohstream->synchronize();
 
 #ifdef DEDISP_BENCHMARK
     for (auto& job : jobs)
@@ -589,17 +590,15 @@ void DedispPlan::execute_guru(size_type        nsamps,
     cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
     cout << "Copy from time: " << copy_from_timer->ToString() << endl;
     cout << "Kernel time:    " << kernel_timer->ToString() << endl;
-    auto total_time = copy_to_timer->Milliseconds() +
-                      copy_from_timer->Milliseconds() +
-                      kernel_timer->Milliseconds();
-    cout << "Total time:     " << Stopwatch::ToString(total_time) << endl;
+    auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
+    cout << "Total time:     " << total_time << endl;
 
     // Append the timing results to a log file
     std::ofstream perf_file("perf.log", std::ios::app);
     perf_file << copy_to_timer->ToString() << "\t"
               << copy_from_timer->ToString() << "\t"
               << kernel_timer->ToString() << "\t"
-              << Stopwatch::ToString(total_time) << endl;
+              << total_time << endl;
     perf_file.close();
 #endif
 }
