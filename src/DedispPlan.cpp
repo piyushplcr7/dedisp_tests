@@ -356,6 +356,9 @@ void DedispPlan::execute_guru(size_type        nsamps,
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
+    cu::Marker initialize_marker("initialization", cu::Marker::red);
+    initialize_marker.start();
+
     // Organise device memory pointers
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
@@ -454,6 +457,11 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
     });
 
+    initialize_marker.end();
+
+    cu::Marker gulp_marker("gulp_loop", cu::Marker::black);
+    gulp_marker.start();
+
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
@@ -531,6 +539,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
         job.output_lock.unlock();
 
     } // End of gulp loop
+
+    gulp_marker.end();
 
     if (input_thread.joinable()) { input_thread.join(); }
     if (output_thread.joinable()) { output_thread.join(); }
