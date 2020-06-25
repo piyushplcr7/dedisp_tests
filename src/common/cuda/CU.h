@@ -30,6 +30,7 @@ namespace cu {
         public:
             Device(int device);
 
+            unsigned int get_capability();
             size_t get_total_const_memory();
 
         private:
