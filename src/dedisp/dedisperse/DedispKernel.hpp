@@ -3,8 +3,8 @@
 
 #include <cuda.h>
 
-#include "dedisp_types.h"
-#include "dedisp_error.hpp"
+#include "common/dedisp_types.h"
+#include "common/dedisp_error.hpp"
 
 class DedispKernel
 {

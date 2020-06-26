@@ -13,7 +13,7 @@
 #include <random>
 #include <functional>
 
-#include <DedispPlan.hpp>
+#include <dedisp/DedispPlan.hpp>
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)

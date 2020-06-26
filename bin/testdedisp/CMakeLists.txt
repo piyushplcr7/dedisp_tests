@@ -4,7 +4,6 @@ add_executable(testdedisp
 
 target_include_directories(testdedisp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/common
 )
 
 target_link_libraries(testdedisp dedisp)

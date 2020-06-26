@@ -10,7 +10,7 @@
 #include <vector>
 #include <memory>
 
-#include "dedisp_types.h"
+#include "common/dedisp_types.h"
 #include "common/cuda/CU.h"
 
 #include "dedisperse/DedispKernel.hpp"

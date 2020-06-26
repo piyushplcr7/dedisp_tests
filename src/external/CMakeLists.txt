@@ -1,5 +1,5 @@
 add_library(external OBJECT
-    ${CMAKE_SOURCE_DIR}/src/external/Stopwatch.cpp
+    Stopwatch.cpp
 )
 
 set_property(TARGET external

@@ -5,7 +5,7 @@
 #include <time.h>
 #include <getopt.h>
 
-#include <DedispPlan.hpp>
+#include <dedisp/DedispPlan.hpp>
 
 struct header {
   int64_t headersize,buffersize;
