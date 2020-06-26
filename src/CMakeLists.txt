@@ -9,7 +9,6 @@ include_directories(common)
 # add subdirectories for individual libraries
 add_subdirectory(common)
 add_subdirectory(transpose)
-add_subdirectory(dedisperse)
 add_subdirectory(unpack)
 add_subdirectory(external)
 
@@ -18,8 +17,9 @@ add_subdirectory(external)
 # dedisp library
 ################################################################################
 
-add_library(dedisp SHARED
+cuda_add_library(dedisp SHARED
     DedispPlan.cpp
+    dedisperse/DedispKernel.cu
 )
 
 target_link_libraries(dedisp
@@ -27,8 +27,11 @@ target_link_libraries(dedisp
     common
     external
     transpose
-    dedisperse
     unpack)
+
+target_include_directories(dedisp
+    PRIVATE common/cuda
+)
 
 set_target_properties(dedisp
     PROPERTIES PUBLIC_HEADER DedispPlan.hpp)
