@@ -2,7 +2,7 @@
 
 #include "dedisperse_kernel.cuh"
 
-#include "CU.h"
+#include "common/cuda/CU.h"
 
 
 // Kernel tuning parameters
