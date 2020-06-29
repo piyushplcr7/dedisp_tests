@@ -497,35 +497,23 @@ void DedispPlan::execute_guru(size_type        nsamps,
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
-        // Id for double buffering
-        unsigned job_id_next   = job_id + 1;
+        // Copy the input data for the current job and next job (if any)
+        for (unsigned i = 0; i < 1; i++)
+        {
+            if (job_id + i < jobs.size())
+            {
+                auto& job = jobs[job_id + i];
+                job.input_lock.lock();
+                htodstream->record(job.inputStart);
+                htodstream->memcpyHtoDAsync(
+                    job.d_in_ptr, // dst
+                    job.h_in_ptr, // src
+                    nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
+                htodstream->record(job.inputEnd);
+            }
+        }
 
         auto& job = jobs[job_id];
-
-        // Copy the input data for the first job
-        if (job_id == 0)
-        {
-            job.input_lock.lock();
-            htodstream->record(job.inputStart);
-            htodstream->memcpyHtoDAsync(
-                job.d_in_ptr, // dst
-                job.h_in_ptr, // src
-                nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-            htodstream->record(job.inputEnd);
-        }
-
-        // Copy the input data for the next job
-        if (job_id_next < jobs.size())
-        {
-            auto& job_next = jobs[job_id_next];
-            job_next.input_lock.lock();
-            htodstream->record(job_next.inputStart);
-            htodstream->memcpyHtoDAsync(
-                job_next.d_in_ptr, // dst
-                job_next.h_in_ptr, // src
-                nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-            htodstream->record(job_next.inputEnd);
-        }
 
         // Transpose the words in the input
         executestream->waitEvent(job.inputEnd);
