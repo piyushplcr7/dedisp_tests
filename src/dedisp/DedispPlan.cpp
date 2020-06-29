@@ -52,8 +52,7 @@ DedispPlan::DedispPlan(size_type  nchans,
     m_f0            = f0;
     m_df            = df;
 
-    cu::Marker marker("constructor", cu::Marker::blue);
-    marker.start();
+    cu::ScopedMarker marker("constructor", cu::Marker::blue);
 
     // Initialize streams
     htodstream.reset(new cu::Stream());
@@ -74,8 +73,6 @@ DedispPlan::DedispPlan(size_type  nchans,
 
     // Initialize kernel
     initialize_kernel();
-
-    marker.end();
 }
 
 // Destructor
@@ -491,8 +488,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     cu::Event gulpStart, gulpEnd;
     htodstream->record(gulpStart);
-    cu::Marker gulpMarker("gulp_loop", cu::Marker::black);
-    gulpMarker.start(gulpStart);
+    cu::ScopedMarker gulpMarker("gulp_loop", cu::Marker::black);
 
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
@@ -560,7 +556,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
     } // End of gulp loop
 
     dtohstream->record(gulpEnd);
-    gulpMarker.end(gulpEnd);
 
     if (input_thread.joinable()) { input_thread.join(); }
     if (output_thread.joinable()) { output_thread.join(); }
