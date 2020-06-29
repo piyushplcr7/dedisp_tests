@@ -128,7 +128,6 @@ namespace cu {
 
     class Marker {
         public:
-
             enum Color {
               red , green, blue, yellow, black
             };
@@ -146,8 +145,27 @@ namespace cu {
 
         private:
           unsigned int convert(Color color);
+
+        protected:
           nvtxEventAttributes_t _attributes;
           nvtxRangeId_t _id;
+    };
+
+    class ScopedMarker : public Marker {
+        public:
+
+            ScopedMarker(
+                const char *message,
+                Marker::Color color = Color::red);
+
+            ~ScopedMarker();
+
+            void start() = delete;
+            void end() = delete;
+            void start(
+              cu::Event& event) = delete;
+            void end(
+              cu::Event& event) = delete;
     };
 
 } // end namespace cu

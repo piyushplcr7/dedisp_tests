@@ -309,4 +309,21 @@ namespace cu {
         }
     }
 
+
+    /*
+        ScopedMarker
+    */
+    ScopedMarker::ScopedMarker(
+      const char *message,
+      Color color) :
+      Marker(message, color)
+      {
+        _id = nvtxRangeStartEx(&_attributes);
+      };
+
+    ScopedMarker::~ScopedMarker()
+    {
+      nvtxRangeEnd(_id);
+    }
+
 } // end namespace cu
