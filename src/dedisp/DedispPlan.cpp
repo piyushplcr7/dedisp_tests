@@ -52,8 +52,7 @@ DedispPlan::DedispPlan(size_type  nchans,
     m_f0            = f0;
     m_df            = df;
 
-    cu::Marker marker("constructor", cu::Marker::blue);
-    marker.start();
+    cu::ScopedMarker marker("constructor", cu::Marker::blue);
 
     // Initialize streams
     htodstream.reset(new cu::Stream());
@@ -74,8 +73,6 @@ DedispPlan::DedispPlan(size_type  nchans,
 
     // Initialize kernel
     initialize_kernel();
-
-    marker.end();
 }
 
 // Destructor
@@ -386,6 +383,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
+    // Annotate the initialization
     cu::Marker initMarker("initialization", cu::Marker::red);
     initMarker.start();
 
@@ -487,45 +485,38 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
     });
 
+    // The initialization is finished
     initMarker.end();
 
+    // Annotate the gulp loop
+    cu::ScopedMarker gulpMarker("gulp_loop", cu::Marker::black);
+
+#ifdef DEDISP_BENCHMARK
+    // Measure the total time of the gulp loop
     cu::Event gulpStart, gulpEnd;
     htodstream->record(gulpStart);
-    cu::Marker gulpMarker("gulp_loop", cu::Marker::black);
-    gulpMarker.start(gulpStart);
+#endif
 
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
-        // Id for double buffering
-        unsigned job_id_next   = job_id + 1;
+        // Copy the input data for the current job and next job (if any)
+        for (unsigned i = 0; i < 1; i++)
+        {
+            if (job_id + i < jobs.size())
+            {
+                auto& job = jobs[job_id + i];
+                job.input_lock.lock();
+                htodstream->record(job.inputStart);
+                htodstream->memcpyHtoDAsync(
+                    job.d_in_ptr, // dst
+                    job.h_in_ptr, // src
+                    nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
+                htodstream->record(job.inputEnd);
+            }
+        }
 
         auto& job = jobs[job_id];
-
-        // Copy the input data for the first job
-        if (job_id == 0)
-        {
-            job.input_lock.lock();
-            htodstream->record(job.inputStart);
-            htodstream->memcpyHtoDAsync(
-                job.d_in_ptr, // dst
-                job.h_in_ptr, // src
-                nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-            htodstream->record(job.inputEnd);
-        }
-
-        // Copy the input data for the next job
-        if (job_id_next < jobs.size())
-        {
-            auto& job_next = jobs[job_id_next];
-            job_next.input_lock.lock();
-            htodstream->record(job_next.inputStart);
-            htodstream->memcpyHtoDAsync(
-                job_next.d_in_ptr, // dst
-                job_next.h_in_ptr, // src
-                nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-            htodstream->record(job_next.inputEnd);
-        }
 
         // Transpose the words in the input
         executestream->waitEvent(job.inputEnd);
@@ -568,25 +559,19 @@ void DedispPlan::execute_guru(size_type        nsamps,
             out_count_gulp_max);
         dtohstream->record(job.outputEnd);
         job.output_lock.unlock();
-
     } // End of gulp loop
 
-    dtohstream->record(gulpEnd);
-    gulpMarker.end(gulpEnd);
-
-    if (input_thread.joinable()) { input_thread.join(); }
-    if (output_thread.joinable()) { output_thread.join(); }
-
 #ifdef DEDISP_BENCHMARK
+    dtohstream->record(gulpEnd);
+    gulpEnd.synchronize();
+
     for (auto& job : jobs)
     {
         copy_to_timer->Add(job.inputEnd.elapsedTime(job.inputStart));
         copy_from_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
         kernel_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
     }
-#endif
 
-#ifdef DEDISP_BENCHMARK
     cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
     cout << "Copy from time: " << copy_from_timer->ToString() << endl;
     cout << "Kernel time:    " << kernel_timer->ToString() << endl;
@@ -601,6 +586,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
               << total_time << endl;
     perf_file.close();
 #endif
+
+    // Wait for host threads to exit
+    if (input_thread.joinable()) { input_thread.join(); }
+    if (output_thread.joinable()) { output_thread.join(); }
 }
 
 void DedispPlan::sync()
