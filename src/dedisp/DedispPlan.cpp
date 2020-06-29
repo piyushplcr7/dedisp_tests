@@ -383,6 +383,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
+    // Annotate the initialization
     cu::Marker initMarker("initialization", cu::Marker::red);
     initMarker.start();
 
@@ -484,11 +485,17 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
     });
 
+    // The initialization is finished
     initMarker.end();
 
+    // Annotate the gulp loop
+    cu::ScopedMarker gulpMarker("gulp_loop", cu::Marker::black);
+
+#ifdef DEDISP_BENCHMARK
+    // Measure the total time of the gulp loop
     cu::Event gulpStart, gulpEnd;
     htodstream->record(gulpStart);
-    cu::ScopedMarker gulpMarker("gulp_loop", cu::Marker::black);
+#endif
 
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
@@ -552,24 +559,19 @@ void DedispPlan::execute_guru(size_type        nsamps,
             out_count_gulp_max);
         dtohstream->record(job.outputEnd);
         job.output_lock.unlock();
-
     } // End of gulp loop
 
-    dtohstream->record(gulpEnd);
-
-    if (input_thread.joinable()) { input_thread.join(); }
-    if (output_thread.joinable()) { output_thread.join(); }
-
 #ifdef DEDISP_BENCHMARK
+    dtohstream->record(gulpEnd);
+    gulpEnd.synchronize();
+
     for (auto& job : jobs)
     {
         copy_to_timer->Add(job.inputEnd.elapsedTime(job.inputStart));
         copy_from_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
         kernel_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
     }
-#endif
 
-#ifdef DEDISP_BENCHMARK
     cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
     cout << "Copy from time: " << copy_from_timer->ToString() << endl;
     cout << "Kernel time:    " << kernel_timer->ToString() << endl;
@@ -584,6 +586,10 @@ void DedispPlan::execute_guru(size_type        nsamps,
               << total_time << endl;
     perf_file.close();
 #endif
+
+    // Wait for host threads to exit
+    if (input_thread.joinable()) { input_thread.join(); }
+    if (output_thread.joinable()) { output_thread.join(); }
 }
 
 void DedispPlan::sync()
