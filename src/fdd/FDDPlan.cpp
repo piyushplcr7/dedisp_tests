@@ -56,7 +56,7 @@ void FDDPlan::execute(
     // Sizes
     size_t i_t_nu_bytes = nchan * nsamp * sizeof(float);
     size_t z_f_nu_bytes = nchan * nfreq * sizeof(fftwf_complex);
-    size_t z_f_dm_bytes = ndm * nsamp * sizeof(fftwf_complex);
+    size_t z_f_dm_bytes = ndm * nfreq * sizeof(fftwf_complex);
     size_t i_t_dm_bytes = ndm * nsamp * sizeof(float);
 
     // Allocate memory
@@ -74,13 +74,11 @@ void FDDPlan::execute(
     // Transpose input and convert to floating point:
     std::cout << "Transpose/convert input" << std::endl;
     #pragma omp parallel for
-    for (unsigned int isamp = 0; isamp < nsamp; isamp++)
-    {
-        for (unsigned int ichan = 0; ichan < nchan; ichan++)
-        {
+    for (unsigned int ichan = 0; ichan < nchan; ichan++) {
+        for (unsigned int isamp = 0; isamp < nsamp; isamp++) {
             const byte_type *src_ptr = in + isamp * nchan;
             float *dst_ptr = (float *) i_t_nu + ichan * nsamp;
-            dst_ptr[ichan] = ((float) src_ptr[ichan]) - 127.5f;
+            dst_ptr[isamp] = ((float) src_ptr[ichan]) - 127.5f;
         }
     }
 
@@ -97,7 +95,7 @@ void FDDPlan::execute(
     // Compute spin frequencies (FFT'ed axis of time)
     float f[nfreq];
     for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++) {
-        f[ifreq] = roundf(ifreq * dt * 1e6);
+        f[ifreq] = ifreq * dt * 1e6;
     }
 
     // DM delays
@@ -105,7 +103,7 @@ void FDDPlan::execute(
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
         for (unsigned int idm = 0; idm < ndm; idm++) {
             float dm = h_dm_list[idm];
-            tdms[idm][ichan] = dm * h_delay_table[ichan];
+            tdms[idm][ichan] = dm * h_delay_table[ichan] * dt;
         }
     }
 
