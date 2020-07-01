@@ -74,13 +74,11 @@ void FDDPlan::execute(
     // Transpose input and convert to floating point:
     std::cout << "Transpose/convert input" << std::endl;
     #pragma omp parallel for
-    for (unsigned int isamp = 0; isamp < nsamp; isamp++)
-    {
-        for (unsigned int ichan = 0; ichan < nchan; ichan++)
-        {
+    for (unsigned int ichan = 0; ichan < nchan; ichan++) {
+        for (unsigned int isamp = 0; isamp < nsamp; isamp++) {
             const byte_type *src_ptr = in + isamp * nchan;
             float *dst_ptr = (float *) i_t_nu + ichan * nsamp;
-            dst_ptr[ichan] = ((float) src_ptr[ichan]) - 127.5f;
+            dst_ptr[isamp] = ((float) src_ptr[ichan]) - 127.5f;
         }
     }
 
