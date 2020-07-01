@@ -56,7 +56,7 @@ void FDDPlan::execute(
     // Sizes
     size_t i_t_nu_bytes = nchan * nsamp * sizeof(float);
     size_t z_f_nu_bytes = nchan * nfreq * sizeof(fftwf_complex);
-    size_t z_f_dm_bytes = ndm * nsamp * sizeof(fftwf_complex);
+    size_t z_f_dm_bytes = ndm * nfreq * sizeof(fftwf_complex);
     size_t i_t_dm_bytes = ndm * nsamp * sizeof(float);
 
     // Allocate memory
