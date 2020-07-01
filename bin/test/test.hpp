@@ -1,4 +1,3 @@
-
 /*
   Simple test application for libdedisp
   By Paul Ray (2013)
@@ -13,7 +12,7 @@
 #include <random>
 #include <functional>
 
-#include <dedisp/DedispPlan.hpp>
+#include <Plan.hpp>
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
@@ -92,7 +91,8 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean, dedisp
   return;
 }
 
-int main(int argc, char* argv[])
+template<typename PlanType>
+int run()
 {
   int          device_idx  = 0;
 
@@ -212,7 +212,7 @@ int main(int argc, char* argv[])
 
   printf("Create plan\n");
   // Create a dedispersion plan
-  dedisp::DedispPlan plan(nchans, dt, f0, df);
+  PlanType plan(nchans, dt, f0, df);
 
   printf("Init GPU\n");
   // Initialise the GPU
