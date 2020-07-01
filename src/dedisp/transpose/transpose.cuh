@@ -9,6 +9,8 @@
 
 #include "transpose_kernel.cuh"
 
+#include <algorithm>
+
 namespace cuda_specs {
     enum { MAX_GRID_DIMENSION = 65535 };
 }
@@ -32,10 +34,6 @@ struct Transpose {
 private:
     // TODO: These should probably be imported from somewhere else
     template<typename U>
-    inline U min(const U& a, const U& b) {
-        return a < b ? a : b;
-    }
-    template<typename U>
     inline U round_up_pow2(const U& a) {
         U r = a-1;
         for( unsigned long i=1; i<=sizeof(U)*8/2; i<<=1 ) r |= r >> i;
@@ -44,27 +42,6 @@ private:
     template<typename U>
     inline U round_down_pow2(const U& a) {
         return round_up_pow2(a+1)/2;
-    }
-    inline unsigned int log2(unsigned int a) {
-        unsigned int r;
-        unsigned int shift;
-        r =     (a > 0xFFFF) << 4; a >>= r;
-        shift = (a > 0xFF  ) << 3; a >>= shift; r |= shift;
-        shift = (a > 0xF   ) << 2; a >>= shift; r |= shift;
-        shift = (a > 0x3   ) << 1; a >>= shift; r |= shift;
-        r |= (a >> 1);
-        return r;
-    }
-    inline unsigned long log2(unsigned long a) {
-        unsigned long r;
-        unsigned long shift;
-        r =     (a > 0xFFFFFFFF) << 5; a >>= r;
-        shift = (a > 0xFFFF    ) << 4; a >>= shift; r |= shift;
-        shift = (a > 0xFF      ) << 3; a >>= shift; r |= shift;
-        shift = (a > 0xF       ) << 2; a >>= shift; r |= shift;
-        shift = (a > 0x3       ) << 1; a >>= shift; r |= shift;
-        r |= (a >> 1);
-        return r;
     }
 };
 
@@ -99,7 +76,7 @@ void Transpose<T>::transpose(const T* in,
         dim3 block_count;
 
         // Handle the possibly incomplete final grid
-        block_count.y = min(max_grid_dim,
+        block_count.y = std::min(max_grid_dim,
                             tot_block_count.y - block_y_offset);
 
         for( size_t block_x_offset = 0;
@@ -107,7 +84,7 @@ void Transpose<T>::transpose(const T* in,
              block_x_offset += max_grid_dim ) {
 
             // Handle the possibly incomplete final grid
-            block_count.x = min(max_grid_dim,
+            block_count.x = std::min(max_grid_dim,
                                 tot_block_count.x - block_x_offset);
 
             // Compute the chunked parameters
@@ -115,8 +92,8 @@ void Transpose<T>::transpose(const T* in,
             size_t y_offset = block_y_offset * TILE_DIM;
             size_t in_offset = x_offset + y_offset*in_stride;
             size_t out_offset = y_offset + x_offset*out_stride;
-            size_t w = min(max_grid_dim*TILE_DIM, width-x_offset);
-            size_t h = min(max_grid_dim*TILE_DIM, height-y_offset);
+            size_t w = std::min(max_grid_dim*TILE_DIM, width-x_offset);
+            size_t h = std::min(max_grid_dim*TILE_DIM, height-y_offset);
 
             dim3 block(TILE_DIM, BLOCK_ROWS);
 
@@ -138,7 +115,7 @@ void Transpose<T>::transpose(const T* in,
                      out + out_offset,
                      block_count.x,
                      block_count.y,
-                     log2(grid.y));
+                     std::log2(grid.y));
             } else {
                 dim3 grid(block_count.x, block_count.y);
 
@@ -150,7 +127,7 @@ void Transpose<T>::transpose(const T* in,
                      out + out_offset,
                      block_count.x,
                      block_count.y,
-                     log2(grid.y));
+                     std::log2(grid.y));
             }
         }
     }
