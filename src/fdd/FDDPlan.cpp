@@ -105,7 +105,7 @@ void FDDPlan::execute(
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
         for (unsigned int idm = 0; idm < ndm; idm++) {
             float dm = h_dm_list[idm];
-            tdms[idm][ichan] = dm * h_delay_table[ichan];
+            tdms[idm][ichan] = dm * h_delay_table[ichan] * dt;
         }
     }
 
