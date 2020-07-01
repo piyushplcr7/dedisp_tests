@@ -5,11 +5,7 @@
 #ifndef TRANSPOSE_KERNEL_H_INCLUDE_GUARD
 #define TRANSPOSE_KERNEL_H_INCLUDE_GUARD
 
-//#if __CUDA_ARCH__ < 200
 #define TILE_DIM            32
-//#else
-//#define TILE_DIM            64
-//#endif
 #define BLOCK_ROWS          8
 
 typedef unsigned int gpu_size_t;
