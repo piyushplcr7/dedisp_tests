@@ -98,7 +98,7 @@ void FDDPlan::execute(
     // Compute spin frequencies (FFT'ed axis of time)
     float f[nfreq];
     for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++) {
-        f[ifreq] = ifreq * dt * 1e6;
+        f[ifreq] = ifreq * dt;
     }
 
     // DM delays
