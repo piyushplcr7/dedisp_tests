@@ -25,6 +25,11 @@ FDDPlan::FDDPlan(
 FDDPlan::~FDDPlan()
 {}
 
+int round_up(int a, int b)
+{
+    return ((a + b - 1) / b) * b;
+}
+
 void FDDPlan::execute(
     size_type        nsamps,
     const byte_type* in,
@@ -53,42 +58,40 @@ void FDDPlan::execute(
     std::cout << "nfreq = " << nfreq << std::endl;
     std::cout << "ndm   = " << ndm << std::endl;
 
+    // Compute padded number of samples (for r2c transformation)
+    unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
+    std::cout << "nsamp_padded: " << nsamp_padded << std::endl << std::endl;
+
     // Sizes
-    size_t i_t_nu_bytes = nchan * nsamp * sizeof(float);
-    size_t z_f_nu_bytes = nchan * nfreq * sizeof(fftwf_complex);
-    size_t z_f_dm_bytes = ndm * nfreq * sizeof(fftwf_complex);
-    size_t i_t_dm_bytes = ndm * nsamp * sizeof(float);
+    size_t t_nu_bytes = nchan * nsamp_padded * sizeof(float);
+    size_t f_dm_bytes = ndm * nsamp_padded * sizeof(float);
 
     // Allocate memory
-    float *i_t_nu = (float *) fftwf_malloc(i_t_nu_bytes);
-    float *i_t_dm = (float *) fftwf_malloc(i_t_dm_bytes);
-    fftwf_complex *z_f_nu = (fftwf_complex *) fftwf_malloc(z_f_nu_bytes);
-    fftwf_complex *z_f_dm = (fftwf_complex *) fftwf_malloc(z_f_dm_bytes);
+    float *t_nu = (float *) fftwf_malloc(t_nu_bytes);
+    float *f_dm = (float *) fftwf_malloc(f_dm_bytes);
 
     // Reset memory to zero
-    std::memset((void *) i_t_nu, 0, i_t_nu_bytes);
-    std::memset((void *) z_f_nu, 0, z_f_nu_bytes);
-    std::memset((void *) z_f_dm, 0, z_f_dm_bytes);
-    std::memset((void *) i_t_dm, 0, i_t_dm_bytes);
+    std::memset((void *) t_nu, 0, t_nu_bytes);
+    std::memset((void *) f_dm, 0, f_dm_bytes);
 
     // Transpose input and convert to floating point:
     std::cout << "Transpose/convert input" << std::endl;
     #pragma omp parallel for
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
         for (unsigned int isamp = 0; isamp < nsamp; isamp++) {
-            const byte_type *src_ptr = in + isamp * nchan;
-            float *dst_ptr = (float *) i_t_nu + ichan * nsamp;
+            const byte_type *src_ptr = in + (isamp * nchan);
+            float *dst_ptr = t_nu + (ichan * nsamp_padded);
             dst_ptr[isamp] = ((float) src_ptr[ichan]) - 127.5f;
         }
     }
 
     // FFT data (real to complex) along time axis
     std::cout << "FFT input r2c" << std::endl;
-    fftwf_plan plan_r2c = fftwf_plan_dft_r2c_1d(nsamp, i_t_nu, z_f_nu, FFTW_ESTIMATE);
+    fftwf_plan plan_r2c = fftwf_plan_dft_r2c_1d(nsamp, t_nu, (fftwf_complex *) t_nu, FFTW_ESTIMATE);
     #pragma omp parallel for
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
-        float *in          = i_t_nu + ichan * nsamp;
-        fftwf_complex *out = z_f_nu + ichan * nfreq;
+        float *in          = t_nu + (ichan * nsamp_padded);
+        fftwf_complex *out = (fftwf_complex *) in;
         fftwf_execute_dft_r2c(plan_r2c, in, out);
     }
 
@@ -126,10 +129,10 @@ void FDDPlan::execute(
                 std::complex<float> phasor(cosf(phase), sinf(phase));
 
                 // Complex multiply and add
-                fftwf_complex *src_ptr = z_f_nu + ichan * nfreq;
+                fftwf_complex *src_ptr = (fftwf_complex *) (t_nu + ichan * nsamp_padded);
+                fftwf_complex *dst_ptr = (fftwf_complex *) (f_dm + idm * nsamp_padded);
                 float real = src_ptr[ifreq][0];
                 float imag = src_ptr[ifreq][1];
-                fftwf_complex *dst_ptr = z_f_dm + idm * nfreq;
                 dst_ptr[ifreq][0] += real * phasor.real() - imag * phasor.imag();
                 dst_ptr[ifreq][1] += real * phasor.imag() + imag * phasor.real();
             }
@@ -138,19 +141,18 @@ void FDDPlan::execute(
 
     // Fourier transform results back to time domain
     std::cout << "FFT output c2r" << std::endl;
-    fftwf_plan plan_c2r = fftwf_plan_dft_c2r_1d(nsamp, z_f_dm, i_t_dm, FFTW_ESTIMATE);
+    fftwf_plan plan_c2r = fftwf_plan_dft_c2r_1d(nsamp, (fftwf_complex *) f_dm, f_dm, FFTW_ESTIMATE);
     #pragma omp parallel for
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
-        fftwf_complex *in = z_f_dm + idm * nfreq;
-        float *out        = i_t_dm + idm * nsamp;
+        float *out        = f_dm + (idm * nsamp_padded);
+        fftwf_complex *in = (fftwf_complex *) out;
         fftwf_execute_dft_c2r(plan_c2r, in, out);
 
         for (unsigned int isamp = 0; isamp < nsamp; isamp++)
         {
             float scale = 1.0f / nsamp;
-            float *ptr = i_t_dm + idm * nsamp;
-            ptr[isamp] *= scale;
+            out[isamp] *= scale;
         }
     }
 
@@ -160,17 +162,15 @@ void FDDPlan::execute(
     {
         for (unsigned int isamp = 0; isamp < nsamp_computed; isamp++)
         {
-            float *src_ptr = i_t_dm + idm * nsamp;
-            float *dst_ptr = (float *) out + idm * nsamp_computed;
+            float *src_ptr = f_dm + (idm * nsamp_padded);
+            float *dst_ptr = ((float *) out) + (idm * nsamp_computed);
             dst_ptr[isamp] = std::abs(src_ptr[isamp]);
         }
     }
 
     // Free memory
-    free(i_t_nu);
-    free(z_f_nu);
-    free(z_f_dm);
-    free(i_t_dm);
+    free(t_nu);
+    free(f_dm);
     fftwf_destroy_plan(plan_r2c);
     fftwf_destroy_plan(plan_c2r);
 }
