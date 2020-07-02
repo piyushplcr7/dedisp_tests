@@ -116,26 +116,39 @@ void FDDPlan::execute(
     #pragma omp parallel for
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
-        // Loop over observing frequencies
-        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        // Loop over spin frequencies
+        for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
         {
-            // Loop over spin frequencies
-            for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
+            // Get spin frequency
+            float freq = 2.0 * M_PI * f[ifreq];
+
+            // Sum over observing frequencies
+            fftwf_complex sum;
+            sum[0] = 0.0f;
+            sum[1] = 0.0f;
+
+            // Loop over observing frequencies
+            for (unsigned int ichan = 0; ichan < nchan; ichan++)
             {
                 // Compute phase
-                float phase = 2.0 * M_PI * f[ifreq] * tdms[idm][ichan];
+                float tdm = tdms[idm][ichan];
+                float phase = freq * tdm;
 
                 // Compute phasor
                 std::complex<float> phasor(cosf(phase), sinf(phase));
 
                 // Complex multiply and add
                 fftwf_complex *src_ptr = (fftwf_complex *) (t_nu + ichan * nsamp_padded);
-                fftwf_complex *dst_ptr = (fftwf_complex *) (f_dm + idm * nsamp_padded);
                 float real = src_ptr[ifreq][0];
                 float imag = src_ptr[ifreq][1];
-                dst_ptr[ifreq][0] += real * phasor.real() - imag * phasor.imag();
-                dst_ptr[ifreq][1] += real * phasor.imag() + imag * phasor.real();
+                sum[0] += real * phasor.real() - imag * phasor.imag();
+                sum[1] += real * phasor.imag() + imag * phasor.real();
             }
+
+            // Store sum
+            fftwf_complex *dst_ptr = (fftwf_complex *) (f_dm + idm * nsamp_padded);
+            dst_ptr[ifreq][0] = sum[0];
+            dst_ptr[ifreq][1] = sum[1];
         }
     }
 
