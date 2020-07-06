@@ -11,6 +11,9 @@ typedef int                        dedisp_bool;
 // Internal word type used for transpose and dedispersion kernel
 typedef unsigned int               dedisp_word;
 
+// Internal type used for complex numbers
+typedef struct { float real; float imag; } dedisp_float2;
+
 /*! \typedef dedisp_float
  * The floating-point data-type used by the library. This is currently
      guaranteed to be equivalent to 'float'.*/
