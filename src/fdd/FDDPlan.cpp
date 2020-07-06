@@ -62,35 +62,28 @@ void FDDPlan::execute(
     unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
     std::cout << "nsamp_padded: " << nsamp_padded << std::endl << std::endl;
 
-    // Sizes
-    size_t t_nu_bytes = nchan * nsamp_padded * sizeof(float);
-    size_t f_dm_bytes = ndm * nsamp_padded * sizeof(float);
-
     // Allocate memory
-    float *t_nu = (float *) fftwf_malloc(t_nu_bytes);
-    float *f_dm = (float *) fftwf_malloc(f_dm_bytes);
-
-    // Reset memory to zero
-    std::memset((void *) t_nu, 0, t_nu_bytes);
-    std::memset((void *) f_dm, 0, f_dm_bytes);
+    std::vector<float> t_nu;
+    std::vector<float> f_dm;
+    t_nu.resize((size_t) nchan * nsamp_padded);
+    f_dm.resize((size_t) ndm * nsamp_padded);
 
     // Transpose input and convert to floating point:
     std::cout << "Transpose/convert input" << std::endl;
     #pragma omp parallel for
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
         for (unsigned int isamp = 0; isamp < nsamp; isamp++) {
-            const byte_type *src_ptr = in + (isamp * nchan);
-            float *dst_ptr = t_nu + (ichan * nsamp_padded);
-            dst_ptr[isamp] = ((float) src_ptr[ichan]) - 127.5f;
+            const byte_type *ptr = in + (isamp * nchan);
+            t_nu[ichan * nsamp_padded + isamp] = ((float) ptr[ichan]) - 127.5f;
         }
     }
 
     // FFT data (real to complex) along time axis
     std::cout << "FFT input r2c" << std::endl;
-    fftwf_plan plan_r2c = fftwf_plan_dft_r2c_1d(nsamp, t_nu, (fftwf_complex *) t_nu, FFTW_ESTIMATE);
+    fftwf_plan plan_r2c = fftwf_plan_dft_r2c_1d(nsamp, t_nu.data(), (fftwf_complex *) t_nu.data(), FFTW_ESTIMATE);
     #pragma omp parallel for
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
-        float *in          = t_nu + (ichan * nsamp_padded);
+        float *in = &t_nu[ichan * nsamp_padded];
         fftwf_complex *out = (fftwf_complex *) in;
         fftwf_execute_dft_r2c(plan_r2c, in, out);
     }
@@ -138,27 +131,26 @@ void FDDPlan::execute(
                 std::complex<float> phasor(cosf(phase), sinf(phase));
 
                 // Complex multiply and add
-                fftwf_complex *src_ptr = (fftwf_complex *) (t_nu + ichan * nsamp_padded);
-                float real = src_ptr[ifreq][0];
-                float imag = src_ptr[ifreq][1];
+                std::complex<float>* src_ptr = (std::complex<float> *) &t_nu[ichan * nsamp_padded + ifreq];
+                float real = src_ptr->real();
+                float imag = src_ptr->imag();
                 sum[0] += real * phasor.real() - imag * phasor.imag();
                 sum[1] += real * phasor.imag() + imag * phasor.real();
             }
 
             // Store sum
-            fftwf_complex *dst_ptr = (fftwf_complex *) (f_dm + idm * nsamp_padded);
-            dst_ptr[ifreq][0] = sum[0];
-            dst_ptr[ifreq][1] = sum[1];
+            std::complex<float>* dst_ptr = (std::complex<float> *) &f_dm[idm * nsamp_padded + ifreq];
+            *dst_ptr = {sum[0], sum[1]};
         }
     }
 
     // Fourier transform results back to time domain
     std::cout << "FFT output c2r" << std::endl;
-    fftwf_plan plan_c2r = fftwf_plan_dft_c2r_1d(nsamp, (fftwf_complex *) f_dm, f_dm, FFTW_ESTIMATE);
+    fftwf_plan plan_c2r = fftwf_plan_dft_c2r_1d(nsamp, (fftwf_complex *) f_dm.data(), f_dm.data(), FFTW_ESTIMATE);
     #pragma omp parallel for
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
-        float *out        = f_dm + (idm * nsamp_padded);
+        float *out        = &f_dm[idm * nsamp_padded];
         fftwf_complex *in = (fftwf_complex *) out;
         fftwf_execute_dft_c2r(plan_c2r, in, out);
 
@@ -175,15 +167,13 @@ void FDDPlan::execute(
     {
         for (unsigned int isamp = 0; isamp < nsamp_computed; isamp++)
         {
-            float *src_ptr = f_dm + (idm * nsamp_padded);
+            float *src_ptr = &f_dm[idm * nsamp_padded];
             float *dst_ptr = ((float *) out) + (idm * nsamp_computed);
             dst_ptr[isamp] = std::abs(src_ptr[isamp]);
         }
     }
 
     // Free memory
-    free(t_nu);
-    free(f_dm);
     fftwf_destroy_plan(plan_r2c);
     fftwf_destroy_plan(plan_c2r);
 }
