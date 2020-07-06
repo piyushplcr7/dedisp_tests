@@ -14,6 +14,10 @@
 
 #include <Plan.hpp>
 
+// Debug options
+#define WRITE_INPUT_DATA  0
+#define WRITE_OUTPUT_DATA 0
+
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
 {
@@ -274,6 +278,18 @@ int run()
     if (i>100)
       break;
   }
+
+  #if WRITE_INPUT_DATA
+  FILE *file_in = fopen("input.bin", "wb");
+  fwrite(input, 1, (size_t) nsamps * nchans * (in_nbits/8), file_in);
+  fclose(file_in);
+  #endif
+
+  #if WRITE_OUTPUT_DATA
+  FILE *file_out = fopen("output.bin", "wb");
+  fwrite(output, 1, (size_t) nsamps_computed * dm_count * out_nbits/8, file_out);
+  fclose(file_out);
+  #endif
         
   // Clean up
   free(output);
