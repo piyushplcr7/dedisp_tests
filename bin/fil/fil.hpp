@@ -5,8 +5,6 @@
 #include <time.h>
 #include <getopt.h>
 
-#include <dedisp/DedispPlan.hpp>
-
 struct header {
   int64_t headersize,buffersize;
   int nchan,nsamp,nbit,nif;
@@ -59,14 +57,14 @@ void usage(void)
   printf("-N [samples]        Number of samples to write (default: all)\n");
   printf("-w [pulse width]    Expected intrinsic pulse width for optimal DM trials [default: 4.0us]\n");
   printf("-t [tolerance]      Smearing tolerance factor between DM trials [default: 1.25]\n");
-  printf("-g [gulp size]      Gulp size [default: 65536]\n");
   printf("-q                  Quiet; no information to screen\n");
   printf("-h                  This help\n");
 
   return;
 }
 
-int main(int argc,char *argv[])
+template<typename PlanType>
+int run(int argc,char *argv[])
 {
   unsigned int i,device_id=0,verbose=1;
   struct header h;
@@ -76,7 +74,7 @@ int main(int argc,char *argv[])
   dedisp_float *dmlist;
   dedisp_size dm_count=0,max_delay,nsamp_computed,ndec=1;
   dedisp_float dm_start=0.0,dm_end=50.0,dm_step=0.0,pulse_width=4.0,dm_tol=1.25;
-  dedisp_size nbits=32,gulp_size=65536;
+  dedisp_size nbits=32;
   clock_t startclock;
   int arg=0;
   char *filename=NULL,prefix[128]="test";
@@ -87,10 +85,6 @@ int main(int argc,char *argv[])
     while ((arg=getopt(argc,argv,"f:D:hr:s:w:t:qo:d:n:N:g:"))!=-1) {
       switch(arg) {
 	
-      case 'g':
-	gulp_size=(dedisp_size) atoi(optarg);
-	break;
-
       case 'f':
 	filename=optarg;
 	break;
@@ -211,7 +205,7 @@ int main(int argc,char *argv[])
 
   // Create a dedispersion plan
   if (verbose) printf("Creating dedispersion plan\n");
-  dedisp::DedispPlan plan(h.nchan,h.tsamp,h.fch1,h.foff);
+  PlanType plan(h.nchan,h.tsamp,h.fch1,h.foff);
 
   // Intialize GPU
   if (verbose) printf("Intializing GPU (device %d)\n",device_id);
@@ -256,10 +250,6 @@ int main(int argc,char *argv[])
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
   }
-
-  // Setting maximum gulp_size
-  plan.set_gulp_size(gulp_size);
-  printf("Current gulp_size = %d\n", (int)plan.get_gulp_size());
 
   // Perform computation
   if (verbose) printf("Dedispersing on the GPU\n");
