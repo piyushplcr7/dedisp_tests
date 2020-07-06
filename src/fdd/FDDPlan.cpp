@@ -88,12 +88,6 @@ void FDDPlan::execute(
         fftwf_execute_dft_r2c(plan_r2c, in, out);
     }
 
-    // Compute spin frequencies (FFT'ed axis of time)
-    float f[nfreq];
-    for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++) {
-        f[ifreq] = ifreq * dt;
-    }
-
     // DM delays
     float tdms[ndm][nchan];
     for (unsigned int ichan = 0; ichan < nchan; ichan++) {
@@ -109,12 +103,24 @@ void FDDPlan::execute(
     #pragma omp parallel for
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
+        // Set initial phasor values
+        std::vector<std::complex<float>> phasors(nchan);
+        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        {
+            phasors[ichan] = {1, 0};
+        }
+
+        // Compute delta phasor values
+        std::vector<std::complex<float>> phasor_deltas(nchan);
+        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        {
+            float phase = (2.0 * M_PI * dt * tdms[idm][ichan]);
+            phasor_deltas[ichan] = {cosf(phase), sinf(phase)};
+        }
+
         // Loop over spin frequencies
         for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
         {
-            // Get spin frequency
-            float freq = 2.0 * M_PI * f[ifreq];
-
             // Sum over observing frequencies
             fftwf_complex sum;
             sum[0] = 0.0f;
@@ -123,12 +129,8 @@ void FDDPlan::execute(
             // Loop over observing frequencies
             for (unsigned int ichan = 0; ichan < nchan; ichan++)
             {
-                // Compute phase
-                float tdm = tdms[idm][ichan];
-                float phase = freq * tdm;
-
-                // Compute phasor
-                std::complex<float> phasor(cosf(phase), sinf(phase));
+                // Load phasor
+                std::complex<float>& phasor = phasors[ichan];
 
                 // Complex multiply and add
                 std::complex<float>* src_ptr = (std::complex<float> *) &t_nu[ichan * nsamp_padded + ifreq];
@@ -136,6 +138,9 @@ void FDDPlan::execute(
                 float imag = src_ptr->imag();
                 sum[0] += real * phasor.real() - imag * phasor.imag();
                 sum[1] += real * phasor.imag() + imag * phasor.real();
+
+                // Update phasor
+                phasor *= phasor_deltas[ichan];
             }
 
             // Store sum
