@@ -122,9 +122,7 @@ void FDDPlan::execute(
         for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
         {
             // Sum over observing frequencies
-            fftwf_complex sum;
-            sum[0] = 0.0f;
-            sum[1] = 0.0f;
+            std::complex<float> sum = {0, 0};
 
             // Loop over observing frequencies
             for (unsigned int ichan = 0; ichan < nchan; ichan++)
@@ -133,11 +131,8 @@ void FDDPlan::execute(
                 std::complex<float>& phasor = phasors[ichan];
 
                 // Complex multiply and add
-                std::complex<float>* src_ptr = (std::complex<float> *) &t_nu[ichan * nsamp_padded + ifreq];
-                float real = src_ptr->real();
-                float imag = src_ptr->imag();
-                sum[0] += real * phasor.real() - imag * phasor.imag();
-                sum[1] += real * phasor.imag() + imag * phasor.real();
+                std::complex<float>* sample = (std::complex<float> *) &t_nu[ichan * nsamp_padded + ifreq];
+                sum += *sample * phasor;
 
                 // Update phasor
                 phasor *= phasor_deltas[ichan];
@@ -145,7 +140,7 @@ void FDDPlan::execute(
 
             // Store sum
             std::complex<float>* dst_ptr = (std::complex<float> *) &f_dm[idm * nsamp_padded + ifreq];
-            *dst_ptr = {sum[0], sum[1]};
+            *dst_ptr = sum;
         }
     }
 
