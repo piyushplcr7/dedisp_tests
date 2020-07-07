@@ -378,20 +378,16 @@ void DedispPlan::execute_guru(
 
         auto& job = jobs[job_id];
 
-        // Transpose the words in the input
+        // Transpose and unpack the words in the input
         executestream->waitEvent(job.inputEnd);
         executestream->record(job.computeStart);
-        transpose((dedisp_word *) job.d_in_ptr,
-                  nchan_words, job.nsamps_gulp,
-                  in_buf_stride_words, job.nsamps_padded_gulp,
-                  (dedisp_word *) d_transposed,
-                  *executestream);
-
-        // Unpack the transposed data
-        unpack(d_transposed, job.nsamps_padded_gulp, nchan_words,
-               d_unpacked,
-               in_nbits, unpacked_in_nbits,
-               *executestream);
+        transpose_unpack(
+            (dedisp_word *) job.d_in_ptr,
+            nchan_words, job.nsamps_gulp,
+            in_buf_stride_words, job.nsamps_padded_gulp,
+            (dedisp_word *) d_unpacked,
+            in_nbits, unpacked_in_nbits,
+            *executestream);
 
         // Perform direct dedispersion without scrunching
         m_kernel.launch(
