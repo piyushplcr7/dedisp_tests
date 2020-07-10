@@ -148,8 +148,9 @@ void FDDPlan::execute(
 
         for (unsigned int isamp = 0; isamp < nsamp; isamp++)
         {
-            float scale = 1.0f / nsamp;
-            out[isamp] *= scale;
+            float fft_scale = 1.0f / nsamp;
+            float chan_scale = 1.0f / nchan;
+            out[isamp] *= fft_scale * chan_scale;
         }
     }
 
