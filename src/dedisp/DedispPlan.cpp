@@ -6,7 +6,6 @@
 #include "common/cuda/CU.h"
 
 #include "dedisperse/DedispKernel.hpp"
-#include "transpose/transpose.hpp"
 #include "unpack/unpack.h"
 
 #include "dedisp_error.hpp"
