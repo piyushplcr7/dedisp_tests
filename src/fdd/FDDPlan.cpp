@@ -103,39 +103,31 @@ void FDDPlan::execute(
     #pragma omp parallel for
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
-        // Set initial phasor values
-        std::vector<std::complex<float>> phasors(nchan);
-        for (unsigned int ichan = 0; ichan < nchan; ichan++)
-        {
-            phasors[ichan] = {1, 0};
-        }
-
-        // Compute delta phasor values
-        std::vector<std::complex<float>> phasor_deltas(nchan);
-        for (unsigned int ichan = 0; ichan < nchan; ichan++)
-        {
-            float phase = (2.0 * M_PI * dt * tdms[idm][ichan]);
-            phasor_deltas[ichan] = {cosf(phase), sinf(phase)};
-        }
-
         // Loop over spin frequencies
         for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
         {
+            // Compute initial phasor value
+            float f = ifreq * dt;
+            float phase0 = (2.0 * M_PI * f * tdms[idm][0]);
+            std::complex<float> phasor(cosf(phase0), sinf(phase0));
+
+            // Compute delta phasor
+            float phase1 = (2.0 * M_PI * f * tdms[idm][1]);
+            float phase_delta = phase1 - phase0;
+            std::complex<float> phasor_delta(cosf(phase_delta), sinf(phase_delta));
+
             // Sum over observing frequencies
             std::complex<float> sum = {0, 0};
 
             // Loop over observing frequencies
             for (unsigned int ichan = 0; ichan < nchan; ichan++)
             {
-                // Load phasor
-                std::complex<float>& phasor = phasors[ichan];
-
                 // Complex multiply and add
                 std::complex<float>* sample = (std::complex<float> *) &t_nu[ichan * nsamp_padded + ifreq];
                 sum += *sample * phasor;
 
                 // Update phasor
-                phasor *= phasor_deltas[ichan];
+                phasor *= phasor_delta;
             }
 
             // Store sum
