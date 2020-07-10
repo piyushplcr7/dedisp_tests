@@ -1,7 +1,7 @@
 #define TILE_DIM     32
 #define BLOCK_ROWS   8
 
-template<typename WordType>
+template<typename WordType, unsigned int OUT_NBITS>
 __global__
 void transpose_unpack_kernel(
     const WordType* in,
@@ -12,8 +12,7 @@ void transpose_unpack_kernel(
     WordType* out,
     size_t block_count_x,
     size_t block_count_y,
-    size_t in_nbits,
-    size_t out_nbits)
+    size_t in_nbits)
 {
     // The input data has dimensions height * width,
     // with width corresponding to a number of channel words,
@@ -21,7 +20,7 @@ void transpose_unpack_kernel(
     // The output will have expansion times as many channel words,
     // thus this kernel transforms:
     // data[height][width] -> unpacked[width][height*expansion]
-    dedisp_size expansion = out_nbits / in_nbits;
+    dedisp_size expansion = OUT_NBITS / in_nbits;
     // the output stride therefore scales linearly with the expansion.
     out_stride *= expansion;
 
@@ -54,11 +53,11 @@ void transpose_unpack_kernel(
     __syncthreads();
 
     // Helper variables for data unpacking
-    int out_chans_per_word = sizeof(WordType)*8 / out_nbits;
+    int out_chans_per_word = sizeof(WordType)*8 / OUT_NBITS;
     int in_chans_per_word = sizeof(WordType)*8 / in_nbits;
-    int norm = ((1l<<out_nbits)-1) / ((1l<<in_nbits)-1);
+    int norm = ((1l<<OUT_NBITS)-1) / ((1l<<in_nbits)-1);
     WordType in_mask  = (1<<in_nbits)-1;
-    WordType out_mask = (1<<out_nbits)-1;
+    WordType out_mask = (1<<OUT_NBITS)-1;
 
     // Unpack the inner dimension of the transposed tile:
     // transposed[nsamps_tile][nwords_tile] -> unpacked[nsamps_tile][nwords_tile*expansion]
@@ -81,10 +80,10 @@ void transpose_unpack_kernel(
             {
                 // Construct an output channel word
                 WordType result = 0;
-                for (int k = 0; k < sizeof(WordType)*8; k += out_nbits)
+                for (int k = 0; k < sizeof(WordType)*8; k += OUT_NBITS)
                 {
                     int out_cw = threadIdx.x + j;
-                    int c = out_cw * out_chans_per_word + k/out_nbits;
+                    int c = out_cw * out_chans_per_word + k/OUT_NBITS;
                     int in_cw = c / in_chans_per_word;
                     int in_k  = c % in_chans_per_word * in_nbits;
                     WordType word = tile[threadIdx.y+i][in_cw];

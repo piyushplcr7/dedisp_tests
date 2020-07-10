@@ -63,15 +63,26 @@ void transpose_unpack(
                       round_up_pow2(block_count.y));
 
             // Run the CUDA kernel
-            transpose_unpack_kernel<dedisp_word><<<grid, block, 0, stream>>>
-                (d_in + in_offset,      // in
-                 w, h,                  // width, height
-                 in_stride, out_stride, // in stride, out stride
-                 d_out + out_offset,    // out
-                 block_count.x,         // block_count_x
-                 block_count.y,         // block_count_y
-                 in_nbits,              // in_nbits
-                 out_nbits);            // out_nbits
+            #define CALL_KERNEL(OUT_NBITS) \
+            transpose_unpack_kernel<dedisp_word, OUT_NBITS><<<grid, block, 0, stream>>> \
+                (d_in + in_offset,      \
+                 w, h,                  \
+                 in_stride, out_stride, \
+                 d_out + out_offset,    \
+                 block_count.x,         \
+                 block_count.y,         \
+                 in_nbits);             \
+
+            // Dispatch dynamically on out_nbits for supported values
+            switch (out_nbits)
+            {
+                case 1:  CALL_KERNEL(1); break;
+                case 2:  CALL_KERNEL(2); break;
+                case 4:  CALL_KERNEL(4); break;
+                case 8:  CALL_KERNEL(8); break;
+                case 16: CALL_KERNEL(16); break;
+                default: /* should never be reached */ break;
+            }
         } // end for block_x_offset
     } // end for block_y_offset
 }
