@@ -127,7 +127,7 @@ void transpose_unpack_kernel(
     {
         if (index_in_x < width && index_in_y+i < height)
         {
-            tile[threadIdx.y+i][threadIdx.x] = in[index_in+i*in_stride];
+            tile[threadIdx.x][threadIdx.y+i] = in[index_in+i*in_stride];
         }
     }
 
@@ -167,7 +167,7 @@ void transpose_unpack_kernel(
                     int c = out_cw * out_chans_per_word + k/out_nbits;
                     int in_cw = c / in_chans_per_word;
                     int in_k  = c % in_chans_per_word * in_nbits;
-                    WordType word = tile[in_cw][threadIdx.y+i];
+                    WordType word = tile[threadIdx.y+i][in_cw];
 
                     WordType val = (word >> in_k) & in_mask;
                     result |= ((val * norm) & out_mask) << k;
