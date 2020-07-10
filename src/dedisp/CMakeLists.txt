@@ -2,7 +2,6 @@ cuda_add_library(dedisp SHARED
     DedispPlan.cpp
     dedisperse/DedispKernel.cu
     unpack/unpack.cu
-    transpose/transpose.cu
 )
 
 target_link_libraries(dedisp
