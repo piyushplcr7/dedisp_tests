@@ -123,16 +123,16 @@ void FDDPlan::execute(
             for (unsigned int ichan = 0; ichan < nchan; ichan++)
             {
                 // Complex multiply and add
-                std::complex<float>* sample = (std::complex<float> *) &t_nu[ichan * nsamp_padded + ifreq];
-                sum += *sample * phasor;
+                std::complex<float>* sample = (std::complex<float> *) &t_nu[ichan * nsamp_padded];
+                sum += sample[ifreq] * phasor;
 
                 // Update phasor
                 phasor *= phasor_delta;
             }
 
             // Store sum
-            std::complex<float>* dst_ptr = (std::complex<float> *) &f_dm[idm * nsamp_padded + ifreq];
-            *dst_ptr = sum;
+            std::complex<float>* dst_ptr = (std::complex<float> *) &f_dm[idm * nsamp_padded];
+            dst_ptr[ifreq] = sum;
         }
     }
 
