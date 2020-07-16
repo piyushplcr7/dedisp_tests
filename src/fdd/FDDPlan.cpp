@@ -170,8 +170,8 @@ void dedisperse_reference(
     }
 }
 
-template<typename InputType, typename OutputType>
-void dedisperse_extrapolate(
+template<typename InputType, typename OutputType, unsigned int nchan_batch, bool extrapolate>
+void dedisperse_optimized(
     unsigned int ndm,
     unsigned int nfreq,
     unsigned int nchan,
@@ -211,23 +211,57 @@ void dedisperse_extrapolate(
         // Loop over spin frequencies
         for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
         {
-            // Sum over observing frequencies
-            OutputType sum_real = 0;
-            OutputType sum_imag = 0;
+            // Partial sums
+            float sums_real[nchan_batch];
+            float sums_imag[nchan_batch];
+            memset(sums_real, 0, nchan_batch * sizeof(float));
+            memset(sums_imag, 0, nchan_batch * sizeof(float));
 
-            unsigned int nchan_batch = 32;
             for (unsigned int ichan_outer = 0; ichan_outer < nchan; ichan_outer += nchan_batch)
             {
-                // Compute initial phasor value
-                float phase0 = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]);
-                float phasor_real = cosf(phase0);
-                float phasor_imag = sinf(phase0);
+                float phasors_real[nchan_batch];
+                float phasors_imag[nchan_batch];
 
-                // Compute delta phasor
-                float phase1 = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer + 1]);
-                float phase_delta = phase1 - phase0;
-                float phasor_delta_real = cosf(phase_delta);
-                float phasor_delta_imag = sinf(phase_delta);
+                if (extrapolate)
+                {
+                    // Compute initial phasor value
+                    float phase0 = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]);
+                    float phasor_real = cosf(phase0);
+                    float phasor_imag = sinf(phase0);
+
+                    // Compute delta phasor
+                    float phase1 = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer + 1]);
+                    float phase_delta = phase1 - phase0;
+                    float phasor_delta_real = cosf(phase_delta);
+                    float phasor_delta_imag = sinf(phase_delta);
+
+                    // Compute phasors
+                    for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                    {
+                        phasors_real[ichan_inner] = phasor_real;
+                        phasors_imag[ichan_inner] = phasor_imag;
+                        float temp_real = phasor_real;
+                        float temp_imag = phasor_imag;
+                        phasor_real = temp_real * phasor_delta_real
+                                    - temp_imag * phasor_delta_imag;
+                        phasor_imag = temp_real * phasor_delta_imag
+                                    + temp_imag * phasor_delta_real;
+                    }
+                } else {
+                    // Compute phases
+                    float phases[nchan_batch];
+                    for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                    {
+                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]);
+                    }
+
+                    // Compute phasors
+                    for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                    {
+                        phasors_real[ichan_inner] = cosf(phases[ichan_inner]);
+                        phasors_imag[ichan_inner] = sinf(phases[ichan_inner]);
+                    }
+                }
 
                 // Loop over observing frequencies
                 for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
@@ -239,26 +273,28 @@ void dedisperse_extrapolate(
                     float sample_imag = in_imag[ifreq][ichan];
 
                     // Update sum
-                    sum_real += sample_real * phasor_real;
-                    sum_real -= sample_imag * phasor_imag;
-                    sum_imag += sample_real * phasor_imag;
-                    sum_imag += sample_imag * phasor_real;
-
-                    // Update phasor
-                    float temp_real = phasor_real;
-                    float temp_imag = phasor_imag;
-                    phasor_real = temp_real * phasor_delta_real
-                                - temp_imag * phasor_delta_imag;
-                    phasor_imag = temp_real * phasor_delta_imag
-                                + temp_imag * phasor_delta_real;
+                    sums_real[ichan_inner] += sample_real * phasors_real[ichan_inner];
+                    sums_real[ichan_inner] -= sample_imag * phasors_imag[ichan_inner];
+                    sums_imag[ichan_inner] += sample_real * phasors_imag[ichan_inner];
+                    sums_imag[ichan_inner] += sample_imag * phasors_real[ichan_inner];
                 }
+            }
+
+            // Sum over observing frequencies
+            OutputType sum_real = 0;
+            OutputType sum_imag = 0;
+            for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+            {
+                sum_real += sums_real[ichan_inner];
+                sum_imag += sums_imag[ichan_inner];
             }
 
             // Store sum
             auto* dst_ptr = &out[idm * out_stride];
             dst_ptr[ifreq] = {sum_real, sum_imag};
         }
-    }}
+    }
+}
 
 // Public interface
 void FDDPlan::execute(
@@ -327,7 +363,7 @@ void FDDPlan::execute(
 
     // Dedispersion in frequency domain
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
-    dedisperse_extrapolate<float, float>(
+    dedisperse_optimized<float, float, 32, true>(
         ndm, nfreq, nchan,                      // data dimensions
         dt,                                     // sample time
         h_spin_frequencies.data(),              // spin frequencies
