@@ -229,19 +229,18 @@ void FDDPlan::execute(
         nsamp_padded,    // stride
         data_nu.data()); // data
 
-    // Spin frequency
-    float f[nfreq];
-    #pragma omp parallel for
-    for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
+    // Generate spin frequency table
+    if (h_spin_frequencies.size() != nfreq)
     {
-        f[ifreq] = ifreq * (1.0/(nsamp*dt));
+        generate_spin_frequency_table(nfreq, nsamp, dt);
     }
 
+    // Dedispersion in frequency domain
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
     dedisperse_reference<float, float>(
         ndm, nfreq, nchan,                      // data dimensions
         dt,                                     // sample time
-        f,                                      // spin frequencies
+        h_spin_frequencies.data(),              // spin frequencies
         h_dm_list.data(),                       // DMs
         h_delay_table.data(),                   // delay table
         nsamp_padded/2,                         // in stride
@@ -265,5 +264,21 @@ void FDDPlan::execute(
         data_dm.data(),               // input
         (float *) out);
 }
+
+// Private helper functions
+void FDDPlan::generate_spin_frequency_table(
+    dedisp_size nfreq,
+    dedisp_size nsamp,
+    dedisp_float dt)
+{
+    h_spin_frequencies.resize(nfreq);
+
+    #pragma omp parallel for
+    for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++)
+    {
+        h_spin_frequencies[ifreq] = ifreq * (1.0/(nsamp*dt));
+    }
+}
+
 
 } // end namespace dedisp

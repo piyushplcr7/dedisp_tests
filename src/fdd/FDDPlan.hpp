@@ -23,6 +23,16 @@ public:
         size_type        in_nbits,
         byte_type*       out,
         size_type        out_nbits);
+
+private:
+    // Helper methods
+    void generate_spin_frequency_table(
+        dedisp_size nfreq,
+        dedisp_size nsamp,
+        dedisp_float dt);
+
+    // Host arrays
+    std::vector<dedisp_float> h_spin_frequencies; // size = nfreq
 };
 
 } // end namespace dedisp
