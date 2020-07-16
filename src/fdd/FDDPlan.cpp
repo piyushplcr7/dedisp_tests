@@ -123,10 +123,10 @@ void dedisperse_reference(
     unsigned int ndm,
     unsigned int nfreq,
     unsigned int nchan,
-    float numax, // highest observing frequency
-    float *nu,   // observing frequency
-    float *f,    // spin frequency
-    float *dms,  // DMs
+    float dt,      // sample time
+    float *f,      // spin frequencies
+    float *dms,    // DMs
+    float *delays, // delay table
     size_t in_stride,
     size_t out_stride,
     std::complex<InputType> *in,
@@ -139,7 +139,7 @@ void dedisperse_reference(
         float tdms[nchan];
         for (unsigned int ichan = 0; ichan < nchan; ichan++)
         {
-            tdms[ichan] = dms[idm] * (pow(nu[ichan], -2) - pow(numax, -2)) / 2.41e-4;
+            tdms[ichan] = dms[idm] * delays[ichan] * dt;
         }
 
         // Loop over spin frequencies
@@ -229,21 +229,6 @@ void FDDPlan::execute(
         nsamp_padded,    // stride
         data_nu.data()); // data
 
-    // Frequency axis (runs from high to low)
-    float nu[nchan];
-    #pragma omp parallel for
-    for (unsigned int ichan = 0; ichan < nchan; ichan++)
-    {
-        nu[ichan] = numax + ichan * dnu;
-    }
-
-    // DMs to dedisperse over
-    float dms[ndm];
-    for (unsigned int idm = 0; idm < ndm; idm++)
-    {
-        dms[idm] = h_dm_list[idm];
-    }
-
     // Spin frequency
     float f[nfreq];
     #pragma omp parallel for
@@ -255,7 +240,10 @@ void FDDPlan::execute(
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
     dedisperse_reference<float, float>(
         ndm, nfreq, nchan,                      // data dimensions
-        numax, nu, f, dms,                      // misc parameters
+        dt,                                     // sample time
+        f,                                      // spin frequencies
+        h_dm_list.data(),                       // DMs
+        h_delay_table.data(),                   // delay table
         nsamp_padded/2,                         // in stride
         nsamp_padded/2,                         // out stride
         (std::complex<float> *) data_nu.data(), // input
