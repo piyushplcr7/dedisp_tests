@@ -48,7 +48,7 @@ void dedisperse_kernel(
     {
         // Load output sample
         size_t out_idx = idm_block * out_stride + ifreq;
-        float2 sum = make_float2(0, 0);
+        float2 sum = d_out[out_idx];
 
         // Load spin frequency
         float f = d_spin_frequencies[ifreq];
