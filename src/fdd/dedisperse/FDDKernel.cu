@@ -52,19 +52,28 @@ void FDDKernel::launch(
     dim3 block(128);
 
     // Execute the kernel
-    dedisperse_kernel<<<grid, block, 0, stream>>>(
-        nfreq,
-        nchan,
-        dt,
-        (float *) d_spin_frequencies,
-        (float *) d_dm_list,
-        in_stride,
-        out_stride,
-        (const float2 *) d_in,
-        (float2 *) d_out,
-        idm_start,
-        ichan_start
-    );
+    #define CALL_KERNEL(NCHAN)        \
+    dedisperse_kernel<NCHAN>          \
+    <<<grid, block, 0, stream>>>(     \
+        nfreq,                        \
+        dt,                           \
+        (float *) d_spin_frequencies, \
+        (float *) d_dm_list,          \
+        in_stride,                    \
+        out_stride,                   \
+        (const float2 *) d_in,        \
+        (float2 *) d_out,             \
+        idm_start,                    \
+        ichan_start);
+
+    switch (nchan)
+    {
+        case  16: CALL_KERNEL(16); break;
+        case  32: CALL_KERNEL(32); break;
+        case  64: CALL_KERNEL(64); break;
+        case 128: CALL_KERNEL(128); break;
+        case 256: CALL_KERNEL(256); break;
+    }
 }
 
 /*

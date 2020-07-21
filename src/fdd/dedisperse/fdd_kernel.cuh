@@ -24,10 +24,10 @@ inline __device__ void operator+=(float2 &a, float2 b) {
 /*
  * dedisperse kernel
  */
+template<unsigned int NCHAN>
 __global__
 void dedisperse_kernel(
     size_t        nfreq,
-    size_t        nchan,
     float         dt,
     const float*  d_spin_frequencies,
     const float*  d_dm_list,
