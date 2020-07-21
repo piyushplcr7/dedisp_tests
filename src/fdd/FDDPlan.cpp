@@ -437,10 +437,12 @@ void FDDPlan::execute_gpu(
     // Maximum number of DMs computed in one gulp
     unsigned int ndm_gulp_max = 128;
     unsigned int ndm_gulp_current = ndm_gulp_max;
+    unsigned int ndm_fft_batch = 32;
 
     // Maximum number of channels processed in one gulp
-    unsigned int nchan_gulp_max = 256;
+    unsigned int nchan_gulp_max = 128;
     unsigned int nchan_gulp_current = nchan_gulp_max;
+    unsigned int nchan_fft_batch = 32;
 
     // Compute derived counts
     dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) *
@@ -471,7 +473,7 @@ void FDDPlan::execute_gpu(
         rnembed, 1, rnembed[0], // inembed, istride, idist
         cnembed, 1, cnembed[0], // onembed, ostride, odist
         CUFFT_R2C,              // type
-        nchan_gulp_max);        // batch
+        nchan_fft_batch);       // batch
     if (result != CUFFT_SUCCESS)
     {
         throw std::runtime_error("Error creating real to complex FFT plan.");
@@ -482,7 +484,7 @@ void FDDPlan::execute_gpu(
         cnembed, 1, cnembed[0], // inembed, istride, idist
         rnembed, 1, rnembed[0], // onembed, ostride, odist
         CUFFT_C2R,              // type
-        ndm_gulp_max);          // batch
+        ndm_fft_batch);         // batch
     if (result != CUFFT_SUCCESS)
     {
         throw std::runtime_error("Error creating complex to real FFT plan.");
@@ -601,7 +603,12 @@ void FDDPlan::execute_gpu(
         //--------------------------------------------------------------------------------
 
         // FFT data (real to complex) along time axis
-        cufftExecR2C(plan_r2c, d_data_nu, d_data_nu);
+        for (unsigned int i = 0; i < nchan_gulp_max/nchan_fft_batch; i++)
+        {
+            cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
+            cufftComplex *odata = (cufftComplex *) idata;
+            cufftExecR2C(plan_r2c, idata, odata);
+        }
 
         // Process all DMs
         for (unsigned int idm_start = 0; idm_start < ndm; idm_start += ndm_gulp_current)
@@ -655,7 +662,12 @@ void FDDPlan::execute_gpu(
             if (ichan_end == nchan)
             {
                 // Fourier transform results back to time domain
-                cufftExecC2R(plan_c2r, d_data_dm, d_data_dm);
+                for (unsigned int i = 0; i < ndm_gulp_max/ndm_fft_batch; i++)
+                {
+                    cufftReal    *odata = (cufftReal *) d_data_dm.data() + i * nsamp_padded * ndm_fft_batch;
+                    cufftComplex *idata = (cufftComplex *) odata;
+                    cufftExecC2R(plan_c2r, idata, odata);
+                }
 
                 // FFT scaling
                 kernel.scale(
