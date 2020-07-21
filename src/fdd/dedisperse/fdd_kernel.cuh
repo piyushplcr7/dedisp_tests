@@ -42,9 +42,14 @@ void dedisperse_kernel(
     unsigned int idm_block = blockIdx.x;
     unsigned int idm = idm_start + idm_block;
 
+    // Frequency offset for the current block
+    unsigned int ifreq_block = blockIdx.y * blockDim.x;
+    unsigned int ifreq_increment = gridDim.y * blockDim.x;
+    unsigned int ifreq = ifreq_block + threadIdx.x;
+
     const float dm = d_dm_list[idm];
 
-    for (unsigned int ifreq = threadIdx.x; ifreq < nfreq; ifreq += blockDim.x)
+    for (; ifreq < nfreq; ifreq += ifreq_increment)
     {
         // Load output sample
         size_t out_idx = idm_block * out_stride + ifreq;
@@ -54,7 +59,7 @@ void dedisperse_kernel(
         float f = d_spin_frequencies[ifreq];
 
         // Add to output sample
-        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        for (unsigned int ichan = 0; ichan < NCHAN; ichan++)
         {
             // Compute DM delay
             float tdm = dm * c_delay_table[ichan_start + ichan] * dt;
