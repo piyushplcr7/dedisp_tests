@@ -6,6 +6,8 @@
 // Constant reference for input data
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 
+// The number of DMs computed by a single thread block
+#define UNROLL_NDM 8
 
 /*
  * Helper functions
@@ -40,20 +42,32 @@ void dedisperse_kernel(
 {
     // The DM that the current block processes
     unsigned int idm_block = blockIdx.x;
-    unsigned int idm = idm_start + idm_block;
+    unsigned int idm_offset = gridDim.x;
 
     // Frequency offset for the current block
     unsigned int ifreq_block = blockIdx.y * blockDim.x;
     unsigned int ifreq_increment = gridDim.y * blockDim.x;
     unsigned int ifreq = ifreq_block + threadIdx.x;
 
-    const float dm = d_dm_list[idm];
+    // Load DMs
+    float dms[UNROLL_NDM];
+    for (unsigned int i = 0; i < UNROLL_NDM; i++)
+    {
+        unsigned int idm = idm_start + idm_block + (i * idm_offset);
+        dms[i] = d_dm_list[idm];
+    }
 
     for (; ifreq < nfreq; ifreq += ifreq_increment)
     {
-        // Load output sample
-        size_t out_idx = idm_block * out_stride + ifreq;
-        float2 sum = d_out[out_idx];
+        // Load output samples
+        float2 sums[UNROLL_NDM];
+        #pragma unroll
+        for (unsigned int i = 0; i < UNROLL_NDM; i++)
+        {
+            unsigned int idm = idm_block + i * idm_offset;
+            size_t out_idx = idm * out_stride + ifreq;
+            sums[i] = d_out[out_idx];
+        }
 
         // Load spin frequency
         float f = d_spin_frequencies[ifreq];
@@ -61,25 +75,35 @@ void dedisperse_kernel(
         // Add to output sample
         for (unsigned int ichan = 0; ichan < NCHAN; ichan++)
         {
-            // Compute DM delay
-            float tdm = dm * c_delay_table[ichan_start + ichan] * dt;
-
-            // Compute phase
-            float phase = 2.0f * ((float) M_PI) * f * tdm;
-
-            // Compute phasor
-            float2 phasor = make_float2(cosf(phase), sinf(phase));
-
             // Load input sample
             size_t in_idx = ichan * in_stride + ifreq;
             float2 sample = d_in[in_idx];
 
-            // Complex multiply add
-            sum += sample * phasor;
+            #pragma unroll
+            for (unsigned int i = 0; i < UNROLL_NDM; i++)
+            {
+                // Compute DM delay
+                float tdm = dms[i] * c_delay_table[ichan_start + ichan] * dt;
+
+                // Compute phase
+                float phase = 2.0f * ((float) M_PI) * f * tdm;
+
+                // Compute phasor
+                float2 phasor = make_float2(cosf(phase), sinf(phase));
+
+                // Complex multiply add
+                sums[i] += sample * phasor;
+            }
         } // end for ichan
 
         // Store result
-        d_out[out_idx] = sum;
+        #pragma unroll
+        for (unsigned int i = 0; i < UNROLL_NDM; i++)
+        {
+            unsigned int idm = idm_block + i * idm_offset;
+            size_t out_idx = idm * out_stride + ifreq;
+            d_out[out_idx] = sums[i];
+        }
     } // end if ifreq
 } // end dedisperse_kernel
 

@@ -48,7 +48,7 @@ void FDDKernel::launch(
     cudaStream_t         stream)
 {
     // Define thread decomposition
-    dim3 grid(ndm, 8);
+    dim3 grid(ndm/UNROLL_NDM, 4*UNROLL_NDM);
     dim3 block(128);
 
     // Execute the kernel
