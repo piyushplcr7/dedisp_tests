@@ -455,11 +455,14 @@ void FDDPlan::execute_gpu(
     // The number of channel words proccessed in one gulp
     dedisp_size nchan_words_gulp = nchan_gulp_max / chans_per_word;
 
+    // Allocate host memory
+    cu::HostMemory   h_data_in(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+    cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
+
     // Allocate device memory
     cu::DeviceMemory d_data_in(nsamp * nchan_words_gulp * sizeof(dedisp_word));
     cu::DeviceMemory d_data_nu(nchan_gulp_max * nsamp_padded * sizeof(float));
     cu::DeviceMemory d_data_dm(ndm_gulp_max * nsamp_padded * sizeof(float));
-    cu::HostMemory h_data_dm(ndm * nsamp_padded * sizeof(float));
 
     // Prepare cuFFT plans
     cufftHandle plan_r2c, plan_c2r;
@@ -546,13 +549,17 @@ void FDDPlan::execute_gpu(
         dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
         dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
         dedisp_size gulp_chan_byte_idx = (ichan_start/chans_per_word) * sizeof(dedisp_word);
-        htodstream->memcpyHtoD2DAsync(
-            d_data_in,                   // dst
+        memcpy2D(
+            h_data_in,                   // dst
             dst_stride,                  // dst width
             in + gulp_chan_byte_idx,     // src
             src_stride,                  // src width
             dst_stride,                  // width bytes
             nsamp);                      // height
+        htodstream->memcpyHtoDAsync(
+            d_data_in,         // dst
+            h_data_in,         // src
+            h_data_in.size()); // size
         htodstream->record(inputCopied);
 
         executestream->waitEvent(inputCopied);
