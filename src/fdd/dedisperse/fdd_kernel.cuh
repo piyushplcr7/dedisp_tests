@@ -3,6 +3,9 @@
 // sizeof(dedisp_float) = 4
 #define DEDISP_MAX_NCHANS 16384
 
+// Number of threads in the x dimension of a thread block
+#define BLOCK_DIM_X 128
+
 // Constant reference for input data
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 
@@ -55,7 +58,6 @@ void dedisperse_kernel(
     // Frequency offset for the current block
     unsigned int ifreq_block = blockIdx.y * blockDim.x;
     unsigned int ifreq_increment = gridDim.y * blockDim.x;
-    unsigned int ifreq = ifreq_block + threadIdx.x;
 
     // Load DMs
     float dms[UNROLL_NDM];
@@ -65,8 +67,14 @@ void dedisperse_kernel(
         dms[i] = d_dm_list[idm];
     }
 
-    for (; ifreq < nfreq; ifreq += ifreq_increment)
+    // Shared memory
+    __shared__ float4 s_temp[NCHAN_BATCH][BLOCK_DIM_X/2];
+
+    for (unsigned int ifreq_outer = ifreq_block; ifreq_outer < nfreq; ifreq_outer += ifreq_increment)
     {
+        unsigned int ifreq_inner = threadIdx.x;
+        unsigned int ifreq = ifreq_outer + ifreq_inner;
+
         // Load output samples
         float2 sums[UNROLL_NDM];
         #pragma unroll
@@ -78,11 +86,28 @@ void dedisperse_kernel(
         }
 
         // Load spin frequency
-        float f = d_spin_frequencies[ifreq];
+        float f;
+        if (ifreq < nfreq)
+        {
+            f = d_spin_frequencies[ifreq];
+        }
 
         // Add to output sample
         for (unsigned int ichan_outer = 0; ichan_outer < NCHAN; ichan_outer += NCHAN_BATCH)
         {
+            // Load samples from device memory to shared memory
+            __syncthreads();
+            for (unsigned int i = threadIdx.x; i < NCHAN_BATCH * (BLOCK_DIM_X/2); i += blockDim.x)
+            {
+                unsigned int ichan_inner = i / (BLOCK_DIM_X/2);
+                unsigned int ifreq_inner = i % (BLOCK_DIM_X/2);
+                unsigned int ichan = ichan_outer + ichan_inner;
+                size_t in_idx = ichan * in_stride + (ifreq - threadIdx.x);
+                float4 *sample_ptr = (float4 *) &d_in[in_idx];
+                s_temp[ichan_inner][ifreq_inner] = sample_ptr[ifreq_inner];
+            }
+            __syncthreads();
+
             if (extrapolate)
             {
                 // Compute initial and delta phasor values
@@ -103,9 +128,7 @@ void dedisperse_kernel(
                 for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH; ichan_inner++)
                 {
                     // Load input sample
-                    unsigned int ichan = ichan_outer + ichan_inner;
-                    size_t in_idx = ichan * in_stride + ifreq;
-                    float2 sample = d_in[in_idx];
+                    float2 sample = ((float2 *) &s_temp[ichan_inner][threadIdx.x/2])[threadIdx.x % 2];
 
                     #pragma unroll
                     for (unsigned int i = 0; i < UNROLL_NDM; i++)
@@ -118,13 +141,11 @@ void dedisperse_kernel(
                     }
                 } // end for ichan_inner
             } else {
-                #pragma unroll
                 for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH; ichan_inner++)
                 {
                     // Load input sample
                     unsigned int ichan = ichan_outer + ichan_inner;
-                    size_t in_idx = ichan * in_stride + ifreq;
-                    float2 sample = d_in[in_idx];
+                    float2 sample = ((float2 *) &s_temp[ichan_inner][threadIdx.x/2])[threadIdx.x % 2];
 
                     #pragma unroll
                     for (unsigned int i = 0; i < UNROLL_NDM; i++)
@@ -146,14 +167,17 @@ void dedisperse_kernel(
         } // end for ichan_outer
 
         // Store result
-        #pragma unroll
-        for (unsigned int i = 0; i < UNROLL_NDM; i++)
+        if (ifreq < nfreq)
         {
-            unsigned int idm = idm_block + i * idm_offset;
-            size_t out_idx = idm * out_stride + ifreq;
-            d_out[out_idx] = sums[i];
-        }
-    } // end if ifreq
+            #pragma unroll
+            for (unsigned int i = 0; i < UNROLL_NDM; i++)
+            {
+                unsigned int idm = idm_block + i * idm_offset;
+                size_t out_idx = idm * out_stride + ifreq;
+                d_out[out_idx] = sums[i];
+            }
+        } // end if ifreq
+    } // end for ifreq_outer
 } // end dedisperse_kernel
 
 

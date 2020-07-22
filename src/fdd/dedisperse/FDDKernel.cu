@@ -49,7 +49,7 @@ void FDDKernel::launch(
 {
     // Define thread decomposition
     dim3 grid(ndm/UNROLL_NDM, 4*UNROLL_NDM);
-    dim3 block(128);
+    dim3 block(BLOCK_DIM_X);
 
     // Execute the kernel
     #define CALL_KERNEL(NCHAN)        \
