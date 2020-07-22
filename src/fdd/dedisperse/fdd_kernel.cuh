@@ -9,6 +9,9 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 // The number of DMs computed by a single thread block
 #define UNROLL_NDM 8
 
+// The factor with which the loop over observing channels is unrolled
+#define NCHAN_BATCH 8
+
 /*
  * Helper functions
  */
@@ -22,11 +25,16 @@ inline __device__ void operator+=(float2 &a, float2 b) {
     a.y += b.y;
 }
 
+inline __device__ void operator*=(float2 &a, float2 b) {
+    float2 c = a * b;
+    a.x = c.x;
+    a.y = c.y;
+}
 
 /*
  * dedisperse kernel
  */
-template<unsigned int NCHAN>
+template<unsigned int NCHAN, bool extrapolate>
 __global__
 void dedisperse_kernel(
     size_t        nfreq,
@@ -73,28 +81,69 @@ void dedisperse_kernel(
         float f = d_spin_frequencies[ifreq];
 
         // Add to output sample
-        for (unsigned int ichan = 0; ichan < NCHAN; ichan++)
+        for (unsigned int ichan_outer = 0; ichan_outer < NCHAN; ichan_outer += NCHAN_BATCH)
         {
-            // Load input sample
-            size_t in_idx = ichan * in_stride + ifreq;
-            float2 sample = d_in[in_idx];
-
-            #pragma unroll
-            for (unsigned int i = 0; i < UNROLL_NDM; i++)
+            if (extrapolate)
             {
-                // Compute DM delay
-                float tdm = dms[i] * c_delay_table[ichan_start + ichan] * dt;
+                // Compute initial and delta phasor values
+                float2 phasors[UNROLL_NDM];
+                float2 phasors_delta[UNROLL_NDM];
+                for (unsigned int i = 0; i < UNROLL_NDM; i++)
+                {
+                    float tdm0 = dms[i] * c_delay_table[ichan_start + ichan_outer + 0] * dt;
+                    float tdm1 = dms[i] * c_delay_table[ichan_start + ichan_outer + 1] * dt;
+                    float phase0 = 2.0f * ((float) M_PI) * f * tdm0;
+                    float phase1 = 2.0f * ((float) M_PI) * f * tdm1;
+                    float phase_delta = phase1 - phase0;
+                    phasors[i]       = make_float2(cosf(phase0), sinf(phase0));
+                    phasors_delta[i] = make_float2(cosf(phase_delta), sinf(phase_delta));
+                }
 
-                // Compute phase
-                float phase = 2.0f * ((float) M_PI) * f * tdm;
+                #pragma unroll
+                for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH; ichan_inner++)
+                {
+                    // Load input sample
+                    unsigned int ichan = ichan_outer + ichan_inner;
+                    size_t in_idx = ichan * in_stride + ifreq;
+                    float2 sample = d_in[in_idx];
 
-                // Compute phasor
-                float2 phasor = make_float2(cosf(phase), sinf(phase));
+                    #pragma unroll
+                    for (unsigned int i = 0; i < UNROLL_NDM; i++)
+                    {
+                        // Update sum
+                        sums[i] += sample * phasors[i];
 
-                // Complex multiply add
-                sums[i] += sample * phasor;
-            }
-        } // end for ichan
+                        // Update phasor
+                        phasors[i] *= phasors_delta[i];
+                    }
+                } // end for ichan_inner
+            } else {
+                #pragma unroll
+                for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH; ichan_inner++)
+                {
+                    // Load input sample
+                    unsigned int ichan = ichan_outer + ichan_inner;
+                    size_t in_idx = ichan * in_stride + ifreq;
+                    float2 sample = d_in[in_idx];
+
+                    #pragma unroll
+                    for (unsigned int i = 0; i < UNROLL_NDM; i++)
+                    {
+                        // Compute DM delay
+                        float tdm = dms[i] * c_delay_table[ichan_start + ichan] * dt;
+
+                        // Compute phase
+                        float phase = 2.0f * ((float) M_PI) * f * tdm;
+
+                        // Compute phasor
+                        float2 phasor = make_float2(cosf(phase), sinf(phase));
+
+                        // Update sum
+                        sums[i] += sample * phasor;
+                    }
+                } // end for ichan_inner
+            } // end if extrapolate
+        } // end for ichan_outer
 
         // Store result
         #pragma unroll
