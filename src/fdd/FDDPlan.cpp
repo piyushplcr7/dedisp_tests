@@ -4,9 +4,14 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <assert.h>
 
 #include <fftw3.h>
 #include <omp.h>
+#include <cufft.h>
+
+#include "unpack/unpack.h"
+#include "dedisperse/FDDKernel.hpp"
 
 namespace dedisp
 {
@@ -252,7 +257,7 @@ void dedisperse_optimized(
                     float phases[nchan_batch];
                     for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
                     {
-                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]);
+                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]); // + ichan_inner?
                     }
 
                     // Compute phasors
@@ -298,6 +303,16 @@ void dedisperse_optimized(
 
 // Public interface
 void FDDPlan::execute(
+    size_type        nsamps,
+    const byte_type* in,
+    size_type        in_nbits,
+    byte_type*       out,
+    size_type        out_nbits)
+{
+    execute_gpu(nsamps, in, in_nbits, out, out_nbits);
+}
+
+void FDDPlan::execute_cpu(
     size_type        nsamps,
     const byte_type* in,
     size_type        in_nbits,
@@ -391,6 +406,315 @@ void FDDPlan::execute(
         (float *) out);
 }
 
+void FDDPlan::execute_gpu(
+    size_type        nsamps,
+    const byte_type* in,
+    size_type        in_nbits,
+    byte_type*       out,
+    size_type        out_nbits)
+{
+    enum {
+        BITS_PER_BYTE  = 8,
+        BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
+    };
+
+    assert(in_nbits == 8);
+    assert(out_nbits == 32);
+
+    // Parameters
+    float dt           = m_dt;          // sample time
+    unsigned int nchan = m_nchans;      // number of observering frequencies
+    unsigned int nsamp = nsamps;        // number of time samples
+    unsigned int nfreq = (nsamp/2 + 1); // number of spin frequencies
+    unsigned int ndm   = m_dm_count;    // number of DMs
+
+    // Compute the number of output samples
+    unsigned int nsamp_computed = nsamp - m_max_delay;
+
+    // Compute padded number of samples (for r2c transformation)
+    unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
+
+    // Maximum number of DMs computed in one gulp
+    unsigned int ndm_gulp_max = 128;
+    unsigned int ndm_gulp_current = ndm_gulp_max;
+    unsigned int ndm_fft_batch = 32;
+
+    // Maximum number of channels processed in one gulp
+    unsigned int nchan_gulp_max = 128;
+    unsigned int nchan_gulp_current = nchan_gulp_max;
+    unsigned int nchan_fft_batch = 32;
+
+    // Compute derived counts
+    dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) *
+                                                    BITS_PER_BYTE);
+    dedisp_size chans_per_word = sizeof(dedisp_word)*BITS_PER_BYTE / in_nbits;
+
+    // The number of channel words in the input
+    dedisp_size nchan_words = nchan / chans_per_word;
+
+    // The number of channel words proccessed in one gulp
+    dedisp_size nchan_words_gulp = nchan_gulp_max / chans_per_word;
+
+    // Allocate host memory
+    cu::HostMemory   h_data_in(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+    cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
+
+    // Allocate device memory
+    cu::DeviceMemory d_data_in(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+    cu::DeviceMemory d_data_nu(nchan_gulp_max * nsamp_padded * sizeof(float));
+    cu::DeviceMemory d_data_dm(ndm_gulp_max * nsamp_padded * sizeof(float));
+
+    // Prepare cuFFT plans
+    cufftHandle plan_r2c, plan_c2r;
+    cufftResult result;
+    int n[] = {(int) nsamp};
+    int rnembed[] = {(int) nsamp_padded};   // width in real elements
+    int cnembed[] = {(int) nsamp_padded/2}; // width in complex elements
+    result = cufftPlanMany(
+        &plan_r2c,              // plan
+        1, n,                   // rank, n
+        rnembed, 1, rnembed[0], // inembed, istride, idist
+        cnembed, 1, cnembed[0], // onembed, ostride, odist
+        CUFFT_R2C,              // type
+        nchan_fft_batch);       // batch
+    if (result != CUFFT_SUCCESS)
+    {
+        throw std::runtime_error("Error creating real to complex FFT plan.");
+    }
+    result = cufftPlanMany(
+        &plan_c2r,              // plan
+        1, n,                   // rank, n
+        cnembed, 1, cnembed[0], // inembed, istride, idist
+        rnembed, 1, rnembed[0], // onembed, ostride, odist
+        CUFFT_C2R,              // type
+        ndm_fft_batch);         // batch
+    if (result != CUFFT_SUCCESS)
+    {
+        throw std::runtime_error("Error creating complex to real FFT plan.");
+    }
+    cufftSetStream(plan_r2c, *executestream);
+    cufftSetStream(plan_c2r, *executestream);
+
+    // Generate spin frequency table
+    if (h_spin_frequencies.size() != nfreq)
+    {
+        generate_spin_frequency_table(nfreq, nsamp, dt);
+        d_spin_frequencies.resize(nfreq * sizeof(dedisp_float));
+        htodstream->memcpyHtoDAsync(d_spin_frequencies, h_spin_frequencies.data(), d_spin_frequencies.size());
+    }
+
+    // Events
+    cu::Event inputCopied, computeFinished, outputCopied;
+
+    //--------------------------------------------------------------------------------
+    // Debug
+    #if 0
+    std::vector<float> data_nu;
+    data_nu.resize((size_t) nchan * nsamp_padded);
+    transpose_data<const byte_type, float>(
+    nchan,           // height
+    nsamp,           // width
+    nchan,           // in_stride
+    nsamp_padded,    // out_stride
+    127.5,           // offset
+    nchan,           // scale
+    in,              // in
+    data_nu.data()); // out
+    #endif
+    //--------------------------------------------------------------------------------
+
+    // Initialize FDDKernel
+    FDDKernel kernel;
+    kernel.copy_delay_table(
+        d_delay_table,
+        m_nchans * sizeof(dedisp_float),
+        0, *htodstream);
+
+    // Process all channels
+    std::cout << "Perform dedispersion in frequency domain" << std::endl;
+    for (unsigned ichan_start = 0; ichan_start < nchan; ichan_start += nchan_gulp_current)
+    {
+        // Compute current number of channels
+        nchan_gulp_current = ichan_start + nchan_gulp_current < nchan ?
+                             nchan_gulp_current : nchan - ichan_start;
+        unsigned int ichan_end = ichan_start + nchan_gulp_current;
+
+        // Info
+        std::cout << "Processing channel " << ichan_start << " to " << ichan_end << std::endl;
+
+        // Wait for input buffer to be free
+        htodstream->waitEvent(computeFinished);
+
+        // Copy input to device
+        dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
+        dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
+        dedisp_size gulp_chan_byte_idx = (ichan_start/chans_per_word) * sizeof(dedisp_word);
+        memcpy2D(
+            h_data_in,                   // dst
+            dst_stride,                  // dst width
+            in + gulp_chan_byte_idx,     // src
+            src_stride,                  // src width
+            dst_stride,                  // width bytes
+            nsamp);                      // height
+        htodstream->memcpyHtoDAsync(
+            d_data_in,         // dst
+            h_data_in,         // src
+            h_data_in.size()); // size
+        htodstream->record(inputCopied);
+
+        executestream->waitEvent(inputCopied);
+        transpose_unpack(
+            d_data_in,        // d_in
+            nchan_words_gulp, // input width
+            nsamp,            // input height
+            nchan_words_gulp, // in_stride
+            nsamp_padded,     // out_stride
+            d_data_nu,        // d_out
+            in_nbits, 32,     // in_nbits, out_nbits
+            1.0/nchan,        // scale
+            *executestream);  // stream
+
+        //--------------------------------------------------------------------------------
+        // Debug
+        #if 0
+        unsigned int k = 64;
+        std::vector<float> temp(nsamp_padded);
+        executestream->synchronize();
+        for (unsigned int y = 0; y < nchan_gulp_current; y++)
+        {
+            float *ptr = (float *) d_data_nu;
+            ptr += y * nsamp_padded;
+            executestream->memcpyDtoHAsync(temp.data(), ptr, nsamp_padded * sizeof(float));
+            bool stop = false;
+            for (unsigned int x = 0; x < k; x++)
+            {
+                float tst = temp[x];
+                float ref = data_nu[(y+ichan_start) * nsamp_padded + x];
+                if ((y == 0 || y == 61) && (ichan_start >= 896))
+                {
+                    std::clog << "[" << y << "," << x << "]\t"
+                              << tst << "\t"
+                              << ref << std::endl;
+                }
+                if (std::abs(ref - tst) > 1e-5)
+                {
+                    std::clog << "[" << y << "," << x << "]\t"
+                              << tst << " != " << ref << std::endl;
+                    stop = true;
+                }
+            }
+            if (stop)
+            break;
+        }
+        #endif
+        //--------------------------------------------------------------------------------
+
+        // FFT data (real to complex) along time axis
+        for (unsigned int i = 0; i < nchan_gulp_max/nchan_fft_batch; i++)
+        {
+            cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
+            cufftComplex *odata = (cufftComplex *) idata;
+            cufftExecR2C(plan_r2c, idata, odata);
+        }
+
+        // Process all DMs
+        for (unsigned int idm_start = 0; idm_start < ndm; idm_start += ndm_gulp_current)
+        {
+            // Compute current number of DMs
+            ndm_gulp_current = idm_start + ndm_gulp_current < ndm ?
+                               ndm_gulp_current : ndm - idm_start;
+            unsigned int idm_end = idm_start + ndm_gulp_current;
+
+            // Get pointer to DM output data on host
+            dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
+            dedisp_size dm_offset = idm_start * dm_stride;
+            void *h_dm_ptr = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+
+            // Info
+            std::cout << "Processing DM " << idm_start << " to " << idm_end << std::endl;
+
+            // Wait for output buffer to be free
+            dtohstream->synchronize();
+
+            if (ichan_start == 0)
+            {
+                // Initialize output to zero
+                d_data_dm.zero(*executestream);
+            } else {
+                // Copy partial result
+                htodstream->memcpyHtoDAsync(
+                    d_data_dm,                     // dst
+                    h_dm_ptr,                      // src
+                    ndm_gulp_current * dm_stride); // size
+                htodstream->record(inputCopied);
+                executestream->waitEvent(inputCopied);
+            }
+
+            // Dedispersion in frequency domain
+            kernel.launch(
+                ndm_gulp_current,   // ndm
+                nfreq,              // nfreq
+                nchan_gulp_current, // nchan
+                dt,                 // dt
+                d_spin_frequencies, // d_spin_frequencies
+                d_dm_list,          // d_dm_list
+                d_data_nu,          // d_in
+                d_data_dm,          // d_out
+                nsamp_padded/2,     // in stride
+                nsamp_padded/2,     // out stride
+                idm_start,          // idm_start
+                ichan_start,        // ichan_start
+                *executestream);    // stream
+
+            if (ichan_end == nchan)
+            {
+                // Fourier transform results back to time domain
+                for (unsigned int i = 0; i < ndm_gulp_max/ndm_fft_batch; i++)
+                {
+                    cufftReal    *odata = (cufftReal *) d_data_dm.data() + i * nsamp_padded * ndm_fft_batch;
+                    cufftComplex *idata = (cufftComplex *) odata;
+                    cufftExecC2R(plan_c2r, idata, odata);
+                }
+
+                // FFT scaling
+                kernel.scale(
+                    ndm_gulp_current, // height
+                    nsamp_computed,   // width
+                    nsamp_padded,     // stride
+                    d_data_dm,        // d_data
+                    *executestream);  // stream
+
+                // Copy output
+                dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
+                dedisp_size dst_offset = idm_start * dst_stride;
+                dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
+                executestream->record(computeFinished);
+                dtohstream->waitEvent(computeFinished);
+                dtohstream->memcpyDtoH2DAsync(
+                    out + dst_offset,  // dst
+                    dst_stride,        // dst width
+                    d_data_dm,         // src
+                    src_stride,        // src width
+                    dst_stride,        // width bytes
+                    ndm_gulp_current); // height
+                dtohstream->record(outputCopied);
+            } else {
+                // Stash the data for the current DM
+                executestream->record(computeFinished);
+                dtohstream->waitEvent(computeFinished);
+                dtohstream->memcpyDtoHAsync(
+                    h_dm_ptr,                      // dst
+                    d_data_dm,                     // src
+                    ndm_gulp_current * dm_stride); // size
+                dtohstream->record(outputCopied);
+            }
+        } // end for idm_start
+    } // end for ichan_start
+
+    // Wait for final memory transfer
+    dtohstream->synchronize();
+}
+
 // Private helper functions
 void FDDPlan::generate_spin_frequency_table(
     dedisp_size nfreq,
@@ -405,6 +729,5 @@ void FDDPlan::generate_spin_frequency_table(
         h_spin_frequencies[ifreq] = ifreq * (1.0/(nsamp*dt));
     }
 }
-
 
 } // end namespace dedisp
