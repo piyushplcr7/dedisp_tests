@@ -435,12 +435,12 @@ void FDDPlan::execute_gpu(
     unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
 
     // Maximum number of DMs computed in one gulp
-    unsigned int ndm_gulp_max = 128;
+    unsigned int ndm_gulp_max = 64;
     unsigned int ndm_gulp_current = ndm_gulp_max;
     unsigned int ndm_fft_batch = 32;
 
     // Maximum number of channels processed in one gulp
-    unsigned int nchan_gulp_max = 128;
+    unsigned int nchan_gulp_max = 64;
     unsigned int nchan_gulp_current = nchan_gulp_max;
     unsigned int nchan_fft_batch = 32;
 
@@ -460,15 +460,16 @@ void FDDPlan::execute_gpu(
 
     // Allocate device memory
     cu::DeviceMemory d_data_nu(nchan_gulp_max * nsamp_padded * sizeof(float));
-    cu::DeviceMemory d_data_dm(ndm_gulp_max * nsamp_padded * sizeof(float));
 
-    // Two input buffers for double buffering
+    // Two buffers for double buffering
     std::vector<cu::HostMemory> h_data_in_(2);
     std::vector<cu::DeviceMemory> d_data_in_(2);
+    std::vector<cu::DeviceMemory> d_data_dm_(2);
     for (unsigned int i = 0; i < 2; i ++)
     {
         h_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
         d_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+        d_data_dm_[i].resize(ndm_gulp_max * nsamp_padded * sizeof(float));
     }
 
     // Prepare cuFFT plans
@@ -540,11 +541,11 @@ void FDDPlan::execute_gpu(
         unsigned int nchan_gulp_current;
         void* h_in_ptr;
         void* d_in_pr;
+        void* d_data_dm_ptr;
         cu::Event inputStart, inputEnd;
         cu::Event computeStart, computeEnd;
-        cu::Event outputStart, outputEnd;
         cu::Event tempInputStart, tempInputEnd;
-        cu::Event tempOutputStart, tempOutputEnd;
+        cu::Event outputStart, outputEnd;
     };
 
     unsigned int nchan_gulps = nchan / nchan_gulp_max;
@@ -558,6 +559,7 @@ void FDDPlan::execute_gpu(
         job.nchan_gulp_current = std::min(nchan_gulp_max, nchan - job.ichan_start);
         job.h_in_ptr           = h_data_in_[gulp % 2];
         job.d_in_pr            = d_data_in_[gulp % 2];
+        job.d_data_dm_ptr      = d_data_dm_[gulp % 2];
     }
 
     // Process all channels
@@ -662,31 +664,32 @@ void FDDPlan::execute_gpu(
                                ndm_gulp_current : ndm - idm_start;
             unsigned int idm_end = idm_start + ndm_gulp_current;
 
-            // Get pointer to DM output data on host
+            // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = idm_start * dm_stride;
-            void *h_dm_ptr = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+            auto *h_data_dm_ptr = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+            auto *d_data_dm_ptr = (dedisp_float2 *) job.d_data_dm_ptr;
 
             // Info
             std::cout << "Processing DM " << idm_start << " to " << idm_end << std::endl;
 
             // Wait for temporary output from previous job to be copied
-            if (job_id > 0)
+            if (job_id > 1)
             {
-                auto& job_previous = jobs[job_id - 1];
-                job_previous.tempOutputEnd.synchronize();
+                auto& job_previous = jobs[job_id - 2];
+                job_previous.outputEnd.synchronize();
             }
 
             if (job.ichan_start == 0)
             {
                 // Initialize output to zero
-                d_data_dm.zero(*executestream);
+                executestream->zero(d_data_dm_ptr, ndm_gulp_max * dm_stride);
             } else {
                 // Copy partial result
                 htodstream->record(job.tempInputStart);
                 htodstream->memcpyHtoDAsync(
-                    d_data_dm,                     // dst
-                    h_dm_ptr,                      // src
+                    d_data_dm_ptr,                 // dst
+                    h_data_dm_ptr,                 // src
                     ndm_gulp_current * dm_stride); // size
                 htodstream->record(job.tempInputEnd);
                 executestream->waitEvent(job.tempInputEnd);
@@ -701,7 +704,7 @@ void FDDPlan::execute_gpu(
                 d_spin_frequencies, // d_spin_frequencies
                 d_dm_list,          // d_dm_list
                 d_data_nu,          // d_in
-                d_data_dm,          // d_out
+                d_data_dm_ptr,      // d_out
                 nsamp_padded/2,     // in stride
                 nsamp_padded/2,     // out stride
                 idm_start,          // idm_start
@@ -713,49 +716,45 @@ void FDDPlan::execute_gpu(
                 // Fourier transform results back to time domain
                 for (unsigned int i = 0; i < ndm_gulp_max/ndm_fft_batch; i++)
                 {
-                    cufftReal    *odata = (cufftReal *) d_data_dm.data() + i * nsamp_padded * ndm_fft_batch;
+                    cufftReal    *odata = (cufftReal *) d_data_dm_ptr + i * nsamp_padded * ndm_fft_batch;
                     cufftComplex *idata = (cufftComplex *) odata;
                     cufftExecC2R(plan_c2r, idata, odata);
                 }
 
                 // FFT scaling
                 kernel.scale(
-                    ndm_gulp_current, // height
-                    nsamp_computed,   // width
-                    nsamp_padded,     // stride
-                    d_data_dm,        // d_data
-                    *executestream);  // stream
-
-                // Copy output
-                dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
-                dedisp_size dst_offset = idm_start * dst_stride;
-                dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
-                executestream->record(job.computeEnd);
-                dtohstream->waitEvent(job.computeEnd);
-                dtohstream->memcpyDtoH2DAsync(
-                    out + dst_offset,  // dst
-                    dst_stride,        // dst width
-                    d_data_dm,         // src
-                    src_stride,        // src width
-                    dst_stride,        // width bytes
-                    ndm_gulp_current); // height
-                dtohstream->record(job.outputEnd);
-            } else {
-                // Stash the data for the current DM
-                executestream->record(job.computeEnd);
-                dtohstream->waitEvent(job.computeEnd);
-                dtohstream->record(job.tempOutputStart);
-                dtohstream->memcpyDtoHAsync(
-                    h_dm_ptr,                      // dst
-                    d_data_dm,                     // src
-                    ndm_gulp_current * dm_stride); // size
-                dtohstream->record(job.tempOutputEnd);
+                    ndm_gulp_current,        // height
+                    nsamp_computed,          // width
+                    nsamp_padded,            // stride
+                    (float *) d_data_dm_ptr, // d_data
+                    *executestream);         // stream
             }
+
+            // Copy output
+            executestream->record(job.computeEnd);
+            dtohstream->waitEvent(job.computeEnd);
+            dtohstream->record(job.outputStart);
+            dtohstream->memcpyDtoHAsync(
+                h_data_dm_ptr,                 // dst
+                d_data_dm_ptr,                 // src
+                ndm_gulp_current * dm_stride); // size
+            dtohstream->record(job.outputEnd);
         } // end for idm_start
     } // end for ichan_start
 
     // Wait for final memory transfer
     dtohstream->synchronize();
+
+    // Copy output
+    dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
+    dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
+    memcpy2D(
+        out,        // dst
+        dst_stride, // dst width
+        h_data_dm,  // src
+        src_stride, // src width
+        dst_stride, // width bytes
+        ndm);       // height
 }
 
 // Private helper functions
