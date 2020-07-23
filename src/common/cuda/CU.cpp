@@ -253,6 +253,10 @@ namespace cu {
         assertCudaCall(cudaEventRecord(event, m_stream));
     }
 
+    void Stream::zero(void *ptr, size_t size) {
+        assertCudaCall(cudaMemsetAsync(ptr, 0, size, m_stream));
+    }
+
     Stream::operator cudaStream_t() {
         return m_stream;
     }
