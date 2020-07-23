@@ -280,7 +280,7 @@ void DedispPlan::execute_guru(
         dedisp_size nsamps_padded_gulp;
         void *h_in_ptr;
         void *d_in_ptr;
-        std::mutex input_lock, output_lock;
+        std::mutex output_lock;
         cu::Event inputStart, inputEnd;
         cu::Event computeStart, computeEnd;
         cu::Event outputStart, outputEnd;
@@ -301,27 +301,8 @@ void DedispPlan::execute_guru(
                                               * samps_per_thread + m_max_delay;
         job.h_in_ptr             = h_in_[gulp % 2];
         job.d_in_ptr             = d_in_[gulp % 2];
-        job.input_lock.lock();
         job.output_lock.lock();
     }
-
-    std::thread input_thread = std::thread([&]()
-    {
-        for (auto& job : jobs)
-        {
-            // Copy input
-            memcpy2D(
-                job.h_in_ptr,                         // dst
-                in_buf_stride_words * BYTES_PER_WORD, // dst stride
-                in + job.gulp_samp_idx*in_stride,     // src
-                in_stride,                            // src stride
-                nchan_words * BYTES_PER_WORD,         // width bytes
-                job.nsamps_gulp);                     // height
-
-            // Signal that the job can start
-            job.input_lock.unlock();
-        }
-    });
 
     std::thread output_thread = std::thread([&]()
     {
@@ -360,23 +341,30 @@ void DedispPlan::execute_guru(
     // Gulp loop
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
-        // Copy the input data for the current job and next job (if any)
-        for (unsigned i = 0; i < 1; i++)
+        // Wait for previous job to finish to
+        // prevent overwriting its input buffer
+        if (job_id > 1)
         {
-            if (job_id + i < jobs.size())
-            {
-                auto& job = jobs[job_id + i];
-                job.input_lock.lock();
-                htodstream->record(job.inputStart);
-                htodstream->memcpyHtoDAsync(
-                    job.d_in_ptr, // dst
-                    job.h_in_ptr, // src
-                    nchan_words * job.nsamps_gulp * BYTES_PER_WORD);
-                htodstream->record(job.inputEnd);
-            }
+            auto& job_previous = jobs[job_id - 2];
+            job_previous.computeEnd.synchronize();
         }
 
         auto& job = jobs[job_id];
+
+        // Copy the input data for the current job
+        memcpy2D(
+            job.h_in_ptr,                         // dst
+            in_buf_stride_words * BYTES_PER_WORD, // dst stride
+            in + job.gulp_samp_idx*in_stride,     // src
+            in_stride,                            // src stride
+            nchan_words * BYTES_PER_WORD,         // width bytes
+            job.nsamps_gulp);                     // height
+        htodstream->record(job.inputStart);
+        htodstream->memcpyHtoDAsync(
+            job.d_in_ptr,                                    // dst
+            job.h_in_ptr,                                    // src
+            nchan_words * job.nsamps_gulp * BYTES_PER_WORD); // size
+        htodstream->record(job.inputEnd);
 
         // Transpose and unpack the words in the input
         executestream->waitEvent(job.inputEnd);
@@ -410,9 +398,9 @@ void DedispPlan::execute_guru(
         dtohstream->waitEvent(job.computeEnd);
         dtohstream->record(job.outputStart);
         dtohstream->memcpyDtoHAsync(
-            h_out, // dst
-            d_out, // src
-            out_count_gulp_max);
+            h_out,               // dst
+            d_out,               // src
+            out_count_gulp_max); // size
         dtohstream->record(job.outputEnd);
         job.output_lock.unlock();
     } // End of gulp loop
@@ -428,6 +416,7 @@ void DedispPlan::execute_guru(
         kernel_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
     }
 
+    cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
     cout << "Copy from time: " << copy_from_timer->ToString() << endl;
     cout << "Kernel time:    " << kernel_timer->ToString() << endl;
     auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
@@ -443,7 +432,6 @@ void DedispPlan::execute_guru(
 #endif
 
     // Wait for host threads to exit
-    if (input_thread.joinable()) { input_thread.join(); }
     if (output_thread.joinable()) { output_thread.join(); }
 }
 
