@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <iomanip>
 #include <thread>
 
 #include <assert.h>
@@ -456,7 +457,21 @@ void FDDPlan::execute_gpu(
     // The number of channel words proccessed in one gulp
     dedisp_size nchan_words_gulp = nchan_batch_max / chans_per_word;
 
+    // Events, markers, timers
+    cu::Event eStartAllocMem, eStopAllocMem;
+    cu::Event eStartGPU, eEndGPU;
+    cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
+    cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
+    cu::Marker mPrepFFT("cufft Plan Many", cu::Marker::yellow);
+    cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
+    cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
+    cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
+    float tInit, tGPU, tOutput;
+    clock_t startclock;
+
     // Allocate host memory
+    startclock = clock();
+    mAllocMem.start();
     cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
 
     // Allocate device memory
@@ -475,8 +490,10 @@ void FDDPlan::execute_gpu(
     {
         d_data_out_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
     }
+    mAllocMem.end();
 
     // Prepare cuFFT plans
+    mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
     int n[] = {(int) nsamp};
     int rnembed[] = {(int) nsamp_padded};   // width in real elements
@@ -512,20 +529,30 @@ void FDDPlan::execute_gpu(
         cufftSetStream(plan_c2r, *executestream);
     });
 
+    // Wait for cuFFT plans to be created
+    if (thread_r2c.joinable()) { thread_r2c.join(); }
+    if (thread_c2r.joinable()) { thread_c2r.join(); }
+    mPrepFFT.end();
+
     // Generate spin frequency table
+    mPrepSpinf.start();
     if (h_spin_frequencies.size() != nfreq)
     {
         generate_spin_frequency_table(nfreq, nsamp, dt);
         d_spin_frequencies.resize(nfreq * sizeof(dedisp_float));
         htodstream->memcpyHtoDAsync(d_spin_frequencies, h_spin_frequencies.data(), d_spin_frequencies.size());
     }
+    mPrepSpinf.end();
 
     // Initialize FDDKernel
     FDDKernel kernel;
+    mDelayTable.start();
     kernel.copy_delay_table(
         d_delay_table,
         m_nchans * sizeof(dedisp_float),
         0, *htodstream);
+    mDelayTable.end();
+    tInit = (double)(clock()-startclock)/CLOCKS_PER_SEC; // seconds
 
     struct ChannelData
     {
@@ -580,11 +607,9 @@ void FDDPlan::execute_gpu(
         }
     }
 
-    // Wait for cuFFT plans to be created
-    if (thread_r2c.joinable()) { thread_r2c.join(); }
-    if (thread_c2r.joinable()) { thread_c2r.join(); }
-
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
+    htodstream->record(eStartGPU);
+    mExeGPU.start(eStartGPU);
 
     // Process all dm batches
     for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size(); dm_job_id_outer += ndm_buffers)
@@ -776,8 +801,13 @@ void FDDPlan::execute_gpu(
 
     // Wait for final memory transfer
     dtohstream->synchronize();
+    executestream->record(eEndGPU);
+    mExeGPU.end(eEndGPU);
+    tGPU = eEndGPU.elapsedTime(eStartGPU); // ms
 
     // Copy output
+    startclock = clock();
+    mCopyMem.start();
     dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
     dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
     memcpy2D(
@@ -787,6 +817,14 @@ void FDDPlan::execute_gpu(
         src_stride, // src width
         dst_stride, // width bytes
         ndm);       // height
+    mCopyMem.end();
+    tOutput = (double)(clock()-startclock)/CLOCKS_PER_SEC; // seconds
+
+    // Print timings
+    std::cout << std::showpoint << std::setprecision(6);
+    std::cout << "GPU init took : " << tInit << " sec." << std::endl;
+    std::cout << "Dedispersion on GPU took " <<  tGPU * 1e-3 << " sec." << std::endl;
+    std::cout << "Output memcopy " << tOutput << " sec." << std::endl;
 }
 
 // Private helper functions
