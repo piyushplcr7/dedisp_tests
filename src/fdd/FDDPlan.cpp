@@ -4,8 +4,9 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
-#include <assert.h>
+#include <thread>
 
+#include <assert.h>
 #include <fftw3.h>
 #include <omp.h>
 #include <cufft.h>
@@ -477,34 +478,39 @@ void FDDPlan::execute_gpu(
 
     // Prepare cuFFT plans
     cufftHandle plan_r2c, plan_c2r;
-    cufftResult result;
     int n[] = {(int) nsamp};
     int rnembed[] = {(int) nsamp_padded};   // width in real elements
     int cnembed[] = {(int) nsamp_padded/2}; // width in complex elements
-    result = cufftPlanMany(
-        &plan_r2c,              // plan
-        1, n,                   // rank, n
-        rnembed, 1, rnembed[0], // inembed, istride, idist
-        cnembed, 1, cnembed[0], // onembed, ostride, odist
-        CUFFT_R2C,              // type
-        nchan_fft_batch);       // batch
-    if (result != CUFFT_SUCCESS)
+    std::thread thread_r2c = std::thread([&]()
     {
-        throw std::runtime_error("Error creating real to complex FFT plan.");
-    }
-    result = cufftPlanMany(
-        &plan_c2r,              // plan
-        1, n,                   // rank, n
-        cnembed, 1, cnembed[0], // inembed, istride, idist
-        rnembed, 1, rnembed[0], // onembed, ostride, odist
-        CUFFT_C2R,              // type
-        ndm_fft_batch);         // batch
-    if (result != CUFFT_SUCCESS)
+        cufftResult result = cufftPlanMany(
+            &plan_r2c,              // plan
+            1, n,                   // rank, n
+            rnembed, 1, rnembed[0], // inembed, istride, idist
+            cnembed, 1, cnembed[0], // onembed, ostride, odist
+            CUFFT_R2C,              // type
+            nchan_fft_batch);       // batch
+        if (result != CUFFT_SUCCESS)
+        {
+            throw std::runtime_error("Error creating real to complex FFT plan.");
+        }
+        cufftSetStream(plan_r2c, *executestream);
+    });
+    std::thread thread_c2r = std::thread([&]()
     {
-        throw std::runtime_error("Error creating complex to real FFT plan.");
-    }
-    cufftSetStream(plan_r2c, *executestream);
-    cufftSetStream(plan_c2r, *executestream);
+        cufftResult result = cufftPlanMany(
+            &plan_c2r,              // plan
+            1, n,                   // rank, n
+            cnembed, 1, cnembed[0], // inembed, istride, idist
+            rnembed, 1, rnembed[0], // onembed, ostride, odist
+            CUFFT_C2R,              // type
+            ndm_fft_batch);         // batch
+        if (result != CUFFT_SUCCESS)
+        {
+            throw std::runtime_error("Error creating complex to real FFT plan.");
+        }
+        cufftSetStream(plan_c2r, *executestream);
+    });
 
     // Generate spin frequency table
     if (h_spin_frequencies.size() != nfreq)
@@ -573,6 +579,10 @@ void FDDPlan::execute_gpu(
             dm_jobs.pop_back();
         }
     }
+
+    // Wait for cuFFT plans to be created
+    if (thread_r2c.joinable()) { thread_r2c.join(); }
+    if (thread_c2r.joinable()) { thread_c2r.join(); }
 
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
 
