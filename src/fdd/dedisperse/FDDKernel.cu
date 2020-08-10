@@ -49,10 +49,10 @@ void FDDKernel::launch(
     cudaStream_t         stream)
 {
     // Define thread decomposition
-    unsigned grid_x = std::max((int) (ndm / UNROLL_NDM), 1);
-    unsigned grid_y = 4 * UNROLL_NDM;
+    unsigned grid_x = std::max((int) (ndm / NDM_BATCH_GRID), 1);
+    unsigned grid_y = NFREQ_BATCH_GRID;
     dim3 grid(grid_x, grid_y);
-    dim3 block(BLOCK_DIM_X);
+    dim3 block(NFREQ_BATCH_BLOCK);
 
     // Execute the kernel
     #define CALL_KERNEL(NCHAN)        \
