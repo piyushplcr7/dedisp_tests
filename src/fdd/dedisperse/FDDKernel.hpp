@@ -26,6 +26,7 @@ class FDDKernel
             dedisp_size          in_stride,
             dedisp_size          out_stride,
             unsigned int         idm_start,
+            unsigned int         idm_end,
             unsigned int         ichan_start,
             cudaStream_t         stream);
 

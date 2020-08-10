@@ -49,6 +49,7 @@ void dedisperse_kernel(
     const float2* d_in,
           float2* d_out,
     unsigned int  idm_start,
+    unsigned int  idm_end,
     unsigned int  ichan_start)
 {
     // The DM that the current block processes
@@ -63,8 +64,8 @@ void dedisperse_kernel(
     float dms[UNROLL_NDM];
     for (unsigned int i = 0; i < UNROLL_NDM; i++)
     {
-        unsigned int idm = idm_start + idm_block + (i * idm_offset);
-        dms[i] = d_dm_list[idm];
+        unsigned int idm_idx = idm_block + (i * idm_offset);
+        dms[i] = idm_idx < idm_end ? d_dm_list[idm_start + idm_idx] : 0.0f;
     }
 
     // Shared memory

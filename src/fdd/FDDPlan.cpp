@@ -437,9 +437,11 @@ void FDDPlan::execute_gpu(
     unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
 
     // Maximum number of DMs computed in one gulp
-    unsigned int ndm_batch_max = 16;
+    unsigned int ndm_batch_max = 32;
     unsigned int ndm_fft_batch = 16;
-    unsigned int ndm_buffers   = 4;
+                 ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
+    unsigned int ndm_buffers   = 8;
+                 ndm_buffers   = std::min(ndm_buffers, (unsigned int) ((ndm + ndm_batch_max) / ndm_batch_max));
 
     // Maximum number of channels processed in one gulp
     unsigned int nchan_batch_max = 32;
@@ -481,12 +483,12 @@ void FDDPlan::execute_gpu(
     std::vector<cu::HostMemory> h_data_in_(nchan_buffers);
     std::vector<cu::DeviceMemory> d_data_in_(nchan_buffers);
     std::vector<cu::DeviceMemory> d_data_out_(ndm_buffers);
-    for (unsigned int i = 0; i < nchan_buffers; i ++)
+    for (unsigned int i = 0; i < nchan_buffers; i++)
     {
         h_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
         d_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
     }
-    for (unsigned int i = 0; i < ndm_buffers; i ++)
+    for (unsigned int i = 0; i < ndm_buffers; i++)
     {
         d_data_out_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
     }
@@ -583,7 +585,7 @@ void FDDPlan::execute_gpu(
 
     struct DMData{
         unsigned int idm_start;
-        unsigned int ndm_batch_current;
+        unsigned int ndm_current;
         float* h_out_ptr;
         dedisp_float2* d_out_ptr;
         cu::Event inputStart, inputEnd;
@@ -599,9 +601,9 @@ void FDDPlan::execute_gpu(
         DMData& job = dm_jobs[job_id];
         job.idm_start = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_start
                         + ndm_batch_max;
-        job.ndm_batch_current = std::min(ndm_batch_max, ndm - job.idm_start);
-        job.d_out_ptr         = d_data_out_[job_id % ndm_buffers];
-        if (job.ndm_batch_current == 0)
+        job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
+        job.d_out_ptr   = d_data_out_[job_id % ndm_buffers];
+        if (job.ndm_current == 0)
         {
             dm_jobs.pop_back();
         }
@@ -625,7 +627,7 @@ void FDDPlan::execute_gpu(
         std::cout << "Processing DM " << dm_job_first.idm_start;
         if (dm_job_id_outer + 1 < ndm){
             auto& dm_job_second = dm_jobs[dm_job_id_outer+1];
-            auto idm_end = dm_job_second.idm_start + dm_job_second.ndm_batch_current;
+            auto idm_end = dm_job_second.idm_start + dm_job_second.ndm_current;
             std::cout << " to " << idm_end + 1 << std::endl;
         } else {
             std::cout << "." << std::endl;
@@ -665,7 +667,7 @@ void FDDPlan::execute_gpu(
                     nsamp * dst_stride);  // size
                 htodstream->record(channel_job.inputEnd);
             }
-            htodstream->synchronize();
+            executestream->waitEvent(channel_job.inputEnd);
 
             // Transpose and upack the data
             transpose_unpack(
@@ -696,10 +698,8 @@ void FDDPlan::execute_gpu(
                     break;
                 }
                 auto& dm_job = dm_jobs[dm_job_id];
-
-                // Compute current number of channels
-                unsigned int ndm_current = std::min(ndm_batch_max, ndm - dm_job.idm_start);
-                unsigned int idm_end = dm_job.idm_start + dm_job.ndm_batch_current;
+                unsigned int ndm_current = dm_job.ndm_current;
+                unsigned int idm_end = dm_job.idm_start + ndm_current;
 
                 // Info
                 std::cout << "Processing DM " << dm_job.idm_start << " to " << idm_end << std::endl;
@@ -724,9 +724,9 @@ void FDDPlan::execute_gpu(
                     nsamp_padded/2,          // in stride
                     nsamp_padded/2,          // out stride
                     dm_job.idm_start,        // idm_start
+                    idm_end,                 // idm_end
                     channel_job.ichan_start, // ichan_start
                     *executestream);         // stream
-                executestream->record(dm_job.computeEnd);
             } // end for dm_job_id_inner
 
             // Copy the input data for the next job (if any)
@@ -763,7 +763,7 @@ void FDDPlan::execute_gpu(
                 break;
             }
             auto& dm_job = dm_jobs[dm_job_id];
-            unsigned int ndm_gulp_current = std::min(ndm_batch_max, ndm - dm_job.idm_start);
+            unsigned int ndm_current = dm_job.ndm_current;
 
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
@@ -781,20 +781,20 @@ void FDDPlan::execute_gpu(
 
             // FFT scaling
             kernel.scale(
-                ndm_gulp_current, // height
-                nsamp_computed,   // width
-                nsamp_padded,     // stride
-                d_out,            // d_data
-                *executestream);  // stream
+                ndm_current,     // height
+                nsamp_computed,  // width
+                nsamp_padded,    // stride
+                d_out,           // d_data
+                *executestream); // stream
 
             // Copy output
             executestream->record(dm_job.computeEnd);
             dtohstream->waitEvent(dm_job.computeEnd);
             dtohstream->record(dm_job.outputStart);
             dtohstream->memcpyDtoHAsync(
-                h_out,                         // dst
-                d_out,                         // src
-                ndm_gulp_current * dm_stride); // size
+                h_out,                    // dst
+                d_out,                    // src
+                ndm_current * dm_stride); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
     } // end for dm_job_id_outer
