@@ -119,6 +119,7 @@ namespace cu {
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);
+            void zero(void *ptr, size_t size);
 
             operator cudaStream_t();
 

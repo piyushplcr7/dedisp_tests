@@ -4,14 +4,17 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
-#include <assert.h>
+#include <iomanip>
+#include <thread>
 
+#include <assert.h>
 #include <fftw3.h>
 #include <omp.h>
 #include <cufft.h>
 
 #include "unpack/unpack.h"
 #include "dedisperse/FDDKernel.hpp"
+#include "external/Stopwatch.h"
 
 namespace dedisp
 {
@@ -435,14 +438,16 @@ void FDDPlan::execute_gpu(
     unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
 
     // Maximum number of DMs computed in one gulp
-    unsigned int ndm_gulp_max = 128;
-    unsigned int ndm_gulp_current = ndm_gulp_max;
-    unsigned int ndm_fft_batch = 32;
+    unsigned int ndm_batch_max = 32;
+    unsigned int ndm_fft_batch = 16;
+                 ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
+    unsigned int ndm_buffers   = 8;
+                 ndm_buffers   = std::min(ndm_buffers, (unsigned int) ((ndm + ndm_batch_max) / ndm_batch_max));
 
     // Maximum number of channels processed in one gulp
-    unsigned int nchan_gulp_max = 128;
-    unsigned int nchan_gulp_current = nchan_gulp_max;
+    unsigned int nchan_batch_max = 32;
     unsigned int nchan_fft_batch = 32;
+    unsigned int nchan_buffers   = 2;
 
     // Compute derived counts
     dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) *
@@ -453,266 +458,391 @@ void FDDPlan::execute_gpu(
     dedisp_size nchan_words = nchan / chans_per_word;
 
     // The number of channel words proccessed in one gulp
-    dedisp_size nchan_words_gulp = nchan_gulp_max / chans_per_word;
+    dedisp_size nchan_words_gulp = nchan_batch_max / chans_per_word;
+
+    // Events, markers, timers
+    cu::Event eStartGPU, eEndGPU;
+    cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
+    cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
+    cu::Marker mPrepFFT("cufft Plan Many", cu::Marker::yellow);
+    cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
+    cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
+    cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    init_timer->Start();
 
     // Allocate host memory
-    cu::HostMemory   h_data_in(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+    mAllocMem.start();
     cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
 
     // Allocate device memory
-    cu::DeviceMemory d_data_in(nsamp * nchan_words_gulp * sizeof(dedisp_word));
-    cu::DeviceMemory d_data_nu(nchan_gulp_max * nsamp_padded * sizeof(float));
-    cu::DeviceMemory d_data_dm(ndm_gulp_max * nsamp_padded * sizeof(float));
+    cu::DeviceMemory d_data_nu(nchan_batch_max * nsamp_padded * sizeof(float));
+
+    // Buffers for double buffering
+    std::vector<cu::HostMemory> h_data_in_(nchan_buffers);
+    std::vector<cu::DeviceMemory> d_data_in_(nchan_buffers);
+    std::vector<cu::DeviceMemory> d_data_out_(ndm_buffers);
+    for (unsigned int i = 0; i < nchan_buffers; i++)
+    {
+        h_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+        d_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+    }
+    for (unsigned int i = 0; i < ndm_buffers; i++)
+    {
+        d_data_out_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
+    }
+    mAllocMem.end();
 
     // Prepare cuFFT plans
+    mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
-    cufftResult result;
     int n[] = {(int) nsamp};
     int rnembed[] = {(int) nsamp_padded};   // width in real elements
     int cnembed[] = {(int) nsamp_padded/2}; // width in complex elements
-    result = cufftPlanMany(
-        &plan_r2c,              // plan
-        1, n,                   // rank, n
-        rnembed, 1, rnembed[0], // inembed, istride, idist
-        cnembed, 1, cnembed[0], // onembed, ostride, odist
-        CUFFT_R2C,              // type
-        nchan_fft_batch);       // batch
-    if (result != CUFFT_SUCCESS)
+    std::thread thread_r2c = std::thread([&]()
     {
-        throw std::runtime_error("Error creating real to complex FFT plan.");
-    }
-    result = cufftPlanMany(
-        &plan_c2r,              // plan
-        1, n,                   // rank, n
-        cnembed, 1, cnembed[0], // inembed, istride, idist
-        rnembed, 1, rnembed[0], // onembed, ostride, odist
-        CUFFT_C2R,              // type
-        ndm_fft_batch);         // batch
-    if (result != CUFFT_SUCCESS)
+        cufftResult result = cufftPlanMany(
+            &plan_r2c,              // plan
+            1, n,                   // rank, n
+            rnembed, 1, rnembed[0], // inembed, istride, idist
+            cnembed, 1, cnembed[0], // onembed, ostride, odist
+            CUFFT_R2C,              // type
+            nchan_fft_batch);       // batch
+        if (result != CUFFT_SUCCESS)
+        {
+            throw std::runtime_error("Error creating real to complex FFT plan.");
+        }
+        cufftSetStream(plan_r2c, *executestream);
+    });
+    std::thread thread_c2r = std::thread([&]()
     {
-        throw std::runtime_error("Error creating complex to real FFT plan.");
-    }
-    cufftSetStream(plan_r2c, *executestream);
-    cufftSetStream(plan_c2r, *executestream);
+        cufftResult result = cufftPlanMany(
+            &plan_c2r,              // plan
+            1, n,                   // rank, n
+            cnembed, 1, cnembed[0], // inembed, istride, idist
+            rnembed, 1, rnembed[0], // onembed, ostride, odist
+            CUFFT_C2R,              // type
+            ndm_fft_batch);         // batch
+        if (result != CUFFT_SUCCESS)
+        {
+            throw std::runtime_error("Error creating complex to real FFT plan.");
+        }
+        cufftSetStream(plan_c2r, *executestream);
+    });
+
+    // Wait for cuFFT plans to be created
+    if (thread_r2c.joinable()) { thread_r2c.join(); }
+    if (thread_c2r.joinable()) { thread_c2r.join(); }
+    mPrepFFT.end();
 
     // Generate spin frequency table
+    mPrepSpinf.start();
     if (h_spin_frequencies.size() != nfreq)
     {
         generate_spin_frequency_table(nfreq, nsamp, dt);
         d_spin_frequencies.resize(nfreq * sizeof(dedisp_float));
         htodstream->memcpyHtoDAsync(d_spin_frequencies, h_spin_frequencies.data(), d_spin_frequencies.size());
     }
-
-    // Events
-    cu::Event inputCopied, computeFinished, outputCopied;
-
-    //--------------------------------------------------------------------------------
-    // Debug
-    #if 0
-    std::vector<float> data_nu;
-    data_nu.resize((size_t) nchan * nsamp_padded);
-    transpose_data<const byte_type, float>(
-    nchan,           // height
-    nsamp,           // width
-    nchan,           // in_stride
-    nsamp_padded,    // out_stride
-    127.5,           // offset
-    nchan,           // scale
-    in,              // in
-    data_nu.data()); // out
-    #endif
-    //--------------------------------------------------------------------------------
+    mPrepSpinf.end();
 
     // Initialize FDDKernel
     FDDKernel kernel;
+    mDelayTable.start();
     kernel.copy_delay_table(
         d_delay_table,
         m_nchans * sizeof(dedisp_float),
         0, *htodstream);
+    mDelayTable.end();
+    init_timer->Pause();
 
-    // Process all channels
-    std::cout << "Perform dedispersion in frequency domain" << std::endl;
-    for (unsigned ichan_start = 0; ichan_start < nchan; ichan_start += nchan_gulp_current)
+    struct ChannelData
     {
-        // Compute current number of channels
-        nchan_gulp_current = ichan_start + nchan_gulp_current < nchan ?
-                             nchan_gulp_current : nchan - ichan_start;
-        unsigned int ichan_end = ichan_start + nchan_gulp_current;
+        unsigned int ichan_start;
+        unsigned int ichan_end;
+        unsigned int nchan_current;
+        void* h_in_ptr;
+        void* d_in_ptr;
+        cu::Event inputStart, inputEnd;
+        cu::Event preprocessingStart, preprocessingEnd;
+        cu::Event outputStart, outputEnd;
+    };
 
-        // Info
-        std::cout << "Processing channel " << ichan_start << " to " << ichan_end << std::endl;
+    unsigned int nchan_jobs = (nchan + nchan_batch_max) / nchan_batch_max;
+    std::vector<ChannelData> channel_jobs(nchan_jobs);
 
-        // Wait for input buffer to be free
-        htodstream->waitEvent(computeFinished);
-
-        // Copy input to device
-        dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
-        dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
-        dedisp_size gulp_chan_byte_idx = (ichan_start/chans_per_word) * sizeof(dedisp_word);
-        memcpy2D(
-            h_data_in,                   // dst
-            dst_stride,                  // dst width
-            in + gulp_chan_byte_idx,     // src
-            src_stride,                  // src width
-            dst_stride,                  // width bytes
-            nsamp);                      // height
-        htodstream->memcpyHtoDAsync(
-            d_data_in,         // dst
-            h_data_in,         // src
-            h_data_in.size()); // size
-        htodstream->record(inputCopied);
-
-        executestream->waitEvent(inputCopied);
-        transpose_unpack(
-            d_data_in,        // d_in
-            nchan_words_gulp, // input width
-            nsamp,            // input height
-            nchan_words_gulp, // in_stride
-            nsamp_padded,     // out_stride
-            d_data_nu,        // d_out
-            in_nbits, 32,     // in_nbits, out_nbits
-            1.0/nchan,        // scale
-            *executestream);  // stream
-
-        //--------------------------------------------------------------------------------
-        // Debug
-        #if 0
-        unsigned int k = 64;
-        std::vector<float> temp(nsamp_padded);
-        executestream->synchronize();
-        for (unsigned int y = 0; y < nchan_gulp_current; y++)
-        {
-            float *ptr = (float *) d_data_nu;
-            ptr += y * nsamp_padded;
-            executestream->memcpyDtoHAsync(temp.data(), ptr, nsamp_padded * sizeof(float));
-            bool stop = false;
-            for (unsigned int x = 0; x < k; x++)
-            {
-                float tst = temp[x];
-                float ref = data_nu[(y+ichan_start) * nsamp_padded + x];
-                if ((y == 0 || y == 61) && (ichan_start >= 896))
-                {
-                    std::clog << "[" << y << "," << x << "]\t"
-                              << tst << "\t"
-                              << ref << std::endl;
-                }
-                if (std::abs(ref - tst) > 1e-5)
-                {
-                    std::clog << "[" << y << "," << x << "]\t"
-                              << tst << " != " << ref << std::endl;
-                    stop = true;
-                }
-            }
-            if (stop)
-            break;
+    for (unsigned job_id = 0; job_id < nchan_jobs; job_id++)
+    {
+        ChannelData& job = channel_jobs[job_id];
+        job.ichan_start   = job_id == 0 ? 0 : channel_jobs[job_id - 1].ichan_end;
+        job.nchan_current = std::min(nchan_batch_max, nchan - job.ichan_start);
+        job.ichan_end     = job.ichan_start + job.nchan_current;
+        job.h_in_ptr      = h_data_in_[job_id % nchan_buffers];
+        job.d_in_ptr      = d_data_in_[job_id % nchan_buffers];
+        if (job.nchan_current == 0) {
+            channel_jobs.pop_back();
         }
-        #endif
-        //--------------------------------------------------------------------------------
+    }
 
-        // FFT data (real to complex) along time axis
-        for (unsigned int i = 0; i < nchan_gulp_max/nchan_fft_batch; i++)
+    struct DMData{
+        unsigned int idm_start;
+        unsigned int idm_end;
+        unsigned int ndm_current;
+        float* h_out_ptr;
+        dedisp_float2* d_out_ptr;
+        cu::Event inputStart, inputEnd;
+        cu::Event dedispersionStart, dedispersionEnd;
+        cu::Event postprocessingStart, postprocessingEnd;
+        cu::Event outputStart, outputEnd;
+    };
+
+    unsigned int ndm_jobs = (ndm + ndm_batch_max) / ndm_batch_max;
+    std::vector<DMData> dm_jobs(ndm_jobs);
+
+    for (unsigned job_id = 0; job_id < ndm_jobs; job_id++)
+    {
+        DMData& job = dm_jobs[job_id];
+        job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
+        job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
+        job.idm_end     = job.idm_start + job.ndm_current;
+        job.d_out_ptr   = d_data_out_[job_id % ndm_buffers];
+        if (job.ndm_current == 0)
         {
-            cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
-            cufftComplex *odata = (cufftComplex *) idata;
-            cufftExecR2C(plan_r2c, idata, odata);
+            dm_jobs.pop_back();
         }
+    }
 
-        // Process all DMs
-        for (unsigned int idm_start = 0; idm_start < ndm; idm_start += ndm_gulp_current)
+    std::cout << "Perform dedispersion in frequency domain" << std::endl;
+    htodstream->record(eStartGPU);
+    mExeGPU.start();
+
+    // Process all dm batches
+    for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size(); dm_job_id_outer += ndm_buffers)
+    {
+        // Process all channel batches
+        for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size(); channel_job_id++)
         {
-            // Compute current number of DMs
-            ndm_gulp_current = idm_start + ndm_gulp_current < ndm ?
-                               ndm_gulp_current : ndm - idm_start;
-            unsigned int idm_end = idm_start + ndm_gulp_current;
-
-            // Get pointer to DM output data on host
-            dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
-            dedisp_size dm_offset = idm_start * dm_stride;
-            void *h_dm_ptr = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+            auto& channel_job = channel_jobs[channel_job_id];
 
             // Info
-            std::cout << "Processing DM " << idm_start << " to " << idm_end << std::endl;
+            std::cout << "Processing channel " << channel_job.ichan_start << " to " << channel_job.ichan_end << std::endl;
 
-            // Wait for output buffer to be free
-            dtohstream->synchronize();
+            // Channel input size
+            dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
+            dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
 
-            if (ichan_start == 0)
+            // Copy the input data for the first job
+            if (channel_job_id == 0)
             {
-                // Initialize output to zero
-                d_data_dm.zero(*executestream);
-            } else {
-                // Copy partial result
+                dedisp_size gulp_chan_byte_idx = (channel_job.ichan_start/chans_per_word) * sizeof(dedisp_word);
+                memcpy2D(
+                    channel_job.h_in_ptr,    // dst
+                    dst_stride,              // dst width
+                    in + gulp_chan_byte_idx, // src
+                    src_stride,              // src width
+                    dst_stride,              // width bytes
+                    nsamp);                  // height
+                htodstream->record(channel_job.inputStart);
                 htodstream->memcpyHtoDAsync(
-                    d_data_dm,                     // dst
-                    h_dm_ptr,                      // src
-                    ndm_gulp_current * dm_stride); // size
-                htodstream->record(inputCopied);
-                executestream->waitEvent(inputCopied);
+                    channel_job.d_in_ptr, // dst
+                    channel_job.h_in_ptr, // src
+                    nsamp * dst_stride);  // size
+                htodstream->record(channel_job.inputEnd);
+            }
+            executestream->waitEvent(channel_job.inputEnd);
+
+            // Transpose and upack the data
+            executestream->record(channel_job.preprocessingStart);
+            transpose_unpack(
+                (dedisp_word*) channel_job.d_in_ptr, // d_in
+                nchan_words_gulp,                    // input width
+                nsamp,                               // input height
+                nchan_words_gulp,                    // in_stride
+                nsamp_padded,                        // out_stride
+                d_data_nu,                           // d_out
+                in_nbits, 32,                        // in_nbits, out_nbits
+                1.0/nchan,                           // scale
+                *executestream);                     // stream
+
+            // FFT data (real to complex) along time axis
+            for (unsigned int i = 0; i < nchan_batch_max/nchan_fft_batch; i++)
+            {
+                cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
+                cufftComplex *odata = (cufftComplex *) idata;
+                cufftExecR2C(plan_r2c, idata, odata);
+            }
+            executestream->record(channel_job.preprocessingEnd);
+
+            // Initialize output to zero
+            if (channel_job_id == 0)
+            {
+                // Wait for all previous output copies to finish
+                dtohstream->synchronize();
+
+                for (cu::DeviceMemory& d_data_out : d_data_out_)
+                {
+                    // Use executestream to make sure dedispersion
+                    // starts only after initializing the output buffer
+                    d_data_out.zero(*executestream);
+                }
             }
 
-            // Dedispersion in frequency domain
-            kernel.launch(
-                ndm_gulp_current,   // ndm
-                nfreq,              // nfreq
-                nchan_gulp_current, // nchan
-                dt,                 // dt
-                d_spin_frequencies, // d_spin_frequencies
-                d_dm_list,          // d_dm_list
-                d_data_nu,          // d_in
-                d_data_dm,          // d_out
-                nsamp_padded/2,     // in stride
-                nsamp_padded/2,     // out stride
-                idm_start,          // idm_start
-                ichan_start,        // ichan_start
-                *executestream);    // stream
-
-            if (ichan_end == nchan)
+            // Process DM batches
+            for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
             {
-                // Fourier transform results back to time domain
-                for (unsigned int i = 0; i < ndm_gulp_max/ndm_fft_batch; i++)
+                unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
+                if (dm_job_id >= dm_jobs.size())
                 {
-                    cufftReal    *odata = (cufftReal *) d_data_dm.data() + i * nsamp_padded * ndm_fft_batch;
-                    cufftComplex *idata = (cufftComplex *) odata;
-                    cufftExecC2R(plan_c2r, idata, odata);
+                    break;
+                }
+                auto& dm_job = dm_jobs[dm_job_id];
+
+                // Info
+                std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
+
+                // Wait for temporary output from previous job to be copied
+                if (channel_job_id > (nchan_buffers-1))
+                {
+                    auto& job_previous = channel_jobs[channel_job_id - nchan_buffers];
+                    job_previous.outputEnd.synchronize();
                 }
 
-                // FFT scaling
-                kernel.scale(
-                    ndm_gulp_current, // height
-                    nsamp_computed,   // width
-                    nsamp_padded,     // stride
-                    d_data_dm,        // d_data
-                    *executestream);  // stream
+                // Dedispersion in frequency domain
+                executestream->record(dm_job.dedispersionStart);
+                kernel.launch(
+                    dm_job.ndm_current,        // ndm
+                    nfreq,                     // nfreq
+                    channel_job.nchan_current, // nchan
+                    dt,                        // dt
+                    d_spin_frequencies,        // d_spin_frequencies
+                    d_dm_list,                 // d_dm_list
+                    d_data_nu,                 // d_in
+                    dm_job.d_out_ptr,          // d_out
+                    nsamp_padded/2,            // in stride
+                    nsamp_padded/2,            // out stride
+                    dm_job.idm_start,          // idm_start
+                    dm_job.idm_end,            // idm_end
+                    channel_job.ichan_start,   // ichan_start
+                    *executestream);           // stream
+                executestream->record(dm_job.dedispersionEnd);
+            } // end for dm_job_id_inner
 
-                // Copy output
-                dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
-                dedisp_size dst_offset = idm_start * dst_stride;
-                dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
-                executestream->record(computeFinished);
-                dtohstream->waitEvent(computeFinished);
-                dtohstream->memcpyDtoH2DAsync(
-                    out + dst_offset,  // dst
-                    dst_stride,        // dst width
-                    d_data_dm,         // src
-                    src_stride,        // src width
-                    dst_stride,        // width bytes
-                    ndm_gulp_current); // height
-                dtohstream->record(outputCopied);
-            } else {
-                // Stash the data for the current DM
-                executestream->record(computeFinished);
-                dtohstream->waitEvent(computeFinished);
-                dtohstream->memcpyDtoHAsync(
-                    h_dm_ptr,                      // dst
-                    d_data_dm,                     // src
-                    ndm_gulp_current * dm_stride); // size
-                dtohstream->record(outputCopied);
+            // Copy the input data for the next job (if any)
+            unsigned channel_job_id_next = channel_job_id + 1;
+            if (channel_job_id_next < channel_jobs.size())
+            {
+                auto& channel_job_next = channel_jobs[channel_job_id_next];
+                dedisp_size gulp_chan_byte_idx = (channel_job_next.ichan_start/chans_per_word) * sizeof(dedisp_word);
+                memcpy2D(
+                    channel_job_next.h_in_ptr,  // dst
+                    dst_stride,                 // dst width
+                    in + gulp_chan_byte_idx,    // src
+                    src_stride,                 // src width
+                    dst_stride,                 // width bytes
+                    nsamp);                     // height
+                htodstream->record(channel_job_next.inputStart);
+                htodstream->memcpyHtoDAsync(
+                    channel_job_next.d_in_ptr, // dst
+                    channel_job_next.h_in_ptr, // src
+                    nsamp * dst_stride);       // size
+                htodstream->record(channel_job_next.inputEnd);
             }
-        } // end for idm_start
-    } // end for ichan_start
+
+            // Wait for current batch to finish
+            executestream->synchronize();
+
+            // Add preprocessing time for the current channel job
+            preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
+        } // end for ichan_start
+
+        // Output DM batches
+        for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
+        {
+            unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
+            if (dm_job_id >= dm_jobs.size())
+            {
+                break;
+            }
+            auto& dm_job = dm_jobs[dm_job_id];
+
+            // Get pointer to DM output data on host and on device
+            dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
+            dedisp_size dm_offset = dm_job.idm_start * dm_stride;
+            auto* h_out = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+            auto *d_out = (float *) dm_job.d_out_ptr;
+
+            // Fourier transform results back to time domain
+            executestream->record(dm_job.postprocessingStart);
+            for (unsigned int i = 0; i < ndm_batch_max/ndm_fft_batch; i++)
+            {
+                cufftReal    *odata = (cufftReal *) d_out + i * nsamp_padded * ndm_fft_batch;
+                cufftComplex *idata = (cufftComplex *) odata;
+                cufftExecC2R(plan_c2r, idata, odata);
+            }
+
+            // FFT scaling
+            kernel.scale(
+                dm_job.ndm_current, // height
+                nsamp_computed,     // width
+                nsamp_padded,       // stride
+                d_out,              // d_data
+                *executestream);    // stream
+            executestream->record(dm_job.postprocessingEnd);
+
+            // Copy output
+            dtohstream->waitEvent(dm_job.postprocessingEnd);
+            dtohstream->record(dm_job.outputStart);
+            dtohstream->memcpyDtoHAsync(
+                h_out,                           // dst
+                d_out,                           // src
+                dm_job.ndm_current * dm_stride); // size
+            dtohstream->record(dm_job.outputEnd);
+        } // end for dm_job_id_inner
+    } // end for dm_job_id_outer
 
     // Wait for final memory transfer
+    dtohstream->record(eEndGPU);
+    mExeGPU.end(eEndGPU);
     dtohstream->synchronize();
+
+    // Copy output
+    mCopyMem.start();
+    output_timer->Start();
+    dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
+    dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
+    memcpy2D(
+        out,        // dst
+        dst_stride, // dst width
+        h_data_dm,  // src
+        src_stride, // src width
+        dst_stride, // width bytes
+        ndm);       // height
+    output_timer->Pause();
+    mCopyMem.end();
+
+    // The total time is the sum of the time spent on GPU and the final HtoH copy
+    total_timer->Add(eEndGPU.elapsedTime(eStartGPU));
+    total_timer->Add(output_timer->Seconds());
+
+
+    // Accumulate dedispersion and postprocessing time for all dm jobs
+    for (auto& job : dm_jobs)
+    {
+        dedispersion_timer->Add(job.dedispersionEnd.elapsedTime(job.dedispersionStart));
+        postprocessing_timer->Add(job.postprocessingEnd.elapsedTime(job.postprocessingStart));
+    }
+
+    // Print timings
+    std::cout << "GPU init time:       " << init_timer->ToString() << " sec." << std::endl;
+    std::cout << "Preprocessing time:  " << preprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << "Dedispersion time:   " << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << "Postprocessing time: " << postprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << "Output memcopy time: " << output_timer->ToString() << " sec." << std::endl;
+    std::cout << "Total time:          " << total_timer->ToString() << " sec." << std::endl;
 }
 
 // Private helper functions

@@ -44,12 +44,15 @@ void FDDKernel::launch(
     dedisp_size          in_stride,
     dedisp_size          out_stride,
     unsigned int         idm_start,
+    unsigned int         idm_end,
     unsigned int         ichan_start,
     cudaStream_t         stream)
 {
     // Define thread decomposition
-    dim3 grid(ndm/UNROLL_NDM, 4*UNROLL_NDM);
-    dim3 block(BLOCK_DIM_X);
+    unsigned grid_x = std::max((int) (ndm / NDM_BATCH_GRID), 1);
+    unsigned grid_y = NFREQ_BATCH_GRID;
+    dim3 grid(grid_x, grid_y);
+    dim3 block(NFREQ_BATCH_BLOCK);
 
     // Execute the kernel
     #define CALL_KERNEL(NCHAN)        \
@@ -64,6 +67,7 @@ void FDDKernel::launch(
         (const float2 *) d_in,        \
         (float2 *) d_out,             \
         idm_start,                    \
+        idm_end,                      \
         ichan_start);
 
     switch (nchan)

@@ -145,9 +145,9 @@ namespace cu {
         if (m_size)
         {
             if (stream != NULL) {
-                cudaMemsetAsync(m_ptr, 0, m_size, stream);
+                assertCudaCall(cudaMemsetAsync(m_ptr, 0, m_size, stream));
             } else {
-                cudaMemset(m_ptr, 0, m_size);
+                assertCudaCall(cudaMemset(m_ptr, 0, m_size));
             }
         }
     }
@@ -251,6 +251,10 @@ namespace cu {
 
     void Stream::record(Event &event) {
         assertCudaCall(cudaEventRecord(event, m_stream));
+    }
+
+    void Stream::zero(void *ptr, size_t size) {
+        assertCudaCall(cudaMemsetAsync(ptr, 0, size, m_stream));
     }
 
     Stream::operator cudaStream_t() {
