@@ -559,7 +559,8 @@ void FDDPlan::execute_gpu(
     struct ChannelData
     {
         unsigned int ichan_start;
-        unsigned int nchan_batch_current;
+        unsigned int ichan_end;
+        unsigned int nchan_current;
         void* h_in_ptr;
         void* d_in_ptr;
         cu::Event inputStart, inputEnd;
@@ -573,18 +574,19 @@ void FDDPlan::execute_gpu(
     for (unsigned job_id = 0; job_id < nchan_jobs; job_id++)
     {
         ChannelData& job = channel_jobs[job_id];
-        job.ichan_start        = job_id == 0 ? 0 : channel_jobs[job_id - 1].ichan_start
-                                 + nchan_batch_max;
-        job.nchan_batch_current = std::min(nchan_batch_max, nchan - job.ichan_start);
-        job.h_in_ptr           = h_data_in_[job_id % nchan_buffers];
-        job.d_in_ptr           = d_data_in_[job_id % nchan_buffers];
-        if (job.nchan_batch_current == 0) {
+        job.ichan_start   = job_id == 0 ? 0 : channel_jobs[job_id - 1].ichan_end;
+        job.nchan_current = std::min(nchan_batch_max, nchan - job.ichan_start);
+        job.ichan_end     = job.ichan_start + job.nchan_current;
+        job.h_in_ptr      = h_data_in_[job_id % nchan_buffers];
+        job.d_in_ptr      = d_data_in_[job_id % nchan_buffers];
+        if (job.nchan_current == 0) {
             channel_jobs.pop_back();
         }
     }
 
     struct DMData{
         unsigned int idm_start;
+        unsigned int idm_end;
         unsigned int ndm_current;
         float* h_out_ptr;
         dedisp_float2* d_out_ptr;
@@ -599,9 +601,9 @@ void FDDPlan::execute_gpu(
     for (unsigned job_id = 0; job_id < ndm_jobs; job_id++)
     {
         DMData& job = dm_jobs[job_id];
-        job.idm_start = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_start
-                        + ndm_batch_max;
+        job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
         job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
+        job.idm_end     = job.idm_start + job.ndm_current;
         job.d_out_ptr   = d_data_out_[job_id % ndm_buffers];
         if (job.ndm_current == 0)
         {
@@ -622,28 +624,13 @@ void FDDPlan::execute_gpu(
             d_data_out.zero(*htodstream);
         }
 
-        // Info
-        auto& dm_job_first = dm_jobs[dm_job_id_outer];
-        std::cout << "Processing DM " << dm_job_first.idm_start;
-        if (dm_job_id_outer + 1 < ndm){
-            auto& dm_job_second = dm_jobs[dm_job_id_outer+1];
-            auto idm_end = dm_job_second.idm_start + dm_job_second.ndm_current;
-            std::cout << " to " << idm_end + 1 << std::endl;
-        } else {
-            std::cout << "." << std::endl;
-        }
-
         // Process all channel batches
         for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size(); channel_job_id++)
         {
             auto& channel_job = channel_jobs[channel_job_id];
 
-            // Compute current number of channels
-            unsigned int ichan_end = channel_job.ichan_start + channel_job.nchan_batch_current;
-            unsigned int nchan_current = std::min(nchan_batch_max, nchan - channel_job.ichan_start);
-
             // Info
-            std::cout << "Processing channel " << channel_job.ichan_start << " to " << ichan_end << std::endl;
+            std::cout << "Processing channel " << channel_job.ichan_start << " to " << channel_job.ichan_end << std::endl;
 
             // Channel input size
             dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
@@ -692,17 +679,15 @@ void FDDPlan::execute_gpu(
             // Process DM batches
             for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
             {
-                unsigned int dm_job_id = dm_job_id_outer + dm_job_id_inner;
+                unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
                 if (dm_job_id >= dm_jobs.size())
                 {
                     break;
                 }
                 auto& dm_job = dm_jobs[dm_job_id];
-                unsigned int ndm_current = dm_job.ndm_current;
-                unsigned int idm_end = dm_job.idm_start + ndm_current;
 
                 // Info
-                std::cout << "Processing DM " << dm_job.idm_start << " to " << idm_end << std::endl;
+                std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
 
                 // Wait for temporary output from previous job to be copied
                 if (channel_job_id > (nchan_buffers-1))
@@ -713,20 +698,20 @@ void FDDPlan::execute_gpu(
 
                 // Dedispersion in frequency domain
                 kernel.launch(
-                    ndm_current,             // ndm
-                    nfreq,                   // nfreq
-                    nchan_current,           // nchan
-                    dt,                      // dt
-                    d_spin_frequencies,      // d_spin_frequencies
-                    d_dm_list,               // d_dm_list
-                    d_data_nu,               // d_in
-                    dm_job.d_out_ptr,        // d_out
-                    nsamp_padded/2,          // in stride
-                    nsamp_padded/2,          // out stride
-                    dm_job.idm_start,        // idm_start
-                    idm_end,                 // idm_end
-                    channel_job.ichan_start, // ichan_start
-                    *executestream);         // stream
+                    dm_job.ndm_current,        // ndm
+                    nfreq,                     // nfreq
+                    channel_job.nchan_current, // nchan
+                    dt,                        // dt
+                    d_spin_frequencies,        // d_spin_frequencies
+                    d_dm_list,                 // d_dm_list
+                    d_data_nu,                 // d_in
+                    dm_job.d_out_ptr,          // d_out
+                    nsamp_padded/2,            // in stride
+                    nsamp_padded/2,            // out stride
+                    dm_job.idm_start,          // idm_start
+                    dm_job.idm_end,            // idm_end
+                    channel_job.ichan_start,   // ichan_start
+                    *executestream);           // stream
             } // end for dm_job_id_inner
 
             // Copy the input data for the next job (if any)
@@ -757,13 +742,12 @@ void FDDPlan::execute_gpu(
         // Output DM batches
         for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
         {
-            unsigned int dm_job_id = dm_job_id_outer + dm_job_id_inner;
+            unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
             if (dm_job_id >= dm_jobs.size())
             {
                 break;
             }
             auto& dm_job = dm_jobs[dm_job_id];
-            unsigned int ndm_current = dm_job.ndm_current;
 
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
@@ -781,20 +765,20 @@ void FDDPlan::execute_gpu(
 
             // FFT scaling
             kernel.scale(
-                ndm_current,     // height
-                nsamp_computed,  // width
-                nsamp_padded,    // stride
-                d_out,           // d_data
-                *executestream); // stream
+                dm_job.ndm_current, // height
+                nsamp_computed,     // width
+                nsamp_padded,       // stride
+                d_out,              // d_data
+                *executestream);    // stream
 
             // Copy output
             executestream->record(dm_job.computeEnd);
             dtohstream->waitEvent(dm_job.computeEnd);
             dtohstream->record(dm_job.outputStart);
             dtohstream->memcpyDtoHAsync(
-                h_out,                    // dst
-                d_out,                    // src
-                ndm_current * dm_stride); // size
+                h_out,                           // dst
+                d_out,                           // src
+                dm_job.ndm_current * dm_stride); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
     } // end for dm_job_id_outer
