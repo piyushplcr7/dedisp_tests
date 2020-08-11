@@ -618,12 +618,6 @@ void FDDPlan::execute_gpu(
     // Process all dm batches
     for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size(); dm_job_id_outer += ndm_buffers)
     {
-        // Initialize output to zero
-        for (cu::DeviceMemory& d_data_out : d_data_out_)
-        {
-            d_data_out.zero(*htodstream);
-        }
-
         // Process all channel batches
         for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size(); channel_job_id++)
         {
@@ -674,6 +668,20 @@ void FDDPlan::execute_gpu(
                 cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
                 cufftComplex *odata = (cufftComplex *) idata;
                 cufftExecR2C(plan_r2c, idata, odata);
+            }
+
+            // Initialize output to zero
+            if (channel_job_id == 0)
+            {
+                // Wait for all previous output copies to finish
+                dtohstream->synchronize();
+
+                for (cu::DeviceMemory& d_data_out : d_data_out_)
+                {
+                    // Use executestream to make sure dedispersion
+                    // starts only after initializing the output buffer
+                    d_data_out.zero(*executestream);
+                }
             }
 
             // Process DM batches
