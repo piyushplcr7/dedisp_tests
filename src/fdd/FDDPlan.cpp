@@ -83,19 +83,57 @@ void copy_data(
     }
 }
 
+void fft_r2c(
+    unsigned int n,
+    unsigned int batch,
+    size_t in_stride,
+    size_t out_stride,
+    float *in,
+    float *out)
+{
+    auto plan = fftwf_plan_dft_r2c_1d(n, in, (fftwf_complex *) in, FFTW_ESTIMATE);
+
+    #pragma omp parallel for
+    for (unsigned int i = 0; i < batch; i++) {
+        auto *in_ptr  = &in[i * in_stride];
+        auto *out_ptr = (fftwf_complex *) &out[i * out_stride];;
+        fftwf_execute_dft_r2c(plan, in_ptr, out_ptr);
+    }
+
+    fftwf_destroy_plan(plan);
+}
+
 void fft_r2c_inplace(
     unsigned int n,
     unsigned int batch,
     size_t stride,
     float *data)
 {
-    auto plan = fftwf_plan_dft_r2c_1d(n, data, (fftwf_complex *) data, FFTW_ESTIMATE);
+    fft_r2c(n, batch, stride, stride, data, data);
+}
+
+void fft_c2r(
+    unsigned int n,
+    unsigned int batch,
+    size_t in_stride,
+    size_t out_stride,
+    float *in,
+    float *out)
+{
+    auto plan = fftwf_plan_dft_c2r_1d(n, (fftwf_complex *) in, out, FFTW_ESTIMATE);
 
     #pragma omp parallel for
-    for (unsigned int i = 0; i < batch; i++) {
-        auto *in  = &data[i * stride];
-        auto *out = (fftwf_complex *) in;
-        fftwf_execute_dft_r2c(plan, in, out);
+    for (unsigned int i = 0; i < batch; i++)
+    {
+        auto *in_ptr  = (fftwf_complex *) &in[i * in_stride];
+        auto *out_ptr = &out[i * out_stride];
+        fftwf_execute_dft_c2r(plan, in_ptr, out_ptr);
+
+        for (unsigned int j = 0; j < n; j++)
+        {
+            double scale = 1.0 / n;
+            out_ptr[j] *= scale;
+        }
     }
 
     fftwf_destroy_plan(plan);
@@ -107,24 +145,9 @@ void fft_c2r_inplace(
     size_t stride,
     float *data)
 {
-    auto plan = fftwf_plan_dft_c2r_1d(n, (fftwf_complex *) data, data, FFTW_ESTIMATE);
-
-    #pragma omp parallel for
-    for (unsigned int i = 0; i < batch; i++)
-    {
-        auto *out = &data[i * stride];
-        auto *in  = (fftwf_complex *) out;
-        fftwf_execute_dft_c2r(plan, in, out);
-
-        for (unsigned int j = 0; j < n; j++)
-        {
-            double scale = 1.0 / n;
-            out[j] *= scale;
-        }
-    }
-
-    fftwf_destroy_plan(plan);
+    fft_c2r(n, batch, stride, stride, data, data);
 }
+
 
 template<typename InputType, typename OutputType>
 void dedisperse_reference(
@@ -176,6 +199,64 @@ void dedisperse_reference(
             dst_ptr[ifreq] = sum;
         }
     }
+}
+
+template<typename InputType, typename OutputType>
+void dedisperse_segmented_reference(
+    unsigned int ndm,
+    unsigned int nchan,
+    float dt,      // sample time
+    float *f,      // spin frequencies
+    float *dms,    // DMs
+    float *delays, // delay table
+    size_t in_stride,
+    size_t out_stride,
+    unsigned int nchunk,
+    unsigned int nfreq_chunk,
+    unsigned int nfreq_chunk_padded,
+    std::complex<InputType> *in,
+    std::complex<OutputType> *out)
+{
+    #pragma omp parallel for
+    for (unsigned int idm = 0; idm < ndm; idm++)
+    {
+        // DM delays
+        float tdms[nchan];
+        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        {
+            tdms[ichan] = dms[idm] * delays[ichan] * dt;
+        }
+
+        // Loop over chunks
+        for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
+        {
+            // Loop over spin frequencies
+            for (unsigned int ifreq = 0; ifreq < nfreq_chunk; ifreq++)
+            {
+                // Sum over observing frequencies
+                std::complex<OutputType> sum = {0, 0};
+
+                // Loop over observing frequencies
+                for (unsigned int ichan = 0; ichan < nchan; ichan++)
+                {
+                    // Compute phasor
+                    float phase = (2.0 * M_PI * f[ifreq] * tdms[ichan]);
+                    std::complex<float> phasor(cosf(phase), sinf(phase));
+
+                    // Load sample
+                    auto* sample_ptr = &in[ichan * in_stride + ichunk * nfreq_chunk_padded];
+                    auto  sample     = (std::complex<float>) sample_ptr[ifreq];
+
+                    // Update sum
+                    sum += sample * phasor;
+                }
+
+                // Store sum
+                auto* dst_ptr = &out[idm * out_stride + ichunk * nfreq_chunk_padded];
+                dst_ptr[ifreq] = sum;
+            } // end for ifreq
+        } // end for chunk
+    } // end for idm
 }
 
 template<typename InputType, typename OutputType, unsigned int nchan_batch, bool extrapolate>
@@ -312,7 +393,8 @@ void FDDPlan::execute(
     byte_type*       out,
     size_type        out_nbits)
 {
-    execute_gpu(nsamps, in, in_nbits, out, out_nbits);
+    execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
+    //execute_cpu(nsamps, in, in_nbits, out, out_nbits);
 }
 
 void FDDPlan::execute_cpu(
@@ -414,6 +496,212 @@ void FDDPlan::execute_cpu(
         nsamp_padded, nsamp_computed, // in stride, out stride
         data_dm.data(),               // input
         (float *) out);
+}
+
+void FDDPlan::execute_cpu_segmented(
+    size_type        nsamps,
+    const byte_type* in,
+    size_type        in_nbits,
+    byte_type*       out,
+    size_type        out_nbits)
+{
+    // Parameters
+    float dt           = m_dt;       // sample time
+    unsigned int nchan = m_nchans;   // number of observering frequencies
+    unsigned int nsamp = nsamps;     // number of time samples
+    unsigned int ndm   = m_dm_count; // number of DMs
+    unsigned int nfft  = 16384;      // number of samples processed in a segment
+    nfft *= 4; // TODO: testfdd detects signal but at wrong DM, and only with this nfft value
+
+    // Every chunk has the same amount of space for spin frequencies.
+    // For the last chunk(s), the last elements are not used.
+    unsigned int nfreq_chunk = std::ceil(nfft / 2) + 1;
+    unsigned int nfreq_chunk_padded = round_up(nfreq_chunk, 1024);
+
+    // Compute the number of steps
+    unsigned int nsamp_dm    = std::ceil(m_max_delay);
+    unsigned int nsamp_good  = nfft - nsamp_dm;
+    unsigned int nchunk      = std::ceil((float) nsamp / nsamp_good);
+    unsigned int stride      = nchunk * (nfreq_chunk_padded * 2); // scalar width of internal buffers
+
+    // Debug
+    std::cout << "nsamp              = " << nsamp << std::endl;
+    std::cout << "nfft               = " << nfft << std::endl;
+    std::cout << "nsamp_dm           = " << nsamp_dm << std::endl;
+    std::cout << "nsamp_good         = " << nsamp_good << std::endl;
+    std::cout << "nchunk             = " << nchunk << std::endl;
+    std::cout << "nfreq_chunk        = " << nfreq_chunk << std::endl;
+    std::cout << "nfreq_chunk_padded = " << nfreq_chunk_padded << std::endl;
+    std::cout << "stride             = " << stride << std::endl;
+
+    // Allocate buffers
+    std::vector<float> data_t_nu((size_t) nchan * nsamp);
+    std::vector<std::complex<float>> data_f_nu((size_t) nchan * stride/2);
+
+    // Transpose input and convert to floating point:
+    std::cout << "Transpose/convert input" << std::endl;
+    transpose_data<const byte_type, float>(
+        nchan,             // height
+        nsamp,             // width
+        nchan,             // in_stride
+        nsamp,             // out_stride
+        127.5,             // offset
+        nchan,             // scale
+        in,                // in
+        data_t_nu.data()); // out
+
+    // Chunk metadata
+    struct Chunk
+    {
+        // Time domain
+        unsigned int isamp_start; // scalar index
+        unsigned int isamp_end;   // scalar index
+
+        // Frequency domain
+        unsigned int ifreq_start; // scalar index
+        unsigned int ifreq_end;   // scalar index
+        unsigned int nfreq_good;  // number of good samples
+    };
+
+    std::vector<Chunk> chunks(nchunk);
+
+    unsigned int nfreq_computed = 0;
+    for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
+    {
+        Chunk& chunk = chunks[ichunk];
+
+        // Compute start and end indices in the time domain
+        unsigned int isamp_start = ichunk * nsamp_good;
+        unsigned int isamp_end   = isamp_start + nfft;
+                     isamp_end   = std::min(isamp_end, nsamp);
+
+        // Compute number of scalar samples in the time domain
+        unsigned int nsamp = isamp_end - isamp_start;
+
+        // Store time domain parameters
+        chunk.isamp_start = isamp_start;
+        chunk.isamp_end   = isamp_end;
+
+        // Compute the number of complex samples in the frequency domain
+        unsigned int nfreq       = std::ceil(nsamp / 2.0) + 1;
+        unsigned int ifreq_start = ichunk * nfreq_chunk_padded;
+        unsigned int ifreq_end   = ifreq_start + nfreq;
+        chunk.nfreq_good         = nfreq;
+        chunk.ifreq_start        = ifreq_start; // complex index
+        chunk.ifreq_end          = ifreq_end;   // complex index
+
+        // Number of good spin frequencies computed
+        nfreq_computed += ifreq_end - ifreq_start;
+    }
+
+    for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
+    {
+        Chunk& chunk = chunks[ichunk];
+        unsigned int nsamp = chunk.isamp_end - chunk.isamp_start;
+        printf("Chunk %d: isamp %5d - %5d, nsamp: %5d, ifreq: %5d - %5d, nfreq: %d\n",
+            ichunk, chunk.isamp_start, chunk.isamp_end, nsamp,
+            chunk.ifreq_start*2, chunk.ifreq_end*2, chunk.nfreq_good*2);
+    }
+    unsigned int nsamp_computed = nsamp - nsamp_dm;
+    std::cout << "nfreq_computed: " << nfreq_computed << std::endl;
+    std::cout << "nsamp_computed: " << nsamp_computed << std::endl;
+
+    // FFT data (real to complex) along time axis
+    std::cout << "FFT input r2c" << std::endl;
+    const int n[] = {(int) nfft};
+    int inembed_r2c[] = {(int) nsamp_good};
+    int onembed_r2c[] = {(int) nfreq_chunk_padded};
+    auto plan_r2c = fftwf_plan_many_dft_r2c(
+        1, n,                               // rank, n
+        nchunk,                             // howmany
+        data_t_nu.data(),                   // in
+        inembed_r2c, 1, inembed_r2c[0],     // inembed, istride, idist
+        (fftwf_complex *) data_f_nu.data(), // out
+        onembed_r2c, 1, onembed_r2c[0],     // onembed, ostride, odist
+        FFTW_ESTIMATE);                     // flags
+    #pragma omp parallel for
+    for (unsigned int ichan = 0; ichan < nchan; ichan++)
+    {
+        auto *in  = data_t_nu.data() + ichan * nsamp;
+        auto *out = data_f_nu.data() + ichan * stride/2;
+        fftwf_execute_dft_r2c(plan_r2c, in, (fftwf_complex *) out);
+    }
+    fftwf_destroy_plan(plan_r2c);
+
+    // Generate spin frequency table
+    if (h_spin_frequencies.size() != nfreq_chunk)
+    {
+        generate_spin_frequency_table(nfreq_chunk, nsamp, dt);
+    }
+
+    // Allocate buffers
+    std::vector<std::complex<float>> data_f_dm((size_t) ndm * stride/2);
+    std::vector<float> data_t_dm((size_t) ndm * stride);
+
+    // Perform dedispersion
+    std::cout << "Perform dedispersion in frequency domain" << std::endl;
+    dedisperse_segmented_reference<float, float>(
+        ndm, nchan,                              // data dimensions
+        dt,                                      // sample time
+        h_spin_frequencies.data(),               // spin frequencies
+        h_dm_list.data(),                        // DMs
+        h_delay_table.data(),                    // delay table
+        stride/2,                                // in stride
+        stride/2,                                // out stride
+        nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
+        data_f_nu.data(),                        // input
+        data_f_dm.data()                         // output
+    );
+
+    // Fourier transform results back to time domain
+    std::cout << "FFT output c2r" << std::endl;
+    int inembed_c2r[] = {(int) nfreq_chunk_padded};
+    int onembed_c2r[] = {(int) nfreq_chunk_padded*2};
+    auto plan_c2r = fftwf_plan_many_dft_c2r(
+        1, n,                               // rank, n
+        nchunk,                             // howmany
+        (fftwf_complex *) data_f_dm.data(), // in
+        inembed_c2r, 1, inembed_c2r[0],     // inembed, istride, idist
+        data_t_dm.data(),                   // out
+        onembed_c2r, 1, onembed_c2r[0],     // onembed, ostride, odist
+        FFTW_ESTIMATE);                     // flags
+    for (unsigned int idm = 0; idm < ndm; idm++)
+    {
+        auto *in  = data_f_dm.data() + idm * stride/2;
+        auto *out = data_t_dm.data() + idm * stride;
+        fftwf_execute_dft_c2r(plan_c2r, (fftwf_complex *) in, out);
+        for (unsigned int j = 0; j < stride; j++)
+        {
+            double scale = 1.0 / nfft;
+            out[j] *= scale;
+        }
+    }
+    fftwf_destroy_plan(plan_c2r);
+
+    // Construct time domain output
+    std::cout << "Construct time domain output" << std::endl;
+    std::vector<float> data_t_out(ndm * nsamp_computed);
+    unsigned int ostart = 0;
+    for (auto& chunk : chunks)
+    {
+        unsigned int istart = chunk.ifreq_start*2;
+        unsigned int oend   = std::min(nsamp_computed, ostart + nsamp_good);
+        int nsamp           = oend - ostart;
+        if (nsamp > 0)
+        {
+            printf("Copy %d samples [%d - %d]\n", nsamp, ostart, ostart+nsamp);
+            auto *src_ptr = &data_t_dm.data()[istart];
+            auto *dst_ptr = &(((float *) out)[ostart]);
+            memcpy2D(
+                dst_ptr,                        // dstPtr
+                nsamp_computed * sizeof(float), // dstWidth
+                src_ptr,                        // srcPtr
+                stride * sizeof(float),         // srcWidth
+                nsamp * sizeof(float),          // widthBytes
+                ndm);
+            ostart += nsamp;
+        }
+    }
 }
 
 void FDDPlan::execute_gpu(

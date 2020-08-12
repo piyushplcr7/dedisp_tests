@@ -33,6 +33,13 @@ private:
         byte_type*       out,
         size_type        out_nbits);
 
+    virtual void execute_cpu_segmented(
+        size_type        nsamps,
+        const byte_type* in,
+        size_type        in_nbits,
+        byte_type*       out,
+        size_type        out_nbits);
+
     virtual void execute_gpu(
         size_type        nsamps,
         const byte_type* in,
