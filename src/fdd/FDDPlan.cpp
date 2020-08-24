@@ -259,6 +259,113 @@ void dedisperse_segmented_reference(
     } // end for idm
 }
 
+template<typename InputType, typename OutputType>
+void dedisperse_segmented_optimized(
+    unsigned int ndm,
+    unsigned int nchan,
+    float dt,      // sample time
+    float *f,      // spin frequency
+    float *dms,    // DMs
+    float *delays, // delay table
+    size_t in_stride,
+    size_t out_stride,
+    unsigned int nchunk,
+    unsigned int nfreq_chunk,
+    unsigned int nfreq_chunk_padded,
+    std::complex<InputType> *in,
+    std::complex<OutputType> *out)
+{
+    // Transpose input data
+    float in_real[nchunk * nfreq_chunk_padded][nchan];
+    float in_imag[nchunk * nfreq_chunk_padded][nchan];
+    #pragma omp parallel for
+    for (unsigned int ifreq = 0; ifreq < nchunk * nfreq_chunk_padded; ifreq++)
+    {
+        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        {
+            auto* sample = &in[ichan * in_stride];
+            in_real[ifreq][ichan] = sample[ifreq].real();
+            in_imag[ifreq][ichan] = sample[ifreq].imag();
+        }
+    }
+
+    #pragma omp parallel for
+    for (unsigned int idm = 0; idm < ndm; idm++)
+    {
+        // DM delays
+        float tdms[nchan];
+        for (unsigned int ichan = 0; ichan < nchan; ichan++)
+        {
+            tdms[ichan] = dms[idm] * delays[ichan] * dt;
+        }
+
+        // Loop over chunks
+        for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
+        {
+            // Loop over spin frequencies
+            for (unsigned int ifreq = 0; ifreq < nfreq_chunk; ifreq++)
+            {
+                unsigned int nchan_batch = 32;
+
+                // Partial sums
+                float sums_real[nchan_batch];
+                float sums_imag[nchan_batch];
+                memset(sums_real, 0, nchan_batch * sizeof(float));
+                memset(sums_imag, 0, nchan_batch * sizeof(float));
+
+                for (unsigned int ichan_outer = 0; ichan_outer < nchan; ichan_outer += nchan_batch)
+                {
+                    float phasors_real[nchan_batch];
+                    float phasors_imag[nchan_batch];
+
+                    // Compute phases
+                    float phases[nchan_batch];
+                    for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                    {
+                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer + ichan_inner]);
+                    }
+
+                    // Compute phasors
+                    for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                    {
+                        phasors_real[ichan_inner] = cosf(phases[ichan_inner]);
+                        phasors_imag[ichan_inner] = sinf(phases[ichan_inner]);
+                    }
+
+                    // Loop over observing frequencies
+                    for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                    {
+                        unsigned int ichan = ichan_outer + ichan_inner;
+
+                        // Load sample
+                        float sample_real = in_real[ichunk * nfreq_chunk_padded + ifreq][ichan];
+                        float sample_imag = in_imag[ichunk * nfreq_chunk_padded + ifreq][ichan];
+
+                        // Update sum
+                        sums_real[ichan_inner] += sample_real * phasors_real[ichan_inner];
+                        sums_real[ichan_inner] -= sample_imag * phasors_imag[ichan_inner];
+                        sums_imag[ichan_inner] += sample_real * phasors_imag[ichan_inner];
+                        sums_imag[ichan_inner] += sample_imag * phasors_real[ichan_inner];
+                    }
+                }
+
+                // Sum over observing frequencies
+                OutputType sum_real = 0;
+                OutputType sum_imag = 0;
+                for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
+                {
+                    sum_real += sums_real[ichan_inner];
+                    sum_imag += sums_imag[ichan_inner];
+                }
+
+                // Store sum
+                auto* dst_ptr = &out[idm * out_stride];
+                dst_ptr[ichunk * nfreq_chunk_padded + ifreq] = {sum_real, sum_imag};
+            }
+        }
+    }
+}
+
 template<typename InputType, typename OutputType, unsigned int nchan_batch, bool extrapolate>
 void dedisperse_optimized(
     unsigned int ndm,
@@ -644,7 +751,7 @@ void FDDPlan::execute_cpu_segmented(
 
     // Perform dedispersion
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
-    dedisperse_segmented_reference<float, float>(
+    dedisperse_segmented_optimized<float, float>(
         ndm, nchan,                              // data dimensions
         dt,                                      // sample time
         h_spin_frequencies.data(),               // spin frequencies
