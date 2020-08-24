@@ -343,9 +343,16 @@ void FDDPlan::execute_cpu(
     std::cout << "nfreq = " << nfreq << std::endl;
     std::cout << "ndm   = " << ndm << std::endl;
 
+    // Use zero-padded FFT
+    bool use_zero_padding = true;
+
     // Compute padded number of samples (for r2c transformation)
-    unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
-    std::cout << "nsamp_padded: " << nsamp_padded << std::endl << std::endl;
+    unsigned int nsamp_fft    = use_zero_padding
+                                ? round_up(nsamp, 16384)
+                                : nsamp;
+    unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+    std::cout << "nsamp_fft:    " << nsamp_fft << std::endl;
+    std::cout << "nsamp_padded: " << nsamp_padded << std::endl;
 
     // Allocate memory
     std::vector<float> data_nu;
@@ -368,7 +375,7 @@ void FDDPlan::execute_cpu(
     // FFT data (real to complex) along time axis
     std::cout << "FFT input r2c" << std::endl;
     fft_r2c_inplace(
-        nsamp,           // n
+        nsamp_fft,       // n
         nchan,           // batch
         nsamp_padded,    // stride
         data_nu.data()); // data
@@ -395,7 +402,7 @@ void FDDPlan::execute_cpu(
 
     // Fourier transform results back to time domain
     fft_c2r_inplace(
-        nsamp,        // n
+        nsamp_fft,    // n
         ndm,          // batch
         nsamp_padded, // stride
         data_dm.data());
