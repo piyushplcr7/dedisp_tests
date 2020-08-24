@@ -511,18 +511,20 @@ void FDDPlan::execute_cpu_segmented(
     unsigned int nsamp = nsamps;     // number of time samples
     unsigned int ndm   = m_dm_count; // number of DMs
     unsigned int nfft  = 16384;      // number of samples processed in a segment
-    nfft *= 4; // TODO: testfdd detects signal but at wrong DM, and only with this nfft value
+
+    // Compute the number of output samples
+    unsigned int nsamp_computed = nsamp - m_max_delay;
 
     // Every chunk has the same amount of space for spin frequencies.
     // For the last chunk(s), the last elements are not used.
     unsigned int nfreq_chunk = std::ceil(nfft / 2) + 1;
-    unsigned int nfreq_chunk_padded = round_up(nfreq_chunk, 1024);
+    unsigned int nfreq_chunk_padded = round_up(nfreq_chunk + 1, 1024);
 
     // Compute the number of steps
     unsigned int nsamp_dm    = std::ceil(m_max_delay);
     unsigned int nsamp_good  = nfft - nsamp_dm;
     unsigned int nchunk      = std::ceil((float) nsamp / nsamp_good);
-    unsigned int stride      = nchunk * (nfreq_chunk_padded * 2); // scalar width of internal buffers
+    unsigned int nsamp_padded = nchunk * (nfreq_chunk_padded * 2); // scalar width of internal buffers
 
     // Debug
     std::cout << "nsamp              = " << nsamp << std::endl;
@@ -532,11 +534,11 @@ void FDDPlan::execute_cpu_segmented(
     std::cout << "nchunk             = " << nchunk << std::endl;
     std::cout << "nfreq_chunk        = " << nfreq_chunk << std::endl;
     std::cout << "nfreq_chunk_padded = " << nfreq_chunk_padded << std::endl;
-    std::cout << "stride             = " << stride << std::endl;
+    std::cout << "nsamp_padded       = " << nsamp_padded << std::endl;
 
     // Allocate buffers
-    std::vector<float> data_t_nu((size_t) nchan * nsamp);
-    std::vector<std::complex<float>> data_f_nu((size_t) nchan * stride/2);
+    std::vector<float> data_t_nu((size_t) nchan * nsamp_padded);
+    std::vector<std::complex<float>> data_f_nu((size_t) nchan * nsamp_padded/2);
 
     // Transpose input and convert to floating point:
     std::cout << "Transpose/convert input" << std::endl;
@@ -544,7 +546,7 @@ void FDDPlan::execute_cpu_segmented(
         nchan,             // height
         nsamp,             // width
         nchan,             // in_stride
-        nsamp,             // out_stride
+        nsamp_padded,      // out_stride
         127.5,             // offset
         nchan,             // scale
         in,                // in
@@ -602,7 +604,6 @@ void FDDPlan::execute_cpu_segmented(
             ichunk, chunk.isamp_start, chunk.isamp_end, nsamp,
             chunk.ifreq_start*2, chunk.ifreq_end*2, chunk.nfreq_good*2);
     }
-    unsigned int nsamp_computed = nsamp - nsamp_dm;
     std::cout << "nfreq_computed: " << nfreq_computed << std::endl;
     std::cout << "nsamp_computed: " << nsamp_computed << std::endl;
 
@@ -622,21 +623,24 @@ void FDDPlan::execute_cpu_segmented(
     #pragma omp parallel for
     for (unsigned int ichan = 0; ichan < nchan; ichan++)
     {
-        auto *in  = data_t_nu.data() + ichan * nsamp;
-        auto *out = data_f_nu.data() + ichan * stride/2;
-        fftwf_execute_dft_r2c(plan_r2c, in, (fftwf_complex *) out);
+        auto *in  = (float *) data_t_nu.data() + (1ULL * ichan * nsamp_padded);
+        auto *out = (fftwf_complex *) data_f_nu.data() + (1ULL * ichan * nsamp_padded/2);
+        fftwf_execute_dft_r2c(plan_r2c, in, out);
     }
     fftwf_destroy_plan(plan_r2c);
+
+    // Free input buffer
+    data_t_nu.resize(0);
 
     // Generate spin frequency table
     if (h_spin_frequencies.size() != nfreq_chunk)
     {
-        generate_spin_frequency_table(nfreq_chunk, nsamp, dt);
+        generate_spin_frequency_table(nfreq_chunk, nfft, dt);
     }
 
     // Allocate buffers
-    std::vector<std::complex<float>> data_f_dm((size_t) ndm * stride/2);
-    std::vector<float> data_t_dm((size_t) ndm * stride);
+    std::vector<std::complex<float>> data_f_dm((size_t) ndm * nsamp_padded/2);
+    std::vector<float> data_t_dm((size_t) ndm * nsamp_padded);
 
     // Perform dedispersion
     std::cout << "Perform dedispersion in frequency domain" << std::endl;
@@ -646,8 +650,8 @@ void FDDPlan::execute_cpu_segmented(
         h_spin_frequencies.data(),               // spin frequencies
         h_dm_list.data(),                        // DMs
         h_delay_table.data(),                    // delay table
-        stride/2,                                // in stride
-        stride/2,                                // out stride
+        nsamp_padded/2,                          // in stride
+        nsamp_padded/2,                          // out stride
         nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
         data_f_nu.data(),                        // input
         data_f_dm.data()                         // output
@@ -667,10 +671,10 @@ void FDDPlan::execute_cpu_segmented(
         FFTW_ESTIMATE);                     // flags
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
-        auto *in  = data_f_dm.data() + idm * stride/2;
-        auto *out = data_t_dm.data() + idm * stride;
-        fftwf_execute_dft_c2r(plan_c2r, (fftwf_complex *) in, out);
-        for (unsigned int j = 0; j < stride; j++)
+        auto *in  = (fftwf_complex *) data_f_dm.data() + (1ULL * idm * nsamp_padded/2);
+        auto *out = (float *) data_t_dm.data() + (1ULL * idm * nsamp_padded);
+        fftwf_execute_dft_c2r(plan_c2r, in, out);
+        for (unsigned int j = 0; j < nsamp_padded; j++)
         {
             double scale = 1.0 / nfft;
             out[j] *= scale;
@@ -680,23 +684,22 @@ void FDDPlan::execute_cpu_segmented(
 
     // Construct time domain output
     std::cout << "Construct time domain output" << std::endl;
-    std::vector<float> data_t_out(ndm * nsamp_computed);
-    unsigned int ostart = 0;
+    size_t ostart = 0;
     for (auto& chunk : chunks)
     {
-        unsigned int istart = chunk.ifreq_start*2;
-        unsigned int oend   = std::min(nsamp_computed, ostart + nsamp_good);
-        int nsamp           = oend - ostart;
+        size_t istart = chunk.ifreq_start*2;
+        size_t oend   = std::min((size_t) nsamp_computed, ostart + nsamp_good);
+        size_t nsamp  = oend - ostart;
         if (nsamp > 0)
         {
-            printf("Copy %d samples [%d - %d]\n", nsamp, ostart, ostart+nsamp);
+            printf("Copy %lu samples [%lu - %lu]\n", nsamp, ostart, ostart+nsamp);
             auto *src_ptr = &data_t_dm.data()[istart];
             auto *dst_ptr = &(((float *) out)[ostart]);
             memcpy2D(
                 dst_ptr,                        // dstPtr
                 nsamp_computed * sizeof(float), // dstWidth
                 src_ptr,                        // srcPtr
-                stride * sizeof(float),         // srcWidth
+                nsamp_padded * sizeof(float),   // srcWidth
                 nsamp * sizeof(float),          // widthBytes
                 ndm);
             ostart += nsamp;
