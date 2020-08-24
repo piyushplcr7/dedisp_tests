@@ -441,8 +441,16 @@ void FDDPlan::execute_gpu(
     // Compute the number of output samples
     unsigned int nsamp_computed = nsamp - m_max_delay;
 
+    // Use zero-padded FFT
+    bool use_zero_padding = true;
+
     // Compute padded number of samples (for r2c transformation)
-    unsigned int nsamp_padded = round_up(nsamp + 1, 1024);
+    unsigned int nsamp_fft    = use_zero_padding
+                                ? round_up(nsamp, 16384)
+                                : nsamp;
+    unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+    std::cout << "nsamp_fft:    " << nsamp_fft << std::endl;
+    std::cout << "nsamp_padded: " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
     unsigned int ndm_batch_max = 32;
@@ -508,7 +516,7 @@ void FDDPlan::execute_gpu(
     // Prepare cuFFT plans
     mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
-    int n[] = {(int) nsamp};
+    int n[] = {(int) nsamp_fft};
     int rnembed[] = {(int) nsamp_padded};   // width in real elements
     int cnembed[] = {(int) nsamp_padded/2}; // width in complex elements
     std::thread thread_r2c = std::thread([&]()
@@ -675,6 +683,18 @@ void FDDPlan::execute_gpu(
                 1.0/nchan,                           // scale
                 *executestream);                     // stream
 
+            // Apply zero padding
+            auto dst_ptr = ((float *) d_data_nu.data()) + nsamp;
+            unsigned int nsamp_padding = nsamp_padded - nsamp;
+            cu::checkError(cudaMemset2DAsync(
+                dst_ptr,                       // devPtr
+                nsamp_padded * sizeof(float),  // pitch
+                0,                             // value
+                nsamp_padding * sizeof(float), // width
+                nchan_batch_max,               // height
+                *executestream
+            ));
+
             // FFT data (real to complex) along time axis
             for (unsigned int i = 0; i < nchan_batch_max/nchan_fft_batch; i++)
             {
@@ -794,7 +814,7 @@ void FDDPlan::execute_gpu(
             // FFT scaling
             kernel.scale(
                 dm_job.ndm_current, // height
-                nsamp_computed,     // width
+                nsamp_fft,          // width
                 nsamp_padded,       // stride
                 d_out,              // d_data
                 *executestream);    // stream
