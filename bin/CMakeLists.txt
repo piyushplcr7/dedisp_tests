@@ -4,4 +4,5 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 
 # add binaries
 add_subdirectory(test)
+add_subdirectory(benchmark)
 add_subdirectory(fil)
