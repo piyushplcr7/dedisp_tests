@@ -6,13 +6,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include <time.h>
+#include <iostream>
+#include <iomanip>
 
 #include <ctime>
 #include <random>
 #include <functional>
 
 #include <Plan.hpp>
+
+#include "external/Stopwatch.h"
 
 // Debug options
 #define WRITE_INPUT_DATA  0
@@ -133,9 +136,15 @@ int run()
   //const dedisp_size *dt_factors;
   dedisp_float *delay_s;
 
-  clock_t startclock;
-
   dedisp_float *rawdata;
+
+  std::unique_ptr<Stopwatch> tbench(Stopwatch::create());
+  std::unique_ptr<Stopwatch> tinit(Stopwatch::create());
+  std::unique_ptr<Stopwatch> tplan(Stopwatch::create());
+  std::unique_ptr<Stopwatch> texecute(Stopwatch::create());
+  std::unique_ptr<Stopwatch> tcheck(Stopwatch::create());
+  tbench->Start();
+  tinit->Start();
 
   printf("Starting benchmark\n");
   printf("----------------------------- INPUT DATA ---------------------------------\n");
@@ -183,12 +192,12 @@ int run()
   printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
   printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
   printf("Signal Delays : %f, %f, %f ... %f\n",delay_s[0],delay_s[1],delay_s[2],delay_s[nchans-1]);
-  /* 
+  /*
      input is a pointer to an array containing a time series of length
      nsamps for each frequency channel in plan. The data must be in
      time-major order, i.e., frequency is the fastest-changing
      dimension, time the slowest. There must be no padding between
-     consecutive frequency channels. 
+     consecutive frequency channels.
    */
 
   dedisp_float raw_mean, raw_sigma;
@@ -197,6 +206,8 @@ int run()
   printf("Rawdata StdDev (includes signal)  : %f\n",raw_sigma);
   printf("Pulse S/N (per frequency channel) : %f\n",sigamp/datarms);
 
+  tinit->Pause();
+  tplan->Start();
 
   input = (dedisp_byte *) malloc(nsamps * nchans * (in_nbits/8));
 
@@ -250,18 +261,20 @@ int run()
     return -1;
   }
 
+  tplan->Pause();
+  texecute->Start();
+
   printf("\n");
   printf("--------------------------- PERFORM DEDISPERSION  -------------------------\n");
-  startclock = clock();
   // Compute the dedispersion transform on the GPU
   plan.execute(nsamps,
 			 input, in_nbits,
 			 (dedisp_byte *)output, out_nbits);
-  printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
-
+  texecute->Pause();
   printf("\n");
   printf("------------------------------ CHECK RESULT  ------------------------------\n");
-  // Look for significant peaks 
+  // Look for significant peaks
+  tcheck->Start();
   dedisp_float out_mean, out_sigma;
   calc_stats_float(output, nsamps_computed*dm_count, &out_mean, &out_sigma);
 
@@ -295,6 +308,17 @@ int run()
   fwrite(output, 1, (size_t) nsamps_computed * dm_count * out_nbits/8, file_out);
   fclose(file_out);
   #endif
+
+  tcheck->Pause();
+  tbench->Pause();
+  // Print timings
+  printf("\n");
+  printf("----------------------------- BENCHMARK TIMES  ----------------------------\n");
+  std::cout << "Benchmark total time:      " << tbench->ToString() << " sec." << std::endl;
+  std::cout << "Benchmark init time:       " << tinit->ToString() << " sec." << std::endl;
+  std::cout << "Benchmark plan time:       " << tplan->ToString() << " sec." << std::endl;
+  std::cout << "Benchmark execute time:    " << texecute->ToString() << " sec." << std::endl;
+  std::cout << "Benchmark check time:      " << tcheck->ToString() << " sec." << std::endl;
 
   // Clean up
   free(output);
