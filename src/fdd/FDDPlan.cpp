@@ -527,7 +527,7 @@ void FDDPlan::execute_cpu(
 
     // Compute padded number of samples (for r2c transformation)
     unsigned int nsamp_fft    = use_zero_padding
-                                ? round_up(nsamp, 16384)
+                                ? round_up(nsamp + 1, 16384)
                                 : nsamp;
     unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
     std::cout << debug_str << std::endl;
@@ -897,7 +897,7 @@ void FDDPlan::execute_gpu(
 
     // Compute padded number of samples (for r2c transformation)
     unsigned int nsamp_fft    = use_zero_padding
-                                ? round_up(nsamp, 16384)
+                                ? round_up(nsamp + 1, 16384)
                                 : nsamp;
     unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
     std::cout << debug_str << std::endl;
