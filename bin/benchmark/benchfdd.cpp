@@ -7,5 +7,12 @@ int run();
 
 int main(int argc, char* argv[])
 {
-  return run<dedisp::FDDPlan>();
+  BenchParameters benchParameter;
+  benchParameter.dm_start = 2;
+  benchParameter.dm_end = 100;
+  benchParameter.nchans = 1024;
+  benchParameter.Tobs = 30.0;
+  benchParameter.verbose = false;
+
+  return run<dedisp::FDDPlan>(benchParameter);
 }

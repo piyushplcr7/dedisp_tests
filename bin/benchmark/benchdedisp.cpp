@@ -7,5 +7,6 @@ int run();
 
 int main(int argc, char* argv[])
 {
-  return run<dedisp::DedispPlan>();
+  BenchParameters benchParameter;
+  return run<dedisp::DedispPlan>(benchParameter);
 }

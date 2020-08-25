@@ -98,18 +98,28 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean, dedisp
   return;
 }
 
+// Parameter struct to configure benchmark
+struct BenchParameters
+{
+  dedisp_float dm_start = 2;
+  dedisp_float dm_end = 100;
+  dedisp_float nchans = 1024;
+  dedisp_float Tobs = 30.0;
+  bool verbose = true;
+};
+
 template<typename PlanType>
-int run()
+int run(BenchParameters & benchParameter)
 {
   int          device_idx  = 0;
 
   dedisp_float sampletime_base = 250.0E-6; // Base is 250 microsecond time samples
   dedisp_float downsamp    = 1.0;
-  dedisp_float Tobs        = 30.0;    // Observation duration in seconds
+  dedisp_float Tobs        = benchParameter.Tobs; //30.0;    // Observation duration in seconds
   dedisp_float dt          = downsamp*sampletime_base;     // s (0.25 ms sampling)
   dedisp_float f0          = 1581.0;    // MHz (highest channel!)
   dedisp_float bw          = 100.0; // MHz
-  dedisp_size  nchans      = 1024;
+  dedisp_size  nchans      = benchParameter.nchans; //1024;
   dedisp_float df          = -1.0*bw/nchans;   // MHz   (This must be negative!)
 
   dedisp_size  nsamps      = Tobs / dt;
@@ -118,8 +128,8 @@ int run()
   dedisp_float sigT = 3.14159; // seconds into time series (at f0)
   dedisp_float sigamp = 25.0; // amplitude of signal
 
-  dedisp_float dm_start    = 2.0;    // pc cm^-3
-  dedisp_float dm_end      = 100.0;    // pc cm^-3
+  dedisp_float dm_start    = benchParameter.dm_start; // 2.0;    // pc cm^-3
+  dedisp_float dm_end      = benchParameter.dm_end; // 100.0;    // pc cm^-3
   dedisp_float pulse_width = 4.0;   // ms
   dedisp_float dm_tol      = 1.25;
   dedisp_size  in_nbits    = 8;
@@ -147,15 +157,18 @@ int run()
   tinit->Start();
 
   printf("Starting benchmark\n");
-  printf("----------------------------- INPUT DATA ---------------------------------\n");
-  printf("Frequency of highest chanel (MHz)            : %.4f\n",f0);
-  printf("Bandwidth (MHz)                              : %.2f\n",bw);
-  printf("NCHANS (Channel Width [MHz])                 : %lu (%f)\n",nchans,df);
-  printf("Sample time (after downsampling by %.0f)        : %f\n",downsamp,dt);
-  printf("Observation duration (s)                     : %f (%lu samples)\n",Tobs,nsamps);
-  printf("Data RMS (%2lu bit input data)                 : %f\n",in_nbits,datarms);
-  printf("Input data array size                        : %lu MB\n",(nsamps*nchans*sizeof(float))/(1<<20));
-  printf("\n");
+  if(benchParameter.verbose)
+  {
+    printf("----------------------------- INPUT DATA ---------------------------------\n");
+    printf("Frequency of highest chanel (MHz)            : %.4f\n",f0);
+    printf("Bandwidth (MHz)                              : %.2f\n",bw);
+    printf("NCHANS (Channel Width [MHz])                 : %lu (%f)\n",nchans,df);
+    printf("Sample time (after downsampling by %.0f)        : %f\n",downsamp,dt);
+    printf("Observation duration (s)                     : %f (%lu samples)\n",Tobs,nsamps);
+    printf("Data RMS (%2lu bit input data)                 : %f\n",in_nbits,datarms);
+    printf("Input data array size                        : %lu MB\n",(nsamps*nchans*sizeof(float))/(1<<20));
+    printf("\n");
+  }
 
   /* Initialize random number generator */
   auto random = std::bind(std::normal_distribution<float>(0, 1),
@@ -177,7 +190,7 @@ int run()
     dedisp_float b = 1.f/f0;
     delay_s[nc] = sigDM*4.15e3 * (a*a - b*b);
   }
-  printf("Embedding signal\n");
+  if(benchParameter.verbose) printf("Embedding signal\n");
   for (nc=0; nc<nchans; nc++) {
     ns = (int)((sigT + delay_s[nc])/dt);
     if (ns > nsamps) {
@@ -187,31 +200,33 @@ int run()
     rawdata[ns*nchans + nc] += sigamp;
   }
 
-  printf("\n");
-  printf("----------------------------- INJECTED SIGNAL  ----------------------------\n");
-  printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
-  printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
-  printf("Signal Delays : %f, %f, %f ... %f\n",delay_s[0],delay_s[1],delay_s[2],delay_s[nchans-1]);
-  /*
-     input is a pointer to an array containing a time series of length
-     nsamps for each frequency channel in plan. The data must be in
-     time-major order, i.e., frequency is the fastest-changing
-     dimension, time the slowest. There must be no padding between
-     consecutive frequency channels.
-   */
+  if(benchParameter.verbose)
+  {
+    printf("\n");
+    printf("----------------------------- INJECTED SIGNAL  ----------------------------\n");
+    printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
+    printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
+    printf("Signal Delays : %f, %f, %f ... %f\n",delay_s[0],delay_s[1],delay_s[2],delay_s[nchans-1]);
+    /*
+      input is a pointer to an array containing a time series of length
+      nsamps for each frequency channel in plan. The data must be in
+      time-major order, i.e., frequency is the fastest-changing
+      dimension, time the slowest. There must be no padding between
+      consecutive frequency channels.
+    */
 
-  dedisp_float raw_mean, raw_sigma;
-  calc_stats_float(rawdata, nsamps*nchans, &raw_mean, &raw_sigma);
-  printf("Rawdata Mean (includes signal)    : %f\n",raw_mean);
-  printf("Rawdata StdDev (includes signal)  : %f\n",raw_sigma);
-  printf("Pulse S/N (per frequency channel) : %f\n",sigamp/datarms);
-
+    dedisp_float raw_mean, raw_sigma;
+    calc_stats_float(rawdata, nsamps*nchans, &raw_mean, &raw_sigma);
+    printf("Rawdata Mean (includes signal)    : %f\n",raw_mean);
+    printf("Rawdata StdDev (includes signal)  : %f\n",raw_sigma);
+    printf("Pulse S/N (per frequency channel) : %f\n",sigamp/datarms);
+  }
   tinit->Pause();
   tplan->Start();
 
   input = (dedisp_byte *) malloc(nsamps * nchans * (in_nbits/8));
 
-  printf("Quantizing array\n");
+  if(benchParameter.verbose) printf("Quantizing array\n");
   /* Now fill array by quantizing rawdata */
   for (ns=0; ns<nsamps; ns++) {
     for (nc=0; nc<nchans; nc++) {
@@ -219,23 +234,25 @@ int run()
     }
   }
 
-  dedisp_float in_mean, in_sigma;
-  calc_stats_8bit(input, nsamps*nchans, &in_mean, &in_sigma);
+  if(benchParameter.verbose)
+  {
+    dedisp_float in_mean, in_sigma;
+    calc_stats_8bit(input, nsamps*nchans, &in_mean, &in_sigma);
 
-  printf("Quantized data Mean (includes signal)    : %f\n",in_mean);
-  printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
-  printf("\n");
+    printf("Quantized data Mean (includes signal)    : %f\n",in_mean);
+    printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
+    printf("\n");
+  }
 
-
-  printf("Create plan\n");
+  if(benchParameter.verbose) printf("Create plan\n");
   // Create a dedispersion plan
   PlanType plan(nchans, dt, f0, df);
 
-  printf("Init GPU\n");
+  if(benchParameter.verbose) printf("Init GPU\n");
   // Initialise the GPU
   plan.set_device(device_idx);
 
-  printf("Gen DM list\n");
+  if(benchParameter.verbose) printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
   plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
 
@@ -246,13 +263,16 @@ int run()
   dmlist = plan.get_dm_list();
   //dt_factors = plan.get_dt_factors(plan);
 
-  printf("\n");
-  printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
-  printf("Computing %lu DMs from %f to %f pc/cm^3\n",dm_count,dmlist[0],dmlist[dm_count-1]);
-  printf("Max DM delay is %lu samples (%.f seconds)\n",max_delay,max_delay*dt);
-  printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",nsamps_computed,nsamps,100.0*(dedisp_float)nsamps_computed/nsamps);
-  printf("Output data array size : %lu MB\n",(dm_count*nsamps_computed*(out_nbits/8))/(1<<20));
-  printf("\n");
+  if(benchParameter.verbose)
+  {
+    printf("\n");
+    printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
+    printf("Computing %lu DMs from %f to %f pc/cm^3\n",dm_count,dmlist[0],dmlist[dm_count-1]);
+    printf("Max DM delay is %lu samples (%.f seconds)\n",max_delay,max_delay*dt);
+    printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",nsamps_computed,nsamps,100.0*(dedisp_float)nsamps_computed/nsamps);
+    printf("Output data array size : %lu MB\n",(dm_count*nsamps_computed*(out_nbits/8))/(1<<20));
+    printf("\n");
+  }
 
   // Allocate space for the output data
   output = (dedisp_float *) malloc(nsamps_computed * dm_count * out_nbits/8);
@@ -281,20 +301,23 @@ int run()
   printf("Output RMS                               : %f\n",out_mean);
   printf("Output StdDev                            : %f\n",out_sigma);
 
+  if(benchParameter.verbose)
+  {
   i=0;
-  for (nd=0; nd<dm_count; nd++) {
-    for (ns=0; ns<nsamps_computed; ns++) {
-      dedisp_size idx = nd*nsamps_computed+ns;
-      dedisp_float val = output[idx];
-      if (val-out_mean > 6.0*out_sigma) {
-	printf("DM trial %u (%.3f pc/cm^3), Samp %u (%.6f s): %f (%.2f sigma)\n",nd,dmlist[nd],ns,ns*dt,val,(val-out_mean)/out_sigma);
-	i++;
-	if (i>100)
-	  break;
-      }
-    }
+    for (nd=0; nd<dm_count; nd++) {
+      for (ns=0; ns<nsamps_computed; ns++) {
+        dedisp_size idx = nd*nsamps_computed+ns;
+        dedisp_float val = output[idx];
+        if (val-out_mean > 6.0*out_sigma) {
+    printf("DM trial %u (%.3f pc/cm^3), Samp %u (%.6f s): %f (%.2f sigma)\n",nd,dmlist[nd],ns,ns*dt,val,(val-out_mean)/out_sigma);
+    i++;
     if (i>100)
       break;
+        }
+      }
+      if (i>100)
+        break;
+    }
   }
 
   #if WRITE_INPUT_DATA
