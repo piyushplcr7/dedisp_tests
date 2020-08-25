@@ -1538,6 +1538,7 @@ void FDDPlan::execute_gpu_segmented(
 
         // Repeat these spin frequencies several times for the different chunks
         std::vector<float> spin_frequencies_segmented(nsamp_padded);
+        #pragma omp parallel for
         for (unsigned int ichunk = 0; ichunk < chunks.size(); ichunk++)
         {
             for (unsigned int ifreq = 0; ifreq < nfreq_chunk; ifreq++)
