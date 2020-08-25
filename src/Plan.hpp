@@ -92,13 +92,6 @@ private:
                           dedisp_size nchans, double tol);
 
 protected:
-    // Helper methods
-    void memcpy2D(
-        void *dstPtr, size_t dstWidth,
-        const void *srcPtr, size_t srcWidth,
-        size_t widthBytes, size_t height);
-
-protected:
     // Size parameters
     dedisp_size  m_dm_count;
     dedisp_size  m_nchans;
@@ -127,6 +120,12 @@ protected:
     std::unique_ptr<cu::Stream> dtohstream;
     std::unique_ptr<cu::Stream> executestream;
 };
+
+// Helper methods
+void memcpy2D(
+    void *dstPtr, size_t dstWidth,
+    const void *srcPtr, size_t srcWidth,
+    size_t widthBytes, size_t height);
 
 } // end namespace dedisp
 

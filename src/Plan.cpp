@@ -173,7 +173,7 @@ void Plan::generate_dm_list(
                               h_delay_table[m_nchans-1] + 0.5);
 }
 
-void Plan::memcpy2D(
+void memcpy2D(
     void *dstPtr, size_t dstWidth,
     const void *srcPtr, size_t srcWidth,
     size_t widthBytes, size_t height)
