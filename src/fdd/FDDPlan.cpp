@@ -627,6 +627,72 @@ void FDDPlan::execute_cpu(
     std::cout << std::endl;
 }
 
+// Chunk metadata
+struct Chunk
+{
+    // Time domain
+    unsigned int isamp_start; // scalar index
+    unsigned int isamp_end;   // scalar index
+
+    // Frequency domain
+    unsigned int ifreq_start; // scalar index
+    unsigned int ifreq_end;   // scalar index
+    unsigned int nfreq_good;  // number of good samples
+};
+
+void compute_chunks(
+    unsigned int nsamp,
+    unsigned int nsamp_good,
+    unsigned int nfft,
+    unsigned int nfreq_chunk_padded,
+    unsigned int& nfreq_computed,
+    std::vector<Chunk>& chunks
+)
+{
+    nfreq_computed = 0;
+
+    for (unsigned int ichunk = 0; ichunk < chunks.size(); ichunk++)
+    {
+        Chunk& chunk = chunks[ichunk];
+
+        // Compute start and end indices in the time domain
+        unsigned int isamp_start = ichunk * nsamp_good;
+        unsigned int isamp_end   = isamp_start + nfft;
+                     isamp_end   = std::min(isamp_end, nsamp);
+
+        // Compute number of scalar samples in the time domain
+        unsigned int nsamp = isamp_end - isamp_start;
+
+        // Store time domain parameters
+        chunk.isamp_start = isamp_start;
+        chunk.isamp_end   = isamp_end;
+
+        // Compute the number of complex samples in the frequency domain
+        unsigned int nfreq       = std::ceil(nsamp / 2.0) + 1;
+        unsigned int ifreq_start = ichunk * nfreq_chunk_padded;
+        unsigned int ifreq_end   = ifreq_start + nfreq;
+        chunk.nfreq_good         = nfreq;
+        chunk.ifreq_start        = ifreq_start; // complex index
+        chunk.ifreq_end          = ifreq_end;   // complex index
+
+        // Number of good spin frequencies computed
+        nfreq_computed += ifreq_end - ifreq_start;
+    }
+}
+
+void print_chunks(
+    std::vector<Chunk>& chunks)
+{
+    for (unsigned int ichunk = 0; ichunk < chunks.size(); ichunk++)
+    {
+        Chunk& chunk = chunks[ichunk];
+        unsigned int nsamp = chunk.isamp_end - chunk.isamp_start;
+        printf("Chunk %d: isamp %5d - %5d, nsamp: %5d, ifreq: %5d - %5d, nfreq: %d\n",
+            ichunk, chunk.isamp_start, chunk.isamp_end, nsamp,
+            chunk.ifreq_start*2, chunk.ifreq_end*2, chunk.nfreq_good*2);
+    }
+}
+
 void FDDPlan::execute_cpu_segmented(
     size_type        nsamps,
     const byte_type* in,
@@ -698,59 +764,16 @@ void FDDPlan::execute_cpu_segmented(
         in,                // in
         data_t_nu.data()); // out
 
-    // Chunk metadata
-    struct Chunk
-    {
-        // Time domain
-        unsigned int isamp_start; // scalar index
-        unsigned int isamp_end;   // scalar index
-
-        // Frequency domain
-        unsigned int ifreq_start; // scalar index
-        unsigned int ifreq_end;   // scalar index
-        unsigned int nfreq_good;  // number of good samples
-    };
-
+    // Compute chunks
     std::vector<Chunk> chunks(nchunk);
+    unsigned int nfreq_computed;
+    compute_chunks(
+        nsamp, nsamp_good, nfft,
+        nfreq_chunk_padded, nfreq_computed, chunks);
 
-    unsigned int nfreq_computed = 0;
-    for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
-    {
-        Chunk& chunk = chunks[ichunk];
-
-        // Compute start and end indices in the time domain
-        unsigned int isamp_start = ichunk * nsamp_good;
-        unsigned int isamp_end   = isamp_start + nfft;
-                     isamp_end   = std::min(isamp_end, nsamp);
-
-        // Compute number of scalar samples in the time domain
-        unsigned int nsamp = isamp_end - isamp_start;
-
-        // Store time domain parameters
-        chunk.isamp_start = isamp_start;
-        chunk.isamp_end   = isamp_end;
-
-        // Compute the number of complex samples in the frequency domain
-        unsigned int nfreq       = std::ceil(nsamp / 2.0) + 1;
-        unsigned int ifreq_start = ichunk * nfreq_chunk_padded;
-        unsigned int ifreq_end   = ifreq_start + nfreq;
-        chunk.nfreq_good         = nfreq;
-        chunk.ifreq_start        = ifreq_start; // complex index
-        chunk.ifreq_end          = ifreq_end;   // complex index
-
-        // Number of good spin frequencies computed
-        nfreq_computed += ifreq_end - ifreq_start;
-    }
-
+    // Debug
     std::cout << debug_str << std::endl;
-    for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
-    {
-        Chunk& chunk = chunks[ichunk];
-        unsigned int nsamp = chunk.isamp_end - chunk.isamp_start;
-        printf("Chunk %d: isamp %5d - %5d, nsamp: %5d, ifreq: %5d - %5d, nfreq: %d\n",
-            ichunk, chunk.isamp_start, chunk.isamp_end, nsamp,
-            chunk.ifreq_start*2, chunk.ifreq_end*2, chunk.nfreq_good*2);
-    }
+    print_chunks(chunks);
     std::cout << "nfreq_computed = " << nfreq_computed << std::endl;
     std::cout << "nsamp_computed = " << nsamp_computed << std::endl;
 
