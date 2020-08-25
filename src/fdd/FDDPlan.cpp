@@ -1517,6 +1517,13 @@ void FDDPlan::execute_gpu_segmented(
         cufftSetStream(plan_c2r, *executestream);
     });
 
+    // Compute chunks
+    std::vector<Chunk> chunks(nchunk);
+    unsigned int nfreq_computed;
+    compute_chunks(
+        nsamp, nsamp_good, nfft,
+        nfreq_chunk_padded, nfreq_computed, chunks);
+
     // Wait for cuFFT plans to be created
     if (thread_r2c.joinable()) { thread_r2c.join(); }
     if (thread_c2r.joinable()) { thread_c2r.join(); }
@@ -1817,15 +1824,10 @@ void FDDPlan::execute_gpu_segmented(
     std::cout << copy_output_str << std::endl;
     mCopyMem.start();
     output_timer->Start();
-    dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
-    dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
-    memcpy2D(
-        out,        // dst
-        dst_stride, // dst width
-        h_data_dm,  // src
-        src_stride, // src width
-        dst_stride, // width bytes
-        ndm);       // height
+    copy_chunk_output(
+        (float *) h_data_dm.data(), (float *) out,
+        ndm, nsamp, nsamp_computed,
+        nsamp_padded, nsamp_good, chunks);
     output_timer->Pause();
     mCopyMem.end();
     total_timer->Pause();
