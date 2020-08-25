@@ -1531,11 +1531,26 @@ void FDDPlan::execute_gpu_segmented(
 
     // Generate spin frequency table
     mPrepSpinf.start();
-    if (h_spin_frequencies.size() != nfreq)
+    if (h_spin_frequencies.size() != nfreq_chunk)
     {
-        generate_spin_frequency_table(nfreq, nsamp, dt);
-        d_spin_frequencies.resize(nfreq * sizeof(dedisp_float));
-        htodstream->memcpyHtoDAsync(d_spin_frequencies, h_spin_frequencies.data(), d_spin_frequencies.size());
+        // The actual spin frequencies to use
+        generate_spin_frequency_table(nfreq_chunk, nfft, dt);
+
+        // Repeat these spin frequencies several times for the different chunks
+        std::vector<float> spin_frequencies_segmented(nsamp_padded);
+        for (unsigned int ichunk = 0; ichunk < chunks.size(); ichunk++)
+        {
+            for (unsigned int ifreq = 0; ifreq < nfreq_chunk; ifreq++)
+            {
+                auto* src_ptr = h_spin_frequencies.data();
+                auto* dst_ptr = &spin_frequencies_segmented[ichunk * nfreq_chunk_padded];
+                memcpy(dst_ptr, src_ptr, nfreq_chunk * sizeof(float));
+            }
+        }
+
+        // Copy segmented spin frequencies to the GPU
+        d_spin_frequencies.resize(spin_frequencies_segmented.size() * sizeof(dedisp_float));
+        htodstream->memcpyHtoDAsync(d_spin_frequencies, spin_frequencies_segmented.data(), d_spin_frequencies.size());
     }
     mPrepSpinf.end();
 
