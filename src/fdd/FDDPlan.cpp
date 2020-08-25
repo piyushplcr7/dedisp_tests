@@ -654,9 +654,7 @@ void FDDPlan::execute_cpu_segmented(
     unsigned int nsamp_good  = nfft - nsamp_dm;
     unsigned int nchunk      = std::ceil((float) nsamp / nsamp_good);
     unsigned int nsamp_padded = nchunk * (nfreq_chunk_padded * 2); // scalar width of internal buffers
-
-    // Debug
-    std::cout << "nsamp              = " << nsamp << std::endl;
+    std::cout << debug_str << std::endl;
     std::cout << "nfft               = " << nfft << std::endl;
     std::cout << "nsamp_dm           = " << nsamp_dm << std::endl;
     std::cout << "nsamp_good         = " << nsamp_good << std::endl;
@@ -665,12 +663,31 @@ void FDDPlan::execute_cpu_segmented(
     std::cout << "nfreq_chunk_padded = " << nfreq_chunk_padded << std::endl;
     std::cout << "nsamp_padded       = " << nsamp_padded << std::endl;
 
-    // Allocate buffers
+    // Timers
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    total_timer->Start();
+    init_timer->Start();
+
+    // Allocate memory
+    std::cout << memory_alloc_str << std::endl;
     std::vector<float> data_t_nu((size_t) nchan * nsamp_padded);
     std::vector<std::complex<float>> data_f_nu((size_t) nchan * nsamp_padded/2);
 
+    // Generate spin frequency table
+    if (h_spin_frequencies.size() != nfreq_chunk)
+    {
+        generate_spin_frequency_table(nfreq_chunk, nfft, dt);
+    }
+    init_timer->Pause();
+
     // Transpose input and convert to floating point:
-    std::cout << "Transpose/convert input" << std::endl;
+    std::cout << prepare_input_str << std::endl;
+    preprocessing_timer->Start();
     transpose_data<const byte_type, float>(
         nchan,             // height
         nsamp,             // width
@@ -725,6 +742,7 @@ void FDDPlan::execute_cpu_segmented(
         nfreq_computed += ifreq_end - ifreq_start;
     }
 
+    std::cout << debug_str << std::endl;
     for (unsigned int ichunk = 0; ichunk < nchunk; ichunk++)
     {
         Chunk& chunk = chunks[ichunk];
@@ -733,11 +751,11 @@ void FDDPlan::execute_cpu_segmented(
             ichunk, chunk.isamp_start, chunk.isamp_end, nsamp,
             chunk.ifreq_start*2, chunk.ifreq_end*2, chunk.nfreq_good*2);
     }
-    std::cout << "nfreq_computed: " << nfreq_computed << std::endl;
-    std::cout << "nsamp_computed: " << nsamp_computed << std::endl;
+    std::cout << "nfreq_computed = " << nfreq_computed << std::endl;
+    std::cout << "nsamp_computed = " << nsamp_computed << std::endl;
 
     // FFT data (real to complex) along time axis
-    std::cout << "FFT input r2c" << std::endl;
+    std::cout << fft_c2r_str << std::endl;
     const int n[] = {(int) nfft};
     int inembed_r2c[] = {(int) nsamp_good};
     int onembed_r2c[] = {(int) nfreq_chunk_padded};
@@ -757,22 +775,21 @@ void FDDPlan::execute_cpu_segmented(
         fftwf_execute_dft_r2c(plan_r2c, in, out);
     }
     fftwf_destroy_plan(plan_r2c);
+    preprocessing_timer->Pause();
 
     // Free input buffer
     data_t_nu.resize(0);
 
-    // Generate spin frequency table
-    if (h_spin_frequencies.size() != nfreq_chunk)
-    {
-        generate_spin_frequency_table(nfreq_chunk, nfft, dt);
-    }
-
     // Allocate buffers
+    std::cout << memory_alloc_str << std::endl;
+    init_timer->Start();
     std::vector<std::complex<float>> data_f_dm((size_t) ndm * nsamp_padded/2);
     std::vector<float> data_t_dm((size_t) ndm * nsamp_padded);
+    init_timer->Pause();
 
     // Perform dedispersion
-    std::cout << "Perform dedispersion in frequency domain" << std::endl;
+    std::cout << fdd_dedispersion_str << std::endl;
+    dedispersion_timer->Start();
     dedisperse_segmented_optimized<float, float>(
         ndm, nchan,                              // data dimensions
         dt,                                      // sample time
@@ -785,9 +802,11 @@ void FDDPlan::execute_cpu_segmented(
         data_f_nu.data(),                        // input
         data_f_dm.data()                         // output
     );
+    dedispersion_timer->Pause();
 
     // Fourier transform results back to time domain
-    std::cout << "FFT output c2r" << std::endl;
+    std::cout << fft_c2r_str << std::endl;
+    postprocessing_timer->Start();
     int inembed_c2r[] = {(int) nfreq_chunk_padded};
     int onembed_c2r[] = {(int) nfreq_chunk_padded*2};
     auto plan_c2r = fftwf_plan_many_dft_c2r(
@@ -810,9 +829,11 @@ void FDDPlan::execute_cpu_segmented(
         }
     }
     fftwf_destroy_plan(plan_c2r);
+    postprocessing_timer->Pause();
 
-    // Construct time domain output
-    std::cout << "Construct time domain output" << std::endl;
+    // Copy output
+    std::cout << copy_output_str << std::endl;
+    output_timer->Start();
     size_t ostart = 0;
     for (auto& chunk : chunks)
     {
@@ -821,7 +842,6 @@ void FDDPlan::execute_cpu_segmented(
         size_t nsamp  = oend - ostart;
         if (nsamp > 0)
         {
-            printf("Copy %lu samples [%lu - %lu]\n", nsamp, ostart, ostart+nsamp);
             auto *src_ptr = &data_t_dm.data()[istart];
             auto *dst_ptr = &(((float *) out)[ostart]);
             memcpy2D(
@@ -834,6 +854,17 @@ void FDDPlan::execute_cpu_segmented(
             ostart += nsamp;
         }
     }
+    output_timer->Pause();
+    total_timer->Pause();
+
+    // Print timings
+    std::cout << "Initialization time: " << init_timer->ToString() << " sec." << std::endl;
+    std::cout << "Preprocessing time:  " << preprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << "Dedispersion time:   " << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << "Postprocessing time: " << postprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << "Output memcopy time: " << output_timer->ToString() << " sec." << std::endl;
+    std::cout << "Total time:          " << total_timer->ToString() << " sec." << std::endl;
+    std::cout << std::endl;
 }
 
 void FDDPlan::execute_gpu(
