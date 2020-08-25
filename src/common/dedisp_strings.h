@@ -12,6 +12,7 @@ static const std::string debug_str            = ">> Debug";
 static const std::string timings_str          = ">> Timings";
 static const std::string memory_alloc_str     = ">> Allocate memory";
 static const std::string fft_plan_str         = ">> Create FFT plan";
+static const std::string prepare_input_str    = ">> Prepare input";
 static const std::string fft_r2c_str          = ">> FFT input r2c";
 static const std::string fft_c2r_str          = ">> FFT output c2r";
 static const std::string fdd_dedispersion_str = ">> Perform dedispersion in frequency domain";
