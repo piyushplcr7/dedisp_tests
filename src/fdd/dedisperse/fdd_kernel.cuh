@@ -191,10 +191,9 @@ __global__
 void scale_output_kernel(
     size_t n,
     size_t stride,
+    float scale,
     float *d_data)
 {
-    float scale = 1.0 / n;
-
     for (unsigned int i = threadIdx.x; i < n; i += blockDim.x)
     {
         d_data[blockIdx.x * stride + i] *= scale;

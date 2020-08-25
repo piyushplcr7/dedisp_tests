@@ -1314,6 +1314,7 @@ void FDDPlan::execute_gpu(
                 dm_job.ndm_current, // height
                 nsamp_padded,       // width
                 nsamp_padded,       // stride
+                1.0f / nsamp_fft,   // scale
                 d_out,              // d_data
                 *executestream);    // stream
             executestream->record(dm_job.postprocessingEnd);
@@ -1791,6 +1792,7 @@ void FDDPlan::execute_gpu_segmented(
                 dm_job.ndm_current, // height
                 nsamp_padded,       // width
                 nsamp_padded,       // stride
+                1.0f / nfft,        // scale
                 d_data_t_dm,        // d_data
                 *executestream);    // stream
             executestream->record(dm_job.postprocessingEnd);

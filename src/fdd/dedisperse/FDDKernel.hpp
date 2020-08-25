@@ -34,6 +34,7 @@ class FDDKernel
             dedisp_size   height,
             dedisp_size   width,
             dedisp_size   stride,
+            dedisp_float  scale,
             dedisp_float* d_data,
             cudaStream_t  stream);
 
