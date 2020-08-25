@@ -137,6 +137,7 @@ int run()
 
   dedisp_float *rawdata;
 
+  printf("Starting benchmark\n");
   printf("----------------------------- INPUT DATA ---------------------------------\n");
   printf("Frequency of highest chanel (MHz)            : %.4f\n",f0);
   printf("Bandwidth (MHz)                              : %.2f\n",bw);
@@ -176,7 +177,8 @@ int run()
     }
     rawdata[ns*nchans + nc] += sigamp;
   }
-        
+
+  printf("\n");
   printf("----------------------------- INJECTED SIGNAL  ----------------------------\n");
   printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
   printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
@@ -225,7 +227,7 @@ int run()
   printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
   plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
-        
+
   // Find the parameters that determine the output size
   dm_count = plan.get_dm_count();
   max_delay = plan.get_max_delay();
@@ -233,7 +235,7 @@ int run()
   dmlist = plan.get_dm_list();
   //dt_factors = plan.get_dt_factors(plan);
 
-
+  printf("\n");
   printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
   printf("Computing %lu DMs from %f to %f pc/cm^3\n",dm_count,dmlist[0],dmlist[dm_count-1]);
   printf("Max DM delay is %lu samples (%.f seconds)\n",max_delay,max_delay*dt);
@@ -247,15 +249,18 @@ int run()
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
   }
-        
-  printf("Compute on GPU\n");
+
+  printf("\n");
+  printf("--------------------------- PERFORM DEDISPERSION  -------------------------\n");
   startclock = clock();
   // Compute the dedispersion transform on the GPU
   plan.execute(nsamps,
 			 input, in_nbits,
 			 (dedisp_byte *)output, out_nbits);
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
-        
+
+  printf("\n");
+  printf("------------------------------ CHECK RESULT  ------------------------------\n");
   // Look for significant peaks 
   dedisp_float out_mean, out_sigma;
   calc_stats_float(output, nsamps_computed*dm_count, &out_mean, &out_sigma);
@@ -290,10 +295,10 @@ int run()
   fwrite(output, 1, (size_t) nsamps_computed * dm_count * out_nbits/8, file_out);
   fclose(file_out);
   #endif
-        
+
   // Clean up
   free(output);
   free(input);
-  printf("Dedispersion successful.\n");
+  printf("Benchmark finished\n");
   return 0;
 }
