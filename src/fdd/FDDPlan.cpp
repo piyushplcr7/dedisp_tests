@@ -692,6 +692,38 @@ void print_chunks(
     }
 }
 
+void copy_chunk_output(
+    float* src,
+    float* dst,
+    unsigned int ndm,
+    unsigned int nsamp,
+    unsigned int nsamp_computed,
+    unsigned int nsamp_padded,
+    unsigned int nsamp_good,
+    std::vector<Chunk>& chunks)
+{
+    size_t ostart = 0;
+    for (auto& chunk : chunks)
+    {
+        size_t istart = chunk.ifreq_start*2;
+        size_t oend   = std::min((size_t) nsamp_computed, ostart + nsamp_good);
+        size_t nsamp  = oend - ostart;
+        if (nsamp > 0)
+        {
+            auto *src_ptr = &src[istart];
+            auto *dst_ptr = &dst[ostart];
+            memcpy2D(
+                dst_ptr,                        // dstPtr
+                nsamp_computed * sizeof(float), // dstWidth
+                src_ptr,                        // srcPtr
+                nsamp_padded * sizeof(float),   // srcWidth
+                nsamp * sizeof(float),          // widthBytes
+                ndm);
+            ostart += nsamp;
+        }
+    }
+}
+
 void FDDPlan::execute_cpu_segmented(
     size_type        nsamps,
     const byte_type* in,
@@ -856,26 +888,10 @@ void FDDPlan::execute_cpu_segmented(
     // Copy output
     std::cout << copy_output_str << std::endl;
     output_timer->Start();
-    size_t ostart = 0;
-    for (auto& chunk : chunks)
-    {
-        size_t istart = chunk.ifreq_start*2;
-        size_t oend   = std::min((size_t) nsamp_computed, ostart + nsamp_good);
-        size_t nsamp  = oend - ostart;
-        if (nsamp > 0)
-        {
-            auto *src_ptr = &data_t_dm.data()[istart];
-            auto *dst_ptr = &(((float *) out)[ostart]);
-            memcpy2D(
-                dst_ptr,                        // dstPtr
-                nsamp_computed * sizeof(float), // dstWidth
-                src_ptr,                        // srcPtr
-                nsamp_padded * sizeof(float),   // srcWidth
-                nsamp * sizeof(float),          // widthBytes
-                ndm);
-            ostart += nsamp;
-        }
-    }
+    copy_chunk_output(
+        data_t_dm.data(), (float *) out,
+        ndm, nsamp, nsamp_computed,
+        nsamp_padded, nsamp_good, chunks);
     output_timer->Pause();
     total_timer->Pause();
 
