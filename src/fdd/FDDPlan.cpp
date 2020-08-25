@@ -1390,7 +1390,7 @@ void FDDPlan::execute_gpu_segmented(
     unsigned int nsamp = nsamps;        // number of time samples
     unsigned int nfreq = (nsamp/2 + 1); // number of spin frequencies
     unsigned int ndm   = m_dm_count;    // number of DMs
-    unsigned int nfft  = 16384;      // number of samples processed in a segment
+    unsigned int nfft  = 16384;         // number of samples processed in a segment
 
     // Compute the number of output samples
     unsigned int nsamp_computed = nsamp - m_max_delay;
