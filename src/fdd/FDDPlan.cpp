@@ -12,6 +12,7 @@
 #include <omp.h>
 #include <cufft.h>
 
+#include "common/dedisp_strings.h"
 #include "unpack/unpack.h"
 #include "dedisperse/FDDKernel.hpp"
 #include "external/Stopwatch.h"
@@ -847,8 +848,9 @@ void FDDPlan::execute_gpu(
                                 ? round_up(nsamp, 16384)
                                 : nsamp;
     unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
-    std::cout << "nsamp_fft:    " << nsamp_fft << std::endl;
-    std::cout << "nsamp_padded: " << nsamp_padded << std::endl;
+    std::cout << debug_str << std::endl;
+    std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
+    std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
     unsigned int ndm_batch_max = 32;
@@ -861,6 +863,9 @@ void FDDPlan::execute_gpu(
     unsigned int nchan_batch_max = 32;
     unsigned int nchan_fft_batch = 32;
     unsigned int nchan_buffers   = 2;
+
+    // Verbose iteration reporting
+    bool enable_verbose_iteration_reporting = false;
 
     // Compute derived counts
     dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) *
@@ -887,16 +892,14 @@ void FDDPlan::execute_gpu(
     std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    total_timer->Start();
     init_timer->Start();
 
-    // Allocate host memory
+    // Allocate memory
+    std::cout << memory_alloc_str << std::endl;
     mAllocMem.start();
     cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
-
-    // Allocate device memory
     cu::DeviceMemory d_data_nu(nchan_batch_max * nsamp_padded * sizeof(float));
-
-    // Buffers for double buffering
     std::vector<cu::HostMemory> h_data_in_(nchan_buffers);
     std::vector<cu::DeviceMemory> d_data_in_(nchan_buffers);
     std::vector<cu::DeviceMemory> d_data_out_(ndm_buffers);
@@ -912,6 +915,7 @@ void FDDPlan::execute_gpu(
     mAllocMem.end();
 
     // Prepare cuFFT plans
+    std::cout << fft_plan_str << std::endl;
     mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
     int n[] = {(int) nsamp_fft};
@@ -1029,7 +1033,7 @@ void FDDPlan::execute_gpu(
         }
     }
 
-    std::cout << "Perform dedispersion in frequency domain" << std::endl;
+    std::cout << fdd_dedispersion_str << std::endl;
     htodstream->record(eStartGPU);
     mExeGPU.start();
 
@@ -1042,7 +1046,10 @@ void FDDPlan::execute_gpu(
             auto& channel_job = channel_jobs[channel_job_id];
 
             // Info
-            std::cout << "Processing channel " << channel_job.ichan_start << " to " << channel_job.ichan_end << std::endl;
+            if (enable_verbose_iteration_reporting)
+            {
+                std::cout << "Processing channel " << channel_job.ichan_start << " to " << channel_job.ichan_end << std::endl;
+            }
 
             // Channel input size
             dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
@@ -1127,7 +1134,10 @@ void FDDPlan::execute_gpu(
                 auto& dm_job = dm_jobs[dm_job_id];
 
                 // Info
-                std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
+                if (enable_verbose_iteration_reporting)
+                {
+                    std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
+                }
 
                 // Wait for temporary output from previous job to be copied
                 if (channel_job_id > (nchan_buffers-1))
@@ -1235,6 +1245,7 @@ void FDDPlan::execute_gpu(
     dtohstream->synchronize();
 
     // Copy output
+    std::cout << copy_output_str << std::endl;
     mCopyMem.start();
     output_timer->Start();
     dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
@@ -1248,11 +1259,7 @@ void FDDPlan::execute_gpu(
         ndm);       // height
     output_timer->Pause();
     mCopyMem.end();
-
-    // The total time is the sum of the time spent on GPU and the final HtoH copy
-    total_timer->Add(eEndGPU.elapsedTime(eStartGPU));
-    total_timer->Add(output_timer->Seconds());
-
+    total_timer->Pause();
 
     // Accumulate dedispersion and postprocessing time for all dm jobs
     for (auto& job : dm_jobs)
@@ -1262,13 +1269,14 @@ void FDDPlan::execute_gpu(
     }
 
     // Print timings
-    std::cout << ">> Timings" << std::endl;
+    std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
+    std::cout << std::endl;
 }
 
 // Private helper functions
