@@ -3,6 +3,7 @@
 
 #include "DedispPlan.hpp"
 
+#include "common/dedisp_strings.h"
 #include "common/cuda/CU.h"
 
 #include "dedisperse/DedispKernel.hpp"
@@ -224,16 +225,30 @@ void DedispPlan::execute_guru(
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
+    // Compute the number of gulps (jobs)
+    unsigned int nr_gulps = div_round_up(nsamps_computed, nsamps_computed_gulp_max);
+
     // Annotate the initialization
     cu::Marker initMarker("initialization", cu::Marker::red);
     initMarker.start();
 
+    // Timers
+#ifdef DEDISP_BENCHMARK
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    total_timer->Start();
+    init_timer->Start();
+#endif
+
     // Organise device memory pointers
+    std::cout << memory_alloc_str << std::endl;
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
-
-    // Two input buffers for double buffering
+    cu::HostMemory h_out(out_count_gulp_max * sizeof(dedisp_word));
     std::vector<cu::HostMemory> h_in_(2);
     std::vector<cu::DeviceMemory> d_in_(2);
     for (unsigned int i = 0; i < 2; i++)
@@ -241,18 +256,6 @@ void DedispPlan::execute_guru(
         h_in_[i].resize(in_count_gulp_max * sizeof(dedisp_word));
         d_in_[i].resize(in_count_gulp_max * sizeof(dedisp_word));
     }
-
-    // Organise host memory pointers
-    cu::HostMemory h_out(out_count_gulp_max * sizeof(dedisp_word));
-
-    // Compute the number of gulps (jobs)
-    unsigned int nr_gulps = div_round_up(nsamps_computed, nsamps_computed_gulp_max);
-
-#ifdef DEDISP_BENCHMARK
-    std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> kernel_timer(Stopwatch::create());
-#endif
 
     struct JobData {
         dedisp_size gulp_samp_idx;
@@ -308,6 +311,7 @@ void DedispPlan::execute_guru(
     });
 
     // The initialization is finished
+    init_timer->Pause();
     initMarker.end();
 
     // Annotate the gulp loop
@@ -320,6 +324,7 @@ void DedispPlan::execute_guru(
 #endif
 
     // Gulp loop
+    std::cout << ref_dedispersion_str << std::endl;
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
         // Wait for previous job to finish to
@@ -389,25 +394,31 @@ void DedispPlan::execute_guru(
 #ifdef DEDISP_BENCHMARK
     dtohstream->record(gulpEnd);
     gulpEnd.synchronize();
+    total_timer->Pause();
 
+    // Accumulate dedispersion and memcopy time for all jobs
     for (auto& job : jobs)
     {
-        copy_to_timer->Add(job.inputEnd.elapsedTime(job.inputStart));
-        copy_from_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
-        kernel_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
+        input_timer->Add(job.inputEnd.elapsedTime(job.inputStart));
+        output_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
+        dedispersion_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
     }
 
-    cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
-    cout << "Copy from time: " << copy_from_timer->ToString() << endl;
-    cout << "Kernel time:    " << kernel_timer->ToString() << endl;
-    auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
-    cout << "Total time:     " << total_time << endl;
+    // Print timings
+    std::cout << timings_str << std::endl;
+    std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
+    std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
+    std::cout << std::endl;
 
     // Append the timing results to a log file
+    auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
     std::ofstream perf_file("perf.log", std::ios::app);
-    perf_file << copy_to_timer->ToString() << "\t"
-              << copy_from_timer->ToString() << "\t"
-              << kernel_timer->ToString() << "\t"
+    perf_file << input_timer->ToString() << "\t"
+              << output_timer->ToString() << "\t"
+              << dedispersion_timer->ToString() << "\t"
               << total_time << endl;
     perf_file.close();
 #endif
