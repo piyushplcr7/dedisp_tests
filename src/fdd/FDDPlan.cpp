@@ -1312,7 +1312,7 @@ void FDDPlan::execute_gpu(
             // FFT scaling
             kernel.scale(
                 dm_job.ndm_current, // height
-                nsamp_fft,          // width
+                nsamp_padded,       // width
                 nsamp_padded,       // stride
                 d_out,              // d_data
                 *executestream);    // stream
@@ -1390,32 +1390,37 @@ void FDDPlan::execute_gpu_segmented(
     unsigned int nsamp = nsamps;        // number of time samples
     unsigned int nfreq = (nsamp/2 + 1); // number of spin frequencies
     unsigned int ndm   = m_dm_count;    // number of DMs
+    unsigned int nfft  = 16384;      // number of samples processed in a segment
 
     // Compute the number of output samples
     unsigned int nsamp_computed = nsamp - m_max_delay;
 
-    // Use zero-padded FFT
-    bool use_zero_padding = true;
+    // Every chunk has the same amount of space for spin frequencies.
+    // For the last chunk(s), the last elements are not used.
+    unsigned int nfreq_chunk = std::ceil(nfft / 2) + 1;
+    unsigned int nfreq_chunk_padded = round_up(nfreq_chunk + 1, 1024);
 
-    // Compute padded number of samples (for r2c transformation)
-    unsigned int nsamp_fft    = use_zero_padding
-                                ? round_up(nsamp + 1, 16384)
-                                : nsamp;
-    unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+    // Compute the number of steps
+    unsigned int nsamp_dm    = std::ceil(m_max_delay);
+    unsigned int nsamp_good  = nfft - nsamp_dm;
+    unsigned int nchunk      = std::ceil((float) nsamp / nsamp_good);
+    unsigned int nsamp_padded = nchunk * (nfreq_chunk_padded * 2); // scalar width of internal buffers
     std::cout << debug_str << std::endl;
-    std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
-    std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
+    std::cout << "nfft               = " << nfft << std::endl;
+    std::cout << "nsamp_dm           = " << nsamp_dm << std::endl;
+    std::cout << "nsamp_good         = " << nsamp_good << std::endl;
+    std::cout << "nchunk             = " << nchunk << std::endl;
+    std::cout << "nfreq_chunk        = " << nfreq_chunk << std::endl;
+    std::cout << "nfreq_chunk_padded = " << nfreq_chunk_padded << std::endl;
+    std::cout << "nsamp_padded       = " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
     unsigned int ndm_batch_max = 32;
-    unsigned int ndm_fft_batch = 16;
-                 ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
     unsigned int ndm_buffers   = 8;
                  ndm_buffers   = std::min(ndm_buffers, (unsigned int) ((ndm + ndm_batch_max) / ndm_batch_max));
 
     // Maximum number of channels processed in one gulp
     unsigned int nchan_batch_max = 32;
-    unsigned int nchan_fft_batch = 32;
     unsigned int nchan_buffers   = 2;
 
     // Verbose iteration reporting
@@ -1453,10 +1458,12 @@ void FDDPlan::execute_gpu_segmented(
     std::cout << memory_alloc_str << std::endl;
     mAllocMem.start();
     cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
-    cu::DeviceMemory d_data_nu(nchan_batch_max * nsamp_padded * sizeof(float));
+    cu::DeviceMemory d_data_t_nu(nchan_batch_max * nsamp_padded * sizeof(float));
+    cu::DeviceMemory d_data_f_nu(nchan_batch_max * nsamp_padded * sizeof(float));
     std::vector<cu::HostMemory> h_data_in_(nchan_buffers);
     std::vector<cu::DeviceMemory> d_data_in_(nchan_buffers);
-    std::vector<cu::DeviceMemory> d_data_out_(ndm_buffers);
+    std::vector<cu::DeviceMemory> d_data_f_dm_(ndm_buffers);
+    std::vector<cu::DeviceMemory> d_data_t_dm_(ndm_buffers);
     for (unsigned int i = 0; i < nchan_buffers; i++)
     {
         h_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
@@ -1464,7 +1471,8 @@ void FDDPlan::execute_gpu_segmented(
     }
     for (unsigned int i = 0; i < ndm_buffers; i++)
     {
-        d_data_out_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
+        d_data_f_dm_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
+        d_data_t_dm_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
     }
     mAllocMem.end();
 
@@ -1472,18 +1480,18 @@ void FDDPlan::execute_gpu_segmented(
     std::cout << fft_plan_str << std::endl;
     mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
-    int n[] = {(int) nsamp_fft};
-    int rnembed[] = {(int) nsamp_padded};   // width in real elements
-    int cnembed[] = {(int) nsamp_padded/2}; // width in complex elements
+    int n[] = {(int) nfft};
     std::thread thread_r2c = std::thread([&]()
     {
+        int inembed[] = {(int) nsamp_good};
+        int onembed[] = {(int) nfreq_chunk_padded};
         cufftResult result = cufftPlanMany(
             &plan_r2c,              // plan
             1, n,                   // rank, n
-            rnembed, 1, rnembed[0], // inembed, istride, idist
-            cnembed, 1, cnembed[0], // onembed, ostride, odist
+            inembed, 1, inembed[0], // inembed, istride, idist
+            onembed, 1, onembed[0], // onembed, ostride, odist
             CUFFT_R2C,              // type
-            nchan_fft_batch);       // batch
+            nchunk);                // batch
         if (result != CUFFT_SUCCESS)
         {
             throw std::runtime_error("Error creating real to complex FFT plan.");
@@ -1492,13 +1500,15 @@ void FDDPlan::execute_gpu_segmented(
     });
     std::thread thread_c2r = std::thread([&]()
     {
+        int inembed[] = {(int) nfreq_chunk_padded};
+        int onembed[] = {(int) nfreq_chunk_padded*2};
         cufftResult result = cufftPlanMany(
             &plan_c2r,              // plan
             1, n,                   // rank, n
-            cnembed, 1, cnembed[0], // inembed, istride, idist
-            rnembed, 1, rnembed[0], // onembed, ostride, odist
+            inembed, 1, inembed[0], // inembed, istride, idist
+            onembed, 1, onembed[0], // onembed, ostride, odist
             CUFFT_C2R,              // type
-            ndm_fft_batch);         // batch
+            nchunk);                // batch
         if (result != CUFFT_SUCCESS)
         {
             throw std::runtime_error("Error creating complex to real FFT plan.");
@@ -1563,8 +1573,9 @@ void FDDPlan::execute_gpu_segmented(
         unsigned int idm_start;
         unsigned int idm_end;
         unsigned int ndm_current;
-        float* h_out_ptr;
-        dedisp_float2* d_out_ptr;
+        float* h_data_t_dm_ptr;
+        dedisp_float2* d_data_f_dm_ptr;
+        dedisp_float2* d_data_t_dm_ptr;
         cu::Event inputStart, inputEnd;
         cu::Event dedispersionStart, dedispersionEnd;
         cu::Event postprocessingStart, postprocessingEnd;
@@ -1580,7 +1591,8 @@ void FDDPlan::execute_gpu_segmented(
         job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
         job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
         job.idm_end     = job.idm_start + job.ndm_current;
-        job.d_out_ptr   = d_data_out_[job_id % ndm_buffers];
+        job.d_data_f_dm_ptr   = d_data_f_dm_[job_id % ndm_buffers];
+        job.d_data_t_dm_ptr   = d_data_t_dm_[job_id % ndm_buffers];
         if (job.ndm_current == 0)
         {
             dm_jobs.pop_back();
@@ -1637,13 +1649,13 @@ void FDDPlan::execute_gpu_segmented(
                 nsamp,                               // input height
                 nchan_words_gulp,                    // in_stride
                 nsamp_padded,                        // out_stride
-                d_data_nu,                           // d_out
+                d_data_t_nu,                           // d_out
                 in_nbits, 32,                        // in_nbits, out_nbits
                 1.0/nchan,                           // scale
                 *executestream);                     // stream
 
             // Apply zero padding
-            auto dst_ptr = ((float *) d_data_nu.data()) + nsamp;
+            auto dst_ptr = ((float *) d_data_t_nu.data()) + nsamp;
             unsigned int nsamp_padding = nsamp_padded - nsamp;
             cu::checkError(cudaMemset2DAsync(
                 dst_ptr,                       // devPtr
@@ -1655,10 +1667,10 @@ void FDDPlan::execute_gpu_segmented(
             ));
 
             // FFT data (real to complex) along time axis
-            for (unsigned int i = 0; i < nchan_batch_max/nchan_fft_batch; i++)
+            for (unsigned int ichan = 0; ichan < channel_job.nchan_current; ichan++)
             {
-                cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
-                cufftComplex *odata = (cufftComplex *) idata;
+                auto *idata = (cufftReal *) d_data_t_nu.data() + (1ULL * ichan * nsamp_padded);
+                auto *odata = (cufftComplex *) d_data_f_nu.data() + (1ULL * ichan * nsamp_padded/2);
                 cufftExecR2C(plan_r2c, idata, odata);
             }
             executestream->record(channel_job.preprocessingEnd);
@@ -1669,7 +1681,7 @@ void FDDPlan::execute_gpu_segmented(
                 // Wait for all previous output copies to finish
                 dtohstream->synchronize();
 
-                for (cu::DeviceMemory& d_data_out : d_data_out_)
+                for (cu::DeviceMemory& d_data_out : d_data_f_dm_)
                 {
                     // Use executestream to make sure dedispersion
                     // starts only after initializing the output buffer
@@ -1709,8 +1721,8 @@ void FDDPlan::execute_gpu_segmented(
                     dt,                        // dt
                     d_spin_frequencies,        // d_spin_frequencies
                     d_dm_list,                 // d_dm_list
-                    d_data_nu,                 // d_in
-                    dm_job.d_out_ptr,          // d_out
+                    d_data_f_nu,               // d_in
+                    dm_job.d_data_f_dm_ptr,          // d_out
                     nsamp_padded/2,            // in stride
                     nsamp_padded/2,            // out stride
                     dm_job.idm_start,          // idm_start
@@ -1761,24 +1773,25 @@ void FDDPlan::execute_gpu_segmented(
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = dm_job.idm_start * dm_stride;
-            auto* h_out = (void *) (((size_t) h_data_dm.data()) + dm_offset);
-            auto *d_out = (float *) dm_job.d_out_ptr;
+            auto* h_data_t_dm = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+            auto* d_data_f_dm = (float *) dm_job.d_data_f_dm_ptr;
+            auto* d_data_t_dm = (float *) dm_job.d_data_t_dm_ptr;
 
             // Fourier transform results back to time domain
             executestream->record(dm_job.postprocessingStart);
-            for (unsigned int i = 0; i < ndm_batch_max/ndm_fft_batch; i++)
+            for (unsigned int idm = 0; idm < dm_job.ndm_current; idm++)
             {
-                cufftReal    *odata = (cufftReal *) d_out + i * nsamp_padded * ndm_fft_batch;
-                cufftComplex *idata = (cufftComplex *) odata;
+                auto *idata  = (cufftComplex *) d_data_f_dm + (1ULL * idm * nsamp_padded/2);
+                auto *odata = (cufftReal *) d_data_t_dm + (1ULL * idm * nsamp_padded);
                 cufftExecC2R(plan_c2r, idata, odata);
             }
 
             // FFT scaling
             kernel.scale(
                 dm_job.ndm_current, // height
-                nsamp_fft,          // width
+                nsamp_padded,       // width
                 nsamp_padded,       // stride
-                d_out,              // d_data
+                d_data_t_dm,        // d_data
                 *executestream);    // stream
             executestream->record(dm_job.postprocessingEnd);
 
@@ -1786,8 +1799,8 @@ void FDDPlan::execute_gpu_segmented(
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
             dtohstream->memcpyDtoHAsync(
-                h_out,                           // dst
-                d_out,                           // src
+                h_data_t_dm,                     // dst
+                d_data_t_dm,                     // src
                 dm_job.ndm_current * dm_stride); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
