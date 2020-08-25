@@ -47,6 +47,13 @@ private:
         byte_type*       out,
         size_type        out_nbits);
 
+    virtual void execute_gpu_segmented(
+        size_type        nsamps,
+        const byte_type* in,
+        size_type        in_nbits,
+        byte_type*       out,
+        size_type        out_nbits);
+
     // Helper methods
     void generate_spin_frequency_table(
         dedisp_size nfreq,
