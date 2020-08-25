@@ -646,8 +646,7 @@ void compute_chunks(
     unsigned int nfft,
     unsigned int nfreq_chunk_padded,
     unsigned int& nfreq_computed,
-    std::vector<Chunk>& chunks
-)
+    std::vector<Chunk>& chunks)
 {
     nfreq_computed = 0;
 
