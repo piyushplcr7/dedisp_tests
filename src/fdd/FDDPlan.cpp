@@ -1458,17 +1458,17 @@ void FDDPlan::execute_gpu_segmented(
     // Allocate memory
     std::cout << memory_alloc_str << std::endl;
     mAllocMem.start();
-    cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
+    cu::HostMemory   h_data_t_dm(ndm * nsamp_padded * sizeof(float));
     cu::DeviceMemory d_data_t_nu(nchan_batch_max * nsamp_padded * sizeof(float));
     cu::DeviceMemory d_data_f_nu(nchan_batch_max * nsamp_padded * sizeof(float));
-    std::vector<cu::HostMemory> h_data_in_(nchan_buffers);
-    std::vector<cu::DeviceMemory> d_data_in_(nchan_buffers);
+    std::vector<cu::HostMemory>   h_data_t_nu_(nchan_buffers);
+    std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
     std::vector<cu::DeviceMemory> d_data_f_dm_(ndm_buffers);
     std::vector<cu::DeviceMemory> d_data_t_dm_(ndm_buffers);
     for (unsigned int i = 0; i < nchan_buffers; i++)
     {
-        h_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
-        d_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+        h_data_t_nu_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
+        d_data_t_nu_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
     }
     for (unsigned int i = 0; i < ndm_buffers; i++)
     {
@@ -1586,8 +1586,8 @@ void FDDPlan::execute_gpu_segmented(
         job.ichan_start   = job_id == 0 ? 0 : channel_jobs[job_id - 1].ichan_end;
         job.nchan_current = std::min(nchan_batch_max, nchan - job.ichan_start);
         job.ichan_end     = job.ichan_start + job.nchan_current;
-        job.h_in_ptr      = h_data_in_[job_id % nchan_buffers];
-        job.d_in_ptr      = d_data_in_[job_id % nchan_buffers];
+        job.h_in_ptr      = h_data_t_nu_[job_id % nchan_buffers];
+        job.d_in_ptr      = d_data_t_nu_[job_id % nchan_buffers];
         if (job.nchan_current == 0) {
             channel_jobs.pop_back();
         }
@@ -1746,7 +1746,7 @@ void FDDPlan::execute_gpu_segmented(
                     d_spin_frequencies,        // d_spin_frequencies
                     d_dm_list,                 // d_dm_list
                     d_data_f_nu,               // d_in
-                    dm_job.d_data_f_dm_ptr,          // d_out
+                    dm_job.d_data_f_dm_ptr,    // d_out
                     nsamp_padded/2,            // in stride
                     nsamp_padded/2,            // out stride
                     dm_job.idm_start,          // idm_start
@@ -1797,7 +1797,7 @@ void FDDPlan::execute_gpu_segmented(
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = dm_job.idm_start * dm_stride;
-            auto* h_data_t_dm = (void *) (((size_t) h_data_dm.data()) + dm_offset);
+            auto* h_data_t_dm_ptr = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
             auto* d_data_f_dm = (float *) dm_job.d_data_f_dm_ptr;
             auto* d_data_t_dm = (float *) dm_job.d_data_t_dm_ptr;
 
@@ -1824,7 +1824,7 @@ void FDDPlan::execute_gpu_segmented(
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
             dtohstream->memcpyDtoHAsync(
-                h_data_t_dm,                     // dst
+                h_data_t_dm_ptr,                 // dst
                 d_data_t_dm,                     // src
                 dm_job.ndm_current * dm_stride); // size
             dtohstream->record(dm_job.outputEnd);
@@ -1841,7 +1841,7 @@ void FDDPlan::execute_gpu_segmented(
     mCopyMem.start();
     output_timer->Start();
     copy_chunk_output(
-        (float *) h_data_dm.data(), (float *) out,
+        (float *) h_data_t_dm.data(), (float *) out,
         ndm, nsamp, nsamp_computed,
         nsamp_padded, nsamp_good, chunks);
     output_timer->Pause();
