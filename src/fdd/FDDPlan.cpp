@@ -1262,12 +1262,13 @@ void FDDPlan::execute_gpu(
     }
 
     // Print timings
-    std::cout << "GPU init time:       " << init_timer->ToString() << " sec." << std::endl;
-    std::cout << "Preprocessing time:  " << preprocessing_timer->ToString() << " sec." << std::endl;
-    std::cout << "Dedispersion time:   " << dedispersion_timer->ToString() << " sec." << std::endl;
-    std::cout << "Postprocessing time: " << postprocessing_timer->ToString() << " sec." << std::endl;
-    std::cout << "Output memcopy time: " << output_timer->ToString() << " sec." << std::endl;
-    std::cout << "Total time:          " << total_timer->ToString() << " sec." << std::endl;
+    std::cout << ">> Timings" << std::endl;
+    std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
 }
 
 // Private helper functions
