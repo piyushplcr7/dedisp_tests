@@ -87,6 +87,7 @@ void FDDKernel::scale(
     dedisp_size   height,
     dedisp_size   width,
     dedisp_size   stride,
+    dedisp_float  scale,
     dedisp_float* d_data,
     cudaStream_t  stream)
 {
@@ -98,5 +99,6 @@ void FDDKernel::scale(
     scale_output_kernel<<<grid, block, 0, stream>>>(
         width,
         stride,
+        scale,
         d_data);
 }
