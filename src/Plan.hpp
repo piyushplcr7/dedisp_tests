@@ -75,6 +75,8 @@ public:
         byte_type*       out,
         size_type        out_nbits) = 0;
 
+    virtual void set_device(int device_idx = 0) {};
+
 private:
     // Helper methods
     void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
