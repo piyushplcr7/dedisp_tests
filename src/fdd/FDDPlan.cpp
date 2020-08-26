@@ -815,7 +815,7 @@ void FDDPlan::execute_cpu_segmented(
     std::cout << "nsamp_computed = " << nsamp_computed << std::endl;
 
     // FFT data (real to complex) along time axis
-    std::cout << fft_c2r_str << std::endl;
+    std::cout << fft_r2c_str << std::endl;
     const int n[] = {(int) nfft};
     int inembed_r2c[] = {(int) nsamp_good};
     int onembed_r2c[] = {(int) nfreq_chunk_padded};
