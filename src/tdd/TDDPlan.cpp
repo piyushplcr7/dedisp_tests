@@ -1,7 +1,7 @@
 #include <thread>
 #include <mutex>
 
-#include "DedispPlan.hpp"
+#include "TDDPlan.hpp"
 
 #include "common/dedisp_strings.h"
 #include "common/cuda/CU.h"
@@ -23,7 +23,7 @@ namespace dedisp
 {
 
 // Constructor
-DedispPlan::DedispPlan(
+TDDPlan::TDDPlan(
     size_type  nchans,
     float_type dt,
     float_type f0,
@@ -42,7 +42,7 @@ DedispPlan::DedispPlan(
 }
 
 // Destructor
-DedispPlan::~DedispPlan()
+TDDPlan::~TDDPlan()
 {}
 
 // Private helper functions
@@ -50,12 +50,12 @@ unsigned long div_round_up(unsigned long a, unsigned long b) {
     return (a-1) / b + 1;
 }
 
-dedisp_size DedispPlan::compute_gulp_size()
+dedisp_size TDDPlan::compute_gulp_size()
 {
     return 65536;
 }
 
-dedisp_size DedispPlan::compute_max_nchans()
+dedisp_size TDDPlan::compute_max_nchans()
 {
     size_t const_mem_bytes = m_device->get_total_const_memory();
     size_t bytes_per_chan = sizeof(dedisp_float) + sizeof(dedisp_bool);
@@ -63,7 +63,7 @@ dedisp_size DedispPlan::compute_max_nchans()
     return max_nr_channels;
 };
 
-void DedispPlan::initialize_kernel()
+void TDDPlan::initialize_kernel()
 {
     // Configure texture memory based on compute capability
     auto capability = m_device->get_capability();
@@ -75,13 +75,13 @@ void DedispPlan::initialize_kernel()
 }
 
 // Public interface
-void DedispPlan::set_gulp_size(
+void TDDPlan::set_gulp_size(
     size_type gulp_size)
 {
     m_gulp_size = gulp_size;
 }
 
-void DedispPlan::execute(
+void TDDPlan::execute(
     size_type        nsamps,
     const byte_type* in,
     size_type        in_nbits,
@@ -107,7 +107,7 @@ void DedispPlan::execute(
         out, out_nbits, out_stride);
 }
 
-void DedispPlan::execute_adv(
+void TDDPlan::execute_adv(
     size_type        nsamps,
     const byte_type* in,
     size_type        in_nbits,
@@ -126,7 +126,7 @@ void DedispPlan::execute_adv(
         first_dm_idx, dm_count);
 }
 
-void DedispPlan::execute_guru(
+void TDDPlan::execute_guru(
     size_type        nsamps,
     const byte_type* in,
     size_type        in_nbits,

@@ -1,4 +1,4 @@
-#include <dedisp/DedispPlan.hpp>
+#include <tdd/TDDPlan.hpp>
 
 #include "bench.hpp"
 
@@ -8,5 +8,5 @@ int run();
 int main(int argc, char* argv[])
 {
   BenchParameters benchParameter;
-  return run<dedisp::DedispPlan>(benchParameter);
+  return run<dedisp::TDDPlan>(benchParameter);
 }
