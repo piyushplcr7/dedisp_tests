@@ -1,4 +1,5 @@
-#include <fdd/FDDPlan.hpp>
+#include <fdd/FDDCPUPlan.hpp>
+#include <fdd/FDDGPUPlan.hpp>
 
 #include "test.hpp"
 
@@ -7,5 +8,5 @@ int run();
 
 int main(int argc, char* argv[])
 {
-  return run<dedisp::FDDPlan>();
+  return run<dedisp::FDDGPUPlan>();
 }

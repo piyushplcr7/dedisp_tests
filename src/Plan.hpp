@@ -106,12 +106,6 @@ protected:
     std::vector<dedisp_bool>  h_killmask;     // size = nchans
 };
 
-// Helper methods
-void memcpy2D(
-    void *dstPtr, size_t dstWidth,
-    const void *srcPtr, size_t srcWidth,
-    size_t widthBytes, size_t height);
-
 } // end namespace dedisp
 
 #endif // DEDISP_PLAN_H_INCLUDE_GUARD
