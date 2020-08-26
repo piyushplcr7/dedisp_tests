@@ -1682,7 +1682,7 @@ void FDDPlan::execute_gpu_segmented(
                 nsamp,                               // input height
                 nchan_words_gulp,                    // in_stride
                 nsamp_padded,                        // out_stride
-                d_data_t_nu,                           // d_out
+                d_data_t_nu,                         // d_out
                 in_nbits, 32,                        // in_nbits, out_nbits
                 1.0/nchan,                           // scale
                 *executestream);                     // stream
