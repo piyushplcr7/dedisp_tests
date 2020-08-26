@@ -741,16 +741,22 @@ void FDDPlan::execute_cpu_segmented(
     // Compute the number of output samples
     unsigned int nsamp_computed = nsamp - m_max_delay;
 
-    // Every chunk has the same amount of space for spin frequencies.
-    // For the last chunk(s), the last elements are not used.
-    unsigned int nfreq_chunk = std::ceil(nfft / 2) + 1;
-    unsigned int nfreq_chunk_padded = round_up(nfreq_chunk + 1, 1024);
+    // Compute the number of chunks
+    unsigned int nsamp_dm   = std::ceil(m_max_delay);
+    while (nfft < nsamp_dm) { nfft *= 2; };
+    unsigned int nsamp_good = nfft - nsamp_dm;
+    unsigned int nchunk     = std::ceil((float) nsamp / nsamp_good);
 
-    // Compute the number of steps
-    unsigned int nsamp_dm    = std::ceil(m_max_delay);
-    unsigned int nsamp_good  = nfft - nsamp_dm;
-    unsigned int nchunk      = std::ceil((float) nsamp / nsamp_good);
-    unsigned int nsamp_padded = nchunk * (nfreq_chunk_padded * 2); // scalar width of internal buffers
+    // For every channel, a buffer of nsamp_padded scalar elements long is used,
+    // resulting in a two-dimensional buffers of size buffer[nchan][nsamp_padded]
+    // Every row of is divided into chunks of nfreq_chunk_padded complex elements,
+    // thus the implicit dimensions are buffer[nchan][nchunk][nfreq_chunk_padded],
+    // of which only nfreq_chunk elements in the innermost dimension are used.
+    unsigned int nfreq_chunk        = std::ceil(nfft / 2) + 1;
+    unsigned int nfreq_chunk_padded = round_up(nfreq_chunk + 1, 1024);
+    unsigned int nsamp_padded       = nchunk * (nfreq_chunk_padded * 2);
+
+    // Debug
     std::cout << debug_str << std::endl;
     std::cout << "nfft               = " << nfft << std::endl;
     std::cout << "nsamp_dm           = " << nsamp_dm << std::endl;
