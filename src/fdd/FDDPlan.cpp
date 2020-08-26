@@ -26,7 +26,7 @@ FDDPlan::FDDPlan(
     float_type dt,
     float_type f0,
     float_type df) :
-    Plan(nchans, dt, f0, df)
+    GPUPlan(nchans, dt, f0, df)
 {
 }
 

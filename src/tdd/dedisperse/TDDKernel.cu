@@ -1,4 +1,4 @@
-#include "DedispKernel.hpp"
+#include "TDDKernel.hpp"
 
 #include "dedisperse_kernel.cuh"
 

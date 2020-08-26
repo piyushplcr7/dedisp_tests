@@ -1,22 +1,22 @@
-#include "Plan.hpp"
+#include "GPUPlan.hpp"
 
-#include "dedisperse/DedispKernel.hpp"
+#include "dedisperse/TDDKernel.hpp"
 
 namespace dedisp
 {
 
-class DedispPlan : public Plan {
+class TDDPlan : public GPUPlan {
 
 public:
     // Constructor
-    DedispPlan(
+    TDDPlan(
         size_type  nchans,
         float_type dt,
         float_type f0,
         float_type df);
 
     // Destructor
-    ~DedispPlan();
+    ~TDDPlan();
 
     // Public interface
     void set_gulp_size(size_type gulp_size);

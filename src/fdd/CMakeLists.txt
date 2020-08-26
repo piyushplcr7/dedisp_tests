@@ -6,7 +6,6 @@ cuda_add_library(fdd SHARED
 
 find_package(FFTW3 REQUIRED true)
 
-
 target_link_libraries(fdd
     ${CUDA_CUDART_LIBRARY}
     ${CUDA_cufft_LIBRARY}

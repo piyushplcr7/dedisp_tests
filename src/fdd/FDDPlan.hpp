@@ -1,9 +1,9 @@
-#include "Plan.hpp"
+#include "GPUPlan.hpp"
 
 namespace dedisp
 {
 
-class FDDPlan : public Plan {
+class FDDPlan : public GPUPlan {
 
 public:
     // Constructor

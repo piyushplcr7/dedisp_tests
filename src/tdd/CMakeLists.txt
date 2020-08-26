@@ -1,6 +1,6 @@
 cuda_add_library(dedisp SHARED
-    DedispPlan.cpp
-    dedisperse/DedispKernel.cu
+    TDDPlan.cpp
+    dedisperse/TDDKernel.cu
     unpack/unpack.cu
 )
 
@@ -16,7 +16,7 @@ target_include_directories(dedisp
 )
 
 set_target_properties(dedisp
-    PROPERTIES PUBLIC_HEADER DedispPlan.hpp
+    PROPERTIES PUBLIC_HEADER TDDPlan.hpp
 )
 
 set_target_properties(

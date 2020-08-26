@@ -42,8 +42,6 @@ public:
     virtual ~Plan();
 
     // Public interface (common)
-    void set_device(int device_idx = 0);
-
     void generate_dm_list(
         float_type dm_start,
         float_type dm_end,
@@ -102,23 +100,10 @@ protected:
     dedisp_float m_f0;
     dedisp_float m_df;
 
-    // Device
-    std::unique_ptr<cu::Device> m_device;
-
     // Host arrays
     std::vector<dedisp_float> h_dm_list;      // size = dm_count
     std::vector<dedisp_float> h_delay_table;  // size = nchans
     std::vector<dedisp_bool>  h_killmask;     // size = nchans
-
-    // Device arrays
-    cu::DeviceMemory d_dm_list;     // type = dedisp_float
-    cu::DeviceMemory d_delay_table; // type = dedisp_float
-    cu::DeviceMemory d_killmask;    // type = dedisp_bool
-
-    // Streams
-    std::unique_ptr<cu::Stream> htodstream;
-    std::unique_ptr<cu::Stream> dtohstream;
-    std::unique_ptr<cu::Stream> executestream;
 };
 
 // Helper methods

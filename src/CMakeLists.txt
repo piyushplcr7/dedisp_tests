@@ -13,7 +13,7 @@ add_subdirectory(external)
 ################################################################################
 # plan library
 ################################################################################
-add_library(plan OBJECT Plan.cpp)
+add_library(plan OBJECT Plan.cpp GPUPlan.cpp)
 
 target_link_libraries(plan PUBLIC
     ${CUDA_CUDART_LIBRARY}
@@ -39,10 +39,10 @@ install(
 
 
 ################################################################################
-# dedisp library
+# tdd library
 ################################################################################
 
-add_subdirectory(dedisp)
+add_subdirectory(tdd)
 
 
 ################################################################################
