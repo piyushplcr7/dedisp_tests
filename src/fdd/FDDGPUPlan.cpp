@@ -1007,6 +1007,9 @@ void FDDGPUPlan::execute_gpu_segmented(
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
+    std::cout << std::endl;
 }
 
 // Private helper functions
