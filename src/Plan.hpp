@@ -75,6 +75,8 @@ public:
         byte_type*       out,
         size_type        out_nbits) = 0;
 
+    virtual void set_device(int device_idx = 0) {};
+
 private:
     // Helper methods
     void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
@@ -105,12 +107,6 @@ protected:
     std::vector<dedisp_float> h_delay_table;  // size = nchans
     std::vector<dedisp_bool>  h_killmask;     // size = nchans
 };
-
-// Helper methods
-void memcpy2D(
-    void *dstPtr, size_t dstWidth,
-    const void *srcPtr, size_t srcWidth,
-    size_t widthBytes, size_t height);
 
 } // end namespace dedisp
 

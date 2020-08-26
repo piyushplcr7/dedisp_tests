@@ -1,4 +1,5 @@
-#include <fdd/FDDPlan.hpp>
+#include <fdd/FDDCPUPlan.hpp>
+#include <fdd/FDDGPUPlan.hpp>
 
 #include "bench.hpp"
 
@@ -14,5 +15,5 @@ int main(int argc, char* argv[])
   benchParameter.Tobs = 30.0;
   benchParameter.verbose = false;
 
-  return run<dedisp::FDDPlan>(benchParameter);
+  return run<dedisp::FDDGPUPlan>(benchParameter);
 }
