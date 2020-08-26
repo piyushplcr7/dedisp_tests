@@ -6,7 +6,7 @@
 #include "common/dedisp_strings.h"
 #include "common/cuda/CU.h"
 
-#include "dedisperse/DedispKernel.hpp"
+#include "dedisperse/TDDKernel.hpp"
 #include "unpack/unpack.h"
 
 #include "dedisp_error.hpp"

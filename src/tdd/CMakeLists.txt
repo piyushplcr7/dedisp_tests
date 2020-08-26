@@ -1,6 +1,6 @@
 cuda_add_library(dedisp SHARED
     TDDPlan.cpp
-    dedisperse/DedispKernel.cu
+    dedisperse/TDDKernel.cu
     unpack/unpack.cu
 )
 

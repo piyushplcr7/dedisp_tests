@@ -1,6 +1,6 @@
 #include "GPUPlan.hpp"
 
-#include "dedisperse/DedispKernel.hpp"
+#include "dedisperse/TDDKernel.hpp"
 
 namespace dedisp
 {
