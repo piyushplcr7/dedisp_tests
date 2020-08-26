@@ -386,9 +386,14 @@ void FDDCPUPlan::execute(
     byte_type*       out,
     size_type        out_nbits)
 {
-    execute_cpu(nsamps, in, in_nbits, out, out_nbits);
-    //execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
-}
+    char* use_segmented_str = getenv("USE_SEGMENTED");
+    bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);
+    if (use_segmented)
+    {
+        execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
+    } else {
+        execute_cpu(nsamps, in, in_nbits, out, out_nbits);
+    }}
 
 
 // Private interface
