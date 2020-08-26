@@ -1,11 +1,11 @@
-#include "Plan.hpp"
+#include "GPUPlan.hpp"
 
 #include "dedisperse/DedispKernel.hpp"
 
 namespace dedisp
 {
 
-class DedispPlan : public Plan {
+class DedispPlan : public GPUPlan {
 
 public:
     // Constructor
