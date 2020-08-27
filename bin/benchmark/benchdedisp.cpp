@@ -12,6 +12,6 @@ int main(int argc, char* argv[])
   benchParameter.dm_end = 1000;
   benchParameter.nchans = 1600;
   benchParameter.Tobs = 30.0;
-  benchParameter.verbose = false;
+  benchParameter.verbose = true;
   return run<dedisp::TDDPlan>(benchParameter);
 }
