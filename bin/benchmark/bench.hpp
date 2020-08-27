@@ -16,6 +16,7 @@
 #include <Plan.hpp>
 
 #include "external/Stopwatch.h"
+#include <omp.h>
 
 // Debug options
 #define WRITE_INPUT_DATA  0
@@ -177,6 +178,7 @@ int run(BenchParameters & benchParameter)
   /* First build 2-D array of floats with our signal in it */
   rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
 
+  //#pragma omp parallel for
   for (ns=0; ns<nsamps; ns++) {
     for (nc=0; nc<nchans; nc++) {
       rawdata[ns*nchans+nc] = datarms*random();
@@ -185,12 +187,14 @@ int run(BenchParameters & benchParameter)
 
   /* Now embed a dispersed pulse signal in it */
   delay_s = (dedisp_float *) malloc(nchans*sizeof(dedisp_float));
+  #pragma omp parallel for
   for (nc=0; nc<nchans; nc++) {
     dedisp_float a = 1.f/(f0+nc*df);
     dedisp_float b = 1.f/f0;
     delay_s[nc] = sigDM*4.15e3 * (a*a - b*b);
   }
   if(benchParameter.verbose) printf("Embedding signal\n");
+  #pragma omp parallel for
   for (nc=0; nc<nchans; nc++) {
     ns = (int)((sigT + delay_s[nc])/dt);
     if (ns > nsamps) {
