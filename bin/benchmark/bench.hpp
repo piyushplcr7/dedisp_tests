@@ -17,6 +17,8 @@
 
 #include "external/Stopwatch.h"
 #include <omp.h>
+#include <getopt.h>
+#include <string.h>
 
 // Debug options
 #define WRITE_INPUT_DATA  0
@@ -99,51 +101,160 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean, dedisp
   return;
 }
 
+void usage(void)
+{
+  printf("Usage: benchfdd or benchdedisp with -n [nr of DM trials] -s [nr of samples] -c [nr of channels]\n\n");
+  printf("No arguments        Default settings\n");
+  printf("-n [ntrails]        Number of DM trails.\n");
+  printf("-s [samples]        Number of samples to generate\n");
+  printf("-c [samples]        Number of channels to generate\n");
+  printf("-r [DM start(,end)] Alternative Start (and optional end) values of DM range to dedisperse\n");
+  printf("-t [Tobs]           Alternative observation time to use, use instead of -S\n");
+  printf("-q                  Quiet; no verbose information to screen\n");
+  printf("-h                  This help\n");
+  return;
+}
+
 // Parameter struct to configure benchmark
 struct BenchParameters
 {
-  dedisp_float dm_start = 2;
-  dedisp_float dm_end = 100;
-  dedisp_float nchans = 1024;
-  dedisp_float Tobs = 30.0;
-  bool verbose = true;
+  // Default values
+  dedisp_float  sampletime_base = 64.0E-6; // Base is 64 microsecond time samples
+  dedisp_float  downsamp        = 1.0;
+  dedisp_float  dt              = downsamp*sampletime_base;
+  dedisp_float  f0              = 1581.0;    // MHz (highest channel!)
+  dedisp_float  bw              = 400.0; // MHz
+  dedisp_size   nchans          = 1024;
+  dedisp_float  df              = -1.0*bw/nchans;   // MHz   (This must be negative!)
+  dedisp_float  dm_start        = 0.0;
+  dedisp_float  dm_end          = 0.0;
+  dedisp_float  dm_step         = 2.0;
+  dedisp_size   dm_count       = 100;
+  dedisp_size   nsamps          = 120000;
+  dedisp_float  Tobs            = 0.0;
+  bool          verbose         = true;
 };
+
+int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
+{
+  int arg=0;
+  // Decode options
+  if (argc>1)
+  {
+    while ((arg=getopt(argc,argv,"r:s:n:c:t:q:h:"))!=-1)
+    {
+      switch(arg)
+      {
+        case 'r':
+          if (strchr(optarg,',')!=NULL)
+            {
+              sscanf(optarg,"%f,%f", &benchParameter.dm_start, &benchParameter.dm_end);
+              benchParameter.dm_count = 0;
+            }
+          else
+            benchParameter.dm_start=atof(optarg);
+        break;
+
+        case 'n':
+          benchParameter.dm_count=(dedisp_size) atoi(optarg);
+        break;
+
+        case 's':
+          benchParameter.nsamps=atoi(optarg);
+        break;
+
+        case 'c':
+          benchParameter.nchans=atoi(optarg);
+        break;
+
+        case 't':
+          benchParameter.Tobs=atoi(optarg);
+        break;
+
+        case 'q':
+          benchParameter.verbose=0;
+        break;
+
+        case 'h':
+          usage();
+          return -1;
+        break;
+
+        default:
+          usage();
+        return -1;
+      }
+    } // while
+  }
+  else
+  {
+    usage();
+    printf("Using default settings\n");
+  }
+
+  // Set end DM based on number of DM's specified
+  if (benchParameter.dm_count!=0 && benchParameter.dm_end==0.0)
+  {
+    benchParameter.dm_end = benchParameter.dm_start + benchParameter.dm_count * benchParameter.dm_step;
+  }
+  else
+  {
+    fprintf(stderr,"Error parsing DM range. Provide number of dms or start and end of a range.\n");
+    return -1;
+  }
+
+  // re calculate some parameters for if there were changes:
+  benchParameter.dt = benchParameter.downsamp*benchParameter.sampletime_base; // we might make sampletime_base configurable later
+  benchParameter.df = -1.0*benchParameter.bw/benchParameter.nchans; // changes with nchans
+
+  // samples versus time
+  if (benchParameter.Tobs != 0) // it time was defined then define number of samples based on time
+  {
+    benchParameter.nsamps = benchParameter.Tobs / benchParameter.dt;
+  }
+  else // define time based on number of samples
+  {
+    benchParameter.Tobs = benchParameter.nsamps * benchParameter.dt;
+  }
+
+  return 0;
+}
 
 template<typename PlanType>
 int run(BenchParameters & benchParameter)
 {
   int          device_idx  = 0;
 
-  dedisp_float sampletime_base = 250.0E-6; // Base is 250 microsecond time samples
-  dedisp_float downsamp    = 1.0;
-  dedisp_float Tobs        = benchParameter.Tobs; //30.0;    // Observation duration in seconds
-  dedisp_float dt          = downsamp*sampletime_base;     // s (0.25 ms sampling)
-  dedisp_float f0          = 1581.0;    // MHz (highest channel!)
-  dedisp_float bw          = 100.0; // MHz
-  dedisp_size  nchans      = benchParameter.nchans; //1024;
-  dedisp_float df          = -1.0*bw/nchans;   // MHz   (This must be negative!)
+  dedisp_float downsamp    = benchParameter.downsamp;
+  dedisp_float Tobs        = benchParameter.Tobs;
+  dedisp_float dt          = benchParameter.dt;
+  dedisp_float f0          = benchParameter.f0;
+  dedisp_float bw          = benchParameter.bw;
+  dedisp_size  nchans      = benchParameter.nchans;
+  dedisp_float df          = benchParameter.df;
+  dedisp_size  nsamps      = benchParameter.nsamps;
 
-  dedisp_size  nsamps      = Tobs / dt;
   dedisp_float datarms     = 25.0;
-  dedisp_float sigDM = 41.159; 
+  dedisp_float sigDM = 41.159;
   dedisp_float sigT = 3.14159; // seconds into time series (at f0)
   dedisp_float sigamp = 25.0; // amplitude of signal
 
-  dedisp_float dm_start    = benchParameter.dm_start; // 2.0;    // pc cm^-3
-  dedisp_float dm_end      = benchParameter.dm_end; // 100.0;    // pc cm^-3
+  dedisp_float dm_start    = benchParameter.dm_start;
+  dedisp_float dm_end      = benchParameter.dm_end;
   dedisp_float pulse_width = 4.0;   // ms
   dedisp_float dm_tol      = 1.25;
   dedisp_size  in_nbits    = 8;
   dedisp_size  out_nbits   = 32;  // DON'T CHANGE THIS FROM 32, since that signals it to use floats
-        
-  dedisp_size  dm_count;
+
+  dedisp_size  dm_count    = benchParameter.dm_count;
+  dedisp_float dm_step     = benchParameter.dm_step;
   dedisp_size  max_delay;
   dedisp_size  nsamps_computed;
   dedisp_byte *input  = 0;
   dedisp_float *output = 0;
 
   unsigned int i,nc,ns,nd;
-  const dedisp_float *dmlist;
+  dedisp_float *dmlist;
   //const dedisp_size *dt_factors;
   dedisp_float *delay_s;
 
@@ -161,11 +272,11 @@ int run(BenchParameters & benchParameter)
   if(benchParameter.verbose)
   {
     printf("----------------------------- INPUT DATA ---------------------------------\n");
-    printf("Frequency of highest chanel (MHz)            : %.4f\n",f0);
+    printf("Frequency of highest chanel [MHz]            : %.4f\n",f0);
     printf("Bandwidth (MHz)                              : %.2f\n",bw);
     printf("NCHANS (Channel Width [MHz])                 : %lu (%f)\n",nchans,df);
-    printf("Sample time (after downsampling by %.0f)        : %f\n",downsamp,dt);
-    printf("Observation duration (s)                     : %f (%lu samples)\n",Tobs,nsamps);
+    printf("Sample time (after downsampling by %.0f [us])    : %f\n",downsamp,dt/1E-6);
+    printf("Observation duration [s]                     : %f (%lu samples)\n",Tobs,nsamps);
     printf("Data RMS (%2lu bit input data)                 : %f\n",in_nbits,datarms);
     printf("Input data array size                        : %lu MB\n",(nsamps*nchans*sizeof(float))/(1<<20));
     printf("\n");
@@ -258,13 +369,27 @@ int run(BenchParameters & benchParameter)
 
   if(benchParameter.verbose) printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
-  plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
+  if (dm_count==0)
+  {
+    if (benchParameter.verbose) printf("Generating optimal DM trials\n");
+    plan.generate_dm_list(dm_start,dm_end,pulse_width,dm_tol);
+  }
+  else
+  { // Generate a list of dispersion measures for the plan
+    if (benchParameter.verbose) printf("Generating linear DM trials\n");
+    dmlist=(dedisp_float *) calloc(sizeof(dedisp_float),dm_count);
+    for (i=0;i<dm_count;i++)
+    {
+      dmlist[i]=(dedisp_float) dm_start+dm_step*i;
+    }
+    plan.set_dm_list(dmlist,dm_count);
+  }
 
   // Find the parameters that determine the output size
   dm_count = plan.get_dm_count();
   max_delay = plan.get_max_delay();
   nsamps_computed = nsamps - max_delay;
-  dmlist = plan.get_dm_list();
+  dmlist=(float *)plan.get_dm_list();
   //dt_factors = plan.get_dt_factors(plan);
 
   if(benchParameter.verbose)

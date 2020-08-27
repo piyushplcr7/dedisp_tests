@@ -8,15 +8,11 @@ int run();
 
 int main(int argc, char* argv[])
 {
-  // Default
   BenchParameters benchParameter;
-  benchParameter.dm_start = 2;
-  benchParameter.dm_end = 100;
-  benchParameter.nchans = 1024;
-  benchParameter.Tobs = 30.0;
-  benchParameter.verbose = true;
+  // optionally overwrite benchParameters here
 
   // Get parameters from argv
+  if (parseParameters(argc, argv, benchParameter)!=0) return -1;
 
   char *use_cpu_str = getenv("USE_CPU");
   bool use_cpu = !use_cpu_str ? false : atoi(use_cpu_str);
