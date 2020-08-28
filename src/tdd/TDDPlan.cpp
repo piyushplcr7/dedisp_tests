@@ -236,6 +236,7 @@ void TDDPlan::execute_guru(
     // Timers
 #ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
@@ -267,7 +268,8 @@ void TDDPlan::execute_guru(
         void *d_in_ptr;
         std::mutex output_lock;
         cu::Event inputStart, inputEnd;
-        cu::Event computeStart, computeEnd;
+        cu::Event preprocessingStart, preprocessingEnd;
+        cu::Event dedispersionStart, dedispersionEnd;
         cu::Event outputStart, outputEnd;
     };
 
@@ -335,7 +337,7 @@ void TDDPlan::execute_guru(
         if (job_id > 1)
         {
             auto& job_previous = jobs[job_id - 2];
-            job_previous.computeEnd.synchronize();
+            job_previous.dedispersionEnd.synchronize();
         }
 
         auto& job = jobs[job_id];
@@ -357,7 +359,7 @@ void TDDPlan::execute_guru(
 
         // Transpose and unpack the words in the input
         executestream->waitEvent(job.inputEnd);
-        executestream->record(job.computeStart);
+        executestream->record(job.preprocessingStart);
         transpose_unpack(
             (dedisp_word *) job.d_in_ptr,
             nchan_words, job.nsamps_gulp,
@@ -365,8 +367,10 @@ void TDDPlan::execute_guru(
             (dedisp_word *) d_unpacked,
             in_nbits, unpacked_in_nbits,
             *executestream);
+        executestream->record(job.preprocessingEnd);
 
         // Perform direct dedispersion without scrunching
+        executestream->record(job.dedispersionStart);
         m_kernel.launch(
             d_unpacked,               // d_in
             job.nsamps_padded_gulp,   // in_stride
@@ -381,10 +385,10 @@ void TDDPlan::execute_guru(
             out_stride_gulp_samples,  // out_stride
             out_nbits,                // out_nbits
             *executestream);
-        executestream->record(job.computeEnd);
+        executestream->record(job.dedispersionEnd);
 
         // Copy output back to host memory
-        dtohstream->waitEvent(job.computeEnd);
+        dtohstream->waitEvent(job.dedispersionEnd);
         dtohstream->record(job.outputStart);
         dtohstream->memcpyDtoHAsync(
             h_out,               // dst
@@ -404,17 +408,39 @@ void TDDPlan::execute_guru(
     {
         input_timer->Add(job.inputEnd.elapsedTime(job.inputStart));
         output_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
-        dedispersion_timer->Add(job.computeEnd.elapsedTime(job.computeStart));
+        preprocessing_timer->Add(job.preprocessingEnd.elapsedTime(job.preprocessingStart));
+        dedispersion_timer->Add(job.dedispersionEnd.elapsedTime(job.dedispersionStart));
     }
 
     // Print timings
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
+
+    // Compute number of operations performed
+    unsigned long dedispersion_ops = 0;
+    unsigned long preprocessing_ops = 0;
+    for (auto& job : jobs)
+    {
+        unsigned long nsamp_processed_gulp = job.nsamps_computed_gulp * m_nchans;
+        // dm * frac_delay, only once for samps_per_thread samples
+        dedispersion_ops += m_dm_count * nsamp_processed_gulp * (1.0/samps_per_thread);
+        // sum += killmask * sample, fma
+        dedispersion_ops += m_dm_count * nsamp_processed_gulp * 2;
+        // construct output, +/- 5 integer operations
+        preprocessing_ops += nsamp_processed_gulp * 5;
+    }
+
+    // Print performance
+    auto preprocessing_performance = 1e-6 * preprocessing_ops / preprocessing_timer->Milliseconds();
+    auto dedispersion_performance = 1e-6 * dedispersion_ops / dedispersion_timer->Milliseconds();
+    std::cout << preprocessing_perf_str << preprocessing_performance << " GOps/s" << std::endl;
+    std::cout << dedispersion_perf_str << dedispersion_performance << " GOps/s" << std::endl;
 
     // Append the timing results to a log file
     auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
