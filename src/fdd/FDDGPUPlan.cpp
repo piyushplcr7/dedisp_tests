@@ -431,6 +431,18 @@ void FDDGPUPlan::execute_gpu(
 
             // Add preprocessing time for the current channel job
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
+
+            // Add dedispersion time for current dm jobs
+            for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
+            {
+                unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
+                if (dm_job_id >= dm_jobs.size())
+                {
+                    break;
+                }
+                auto& dm_job = dm_jobs[dm_job_id];
+                dedispersion_timer->Add(dm_job.dedispersionEnd.elapsedTime(dm_job.dedispersionStart));
+            }
         } // end for ichan_start
 
         // Output DM batches
@@ -501,10 +513,9 @@ void FDDGPUPlan::execute_gpu(
     mCopyMem.end();
     total_timer->Pause();
 
-    // Accumulate dedispersion and postprocessing time for all dm jobs
+    // Accumulate postprocessing time for all dm jobs
     for (auto& job : dm_jobs)
     {
-        dedispersion_timer->Add(job.dedispersionEnd.elapsedTime(job.dedispersionStart));
         postprocessing_timer->Add(job.postprocessingEnd.elapsedTime(job.postprocessingStart));
     }
 
