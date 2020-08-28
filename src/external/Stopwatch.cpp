@@ -47,26 +47,20 @@ void StopwatchImpl::Reset()
 }
 
 void StopwatchImpl::Add(
-    int64_t ms)
+    double ms)
 {
-    m_time_sum += std::chrono::milliseconds(ms);
+    auto microseconds = (int64_t) (ms * 1e3);
+    m_time_sum += std::chrono::microseconds(microseconds);
 }
 
 std::string Stopwatch::ToString(
     int64_t ms)
 {
-    std::chrono::milliseconds d(ms);
-    auto s_(std::chrono::duration_cast<std::chrono::seconds>(d));
-    auto sub_s_(std::chrono::duration_cast<std::chrono::milliseconds>(d - s_));
+    auto seconds = ms * 1e-3;
 
     std::stringstream output;
-    output << std::scientific;
-    output << s_.count() << ".";
     output << std::fixed;
-    output.fill('0');
-    output.flags(std::ios::dec | std::ios::right);
-    output.width(3);
-    output << sub_s_.count();
+    output << seconds;
 
     return output.str();
 }

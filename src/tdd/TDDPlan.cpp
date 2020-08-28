@@ -1,5 +1,6 @@
 #include <thread>
 #include <mutex>
+#include <iostream>
 
 #include "TDDPlan.hpp"
 
@@ -13,7 +14,6 @@
 #include "dedisp_error.hpp"
 
 #if defined(DEDISP_BENCHMARK)
-#include <iostream>
 #include <fstream>
 using std::cout;
 using std::endl;
@@ -312,7 +312,9 @@ void TDDPlan::execute_guru(
     });
 
     // The initialization is finished
+#ifdef DEDISP_BENCHMARK
     init_timer->Pause();
+#endif
     initMarker.end();
 
     // Annotate the gulp loop
