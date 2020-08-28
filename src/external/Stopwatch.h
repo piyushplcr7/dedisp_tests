@@ -13,7 +13,7 @@ class Stopwatch
 		virtual void Start() = 0;
 		virtual void Pause() = 0;
 		virtual void Reset() = 0;
-		virtual void Add(int64_t ms) = 0;
+		virtual void Add(double ms) = 0;
 
 		static std::string ToString(int64_t ms);
 		virtual std::string ToString() const = 0;

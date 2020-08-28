@@ -14,7 +14,7 @@ class StopwatchImpl : public virtual Stopwatch
         virtual void Start() final override;
 		virtual void Pause() final override;
 		virtual void Reset() final override;
-		virtual void Add(int64_t ms) final override;
+		virtual void Add(double ms) final override;
 
 		virtual std::string ToString() const final override;
 		virtual long double Milliseconds() const final override;
