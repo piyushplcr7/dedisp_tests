@@ -8,10 +8,10 @@ int run();
 int main(int argc, char* argv[])
 {
   BenchParameters benchParameter;
-  benchParameter.dm_start = 2;
-  benchParameter.dm_end = 1000;
-  benchParameter.nchans = 1600;
-  benchParameter.Tobs = 30.0;
-  benchParameter.verbose = false;
+  // optionally overwrite benchParameters here
+
+  // Get parameters from argv
+  if (parseParameters(argc, argv, benchParameter)!=0) return -1;
+
   return run<dedisp::TDDPlan>(benchParameter);
 }

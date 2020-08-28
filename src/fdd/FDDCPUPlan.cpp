@@ -393,7 +393,8 @@ void FDDCPUPlan::execute(
         execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
     } else {
         execute_cpu(nsamps, in, in_nbits, out, out_nbits);
-    }}
+    }
+}
 
 
 // Private interface
@@ -474,18 +475,41 @@ void FDDCPUPlan::execute_cpu(
 
     // Dedispersion in frequency domain
     std::cout << fdd_dedispersion_str << std::endl;
-    dedispersion_timer->Start();
-    dedisperse_optimized<float, float, 32, true>(
-        ndm, nfreq, nchan,                      // data dimensions
-        dt,                                     // sample time
-        h_spin_frequencies.data(),              // spin frequencies
-        h_dm_list.data(),                       // DMs
-        h_delay_table.data(),                   // delay table
-        nsamp_padded/2,                         // in stride
-        nsamp_padded/2,                         // out stride
-        (std::complex<float> *) data_nu.data(), // input
-        (std::complex<float> *) data_dm.data()  // output
-    );
+
+    char* use_reference_str = getenv("USE_REFERENCE");
+    bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
+    if (use_reference)
+    {
+        std::cout << "Running reference implementation" << std::endl;
+        dedispersion_timer->Start();
+        dedisperse_reference<float, float>(
+            ndm, nfreq, nchan,                      // data dimensions
+            dt,                                     // sample time
+            h_spin_frequencies.data(),              // spin frequencies
+            h_dm_list.data(),                       // DMs
+            h_delay_table.data(),                   // delay table
+            nsamp_padded/2,                         // in stride
+            nsamp_padded/2,                         // out stride
+            (std::complex<float> *) data_nu.data(), // input
+            (std::complex<float> *) data_dm.data()  // output
+        );
+    }
+    else
+    {
+        std::cout << "Running optimized implementation" << std::endl;
+        dedispersion_timer->Start();
+        dedisperse_optimized<float, float, 32, true>(
+            ndm, nfreq, nchan,                      // data dimensions
+            dt,                                     // sample time
+            h_spin_frequencies.data(),              // spin frequencies
+            h_dm_list.data(),                       // DMs
+            h_delay_table.data(),                   // delay table
+            nsamp_padded/2,                         // in stride
+            nsamp_padded/2,                         // out stride
+            (std::complex<float> *) data_nu.data(), // input
+            (std::complex<float> *) data_dm.data()  // output
+        );
+    }
     dedispersion_timer->Pause();
 
     // Fourier transform results back to time domain
@@ -510,12 +534,13 @@ void FDDCPUPlan::execute_cpu(
     total_timer->Pause();
 
     // Print timings
-    std::cout << "Initialization time: " << init_timer->ToString() << " sec." << std::endl;
-    std::cout << "Preprocessing time:  " << preprocessing_timer->ToString() << " sec." << std::endl;
-    std::cout << "Dedispersion time:   " << dedispersion_timer->ToString() << " sec." << std::endl;
-    std::cout << "Postprocessing time: " << postprocessing_timer->ToString() << " sec." << std::endl;
-    std::cout << "Output memcopy time: " << output_timer->ToString() << " sec." << std::endl;
-    std::cout << "Total time:          " << total_timer->ToString() << " sec." << std::endl;
+    std::cout << timings_str << std::endl;
+    std::cout << init_time_str              << init_timer->ToString() << " sec." << std::endl;
+    std::cout << preprocessing_time_str     << preprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << dedispersion_time_str      << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << postprocessing_time_str    << postprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << output_memcpy_time_str     << output_timer->ToString() << " sec." << std::endl;
+    std::cout << total_time_str             << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 }
 
@@ -645,19 +670,42 @@ void FDDCPUPlan::execute_cpu_segmented(
 
     // Perform dedispersion
     std::cout << fdd_dedispersion_str << std::endl;
-    dedispersion_timer->Start();
-    dedisperse_segmented_optimized<float, float>(
-        ndm, nchan,                              // data dimensions
-        dt,                                      // sample time
-        h_spin_frequencies.data(),               // spin frequencies
-        h_dm_list.data(),                        // DMs
-        h_delay_table.data(),                    // delay table
-        nsamp_padded/2,                          // in stride
-        nsamp_padded/2,                          // out stride
-        nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
-        data_f_nu.data(),                        // input
-        data_f_dm.data()                         // output
-    );
+    char* use_reference_str = getenv("USE_REFERENCE");
+    bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
+    if (use_reference)
+    {
+        std::cout << "Running reference implementation" << std::endl;
+        dedispersion_timer->Start();
+        dedisperse_segmented_reference<float, float>(
+            ndm, nchan,                              // data dimensions
+            dt,                                      // sample time
+            h_spin_frequencies.data(),               // spin frequencies
+            h_dm_list.data(),                        // DMs
+            h_delay_table.data(),                    // delay table
+            nsamp_padded/2,                          // in stride
+            nsamp_padded/2,                          // out stride
+            nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
+            data_f_nu.data(),                        // input
+            data_f_dm.data()                         // output
+        );
+    }
+    else
+    {
+        std::cout << "Running optimized implementation" << std::endl;
+        dedispersion_timer->Start();
+        dedisperse_segmented_optimized<float, float>(
+            ndm, nchan,                              // data dimensions
+            dt,                                      // sample time
+            h_spin_frequencies.data(),               // spin frequencies
+            h_dm_list.data(),                        // DMs
+            h_delay_table.data(),                    // delay table
+            nsamp_padded/2,                          // in stride
+            nsamp_padded/2,                          // out stride
+            nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
+            data_f_nu.data(),                        // input
+            data_f_dm.data()                         // output
+        );
+    }
     dedispersion_timer->Pause();
 
     // Fourier transform results back to time domain
@@ -698,12 +746,13 @@ void FDDCPUPlan::execute_cpu_segmented(
     total_timer->Pause();
 
     // Print timings
-    std::cout << "Initialization time: " << init_timer->ToString() << " sec." << std::endl;
-    std::cout << "Preprocessing time:  " << preprocessing_timer->ToString() << " sec." << std::endl;
-    std::cout << "Dedispersion time:   " << dedispersion_timer->ToString() << " sec." << std::endl;
-    std::cout << "Postprocessing time: " << postprocessing_timer->ToString() << " sec." << std::endl;
-    std::cout << "Output memcopy time: " << output_timer->ToString() << " sec." << std::endl;
-    std::cout << "Total time:          " << total_timer->ToString() << " sec." << std::endl;
+    std::cout << timings_str << std::endl;
+    std::cout << init_time_str              << init_timer->ToString() << " sec." << std::endl;
+    std::cout << preprocessing_time_str     << preprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << dedispersion_time_str      << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << postprocessing_time_str    << postprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << output_memcpy_time_str     << output_timer->ToString() << " sec." << std::endl;
+    std::cout << total_time_str             << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 }
 
