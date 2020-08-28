@@ -49,8 +49,10 @@ void FDDGPUPlan::execute(
     bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);
     if (use_segmented)
     {
+        std::cout << ">> Running segmented GPU implementation" << std::endl;
         execute_gpu_segmented(nsamps, in, in_nbits, out, out_nbits);
     } else {
+        std::cout << ">> Running GPU implementation" << std::endl;
         execute_gpu(nsamps, in, in_nbits, out, out_nbits);
     }
 }

@@ -390,8 +390,10 @@ void FDDCPUPlan::execute(
     bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);
     if (use_segmented)
     {
+        std::cout << ">> Running segmented CPU implementation" << std::endl;
         execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
     } else {
+        std::cout << ">> Running CPU implementation" << std::endl;
         execute_cpu(nsamps, in, in_nbits, out, out_nbits);
     }
 }
@@ -480,7 +482,7 @@ void FDDCPUPlan::execute_cpu(
     bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
     if (use_reference)
     {
-        std::cout << "Running reference implementation" << std::endl;
+        std::cout << ">> Running reference implementation" << std::endl;
         dedispersion_timer->Start();
         dedisperse_reference<float, float>(
             ndm, nfreq, nchan,                      // data dimensions
@@ -496,7 +498,7 @@ void FDDCPUPlan::execute_cpu(
     }
     else
     {
-        std::cout << "Running optimized implementation" << std::endl;
+        std::cout << ">> Running optimized implementation" << std::endl;
         dedispersion_timer->Start();
         dedisperse_optimized<float, float, 32, true>(
             ndm, nfreq, nchan,                      // data dimensions
@@ -674,7 +676,7 @@ void FDDCPUPlan::execute_cpu_segmented(
     bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
     if (use_reference)
     {
-        std::cout << "Running reference implementation" << std::endl;
+        std::cout << ">> Running reference implementation" << std::endl;
         dedispersion_timer->Start();
         dedisperse_segmented_reference<float, float>(
             ndm, nchan,                              // data dimensions
@@ -691,7 +693,7 @@ void FDDCPUPlan::execute_cpu_segmented(
     }
     else
     {
-        std::cout << "Running optimized implementation" << std::endl;
+        std::cout << ">> Running optimized implementation" << std::endl;
         dedispersion_timer->Start();
         dedisperse_segmented_optimized<float, float>(
             ndm, nchan,                              // data dimensions
