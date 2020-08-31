@@ -605,10 +605,21 @@ void FDDCPUPlan::execute_cpu_segmented(
     std::vector<float> data_t_nu((size_t) nchan * nsamp_padded);
     std::vector<std::complex<float>> data_f_nu((size_t) nchan * nsamp_padded/2);
 
+    // Compute chunks
+    std::vector<Chunk> chunks(nchunk);
+    unsigned int nfreq_computed;
+    compute_chunks(
+        nsamp, nsamp_good, nfft,
+        nfreq_chunk_padded, nfreq_computed, chunks);
+
     // Generate spin frequency table
-    if (h_spin_frequencies.size() != nfreq_chunk)
+    if (h_spin_frequencies.size() != nsamp_padded)
     {
-        generate_spin_frequency_table(nfreq_chunk, nfft, dt);
+        h_spin_frequencies.resize(nsamp_padded);
+        generate_spin_frequency_table_chunks(
+            chunks, h_spin_frequencies,
+            nfreq_chunk, nfreq_chunk_padded,
+            nfft, dt);
     }
     init_timer->Pause();
 
@@ -624,13 +635,6 @@ void FDDCPUPlan::execute_cpu_segmented(
         nchan,             // scale
         in,                // in
         data_t_nu.data()); // out
-
-    // Compute chunks
-    std::vector<Chunk> chunks(nchunk);
-    unsigned int nfreq_computed;
-    compute_chunks(
-        nsamp, nsamp_good, nfft,
-        nfreq_chunk_padded, nfreq_computed, chunks);
 
     // Debug
     std::cout << debug_str << std::endl;
