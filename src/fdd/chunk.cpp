@@ -103,4 +103,24 @@ void copy_chunk_output(
     }
 }
 
+void generate_spin_frequency_table_chunks(
+    std::vector<Chunk>& chunks,
+    std::vector<float>& spin_frequencies,
+    unsigned int nfreq_chunk,
+    unsigned int nfreq_chunk_padded,
+    unsigned int nfft,
+    float dt)
+{
+    #pragma omp parallel for
+    for (unsigned int ifreq = 0; ifreq < nfreq_chunk; ifreq++)
+    {
+        float spin_frequency = ifreq * (1.0/(nfft*dt));
+        for (unsigned int ichunk = 0; ichunk < chunks.size(); ichunk++)
+        {
+            float* dst_ptr = (float *) spin_frequencies.data();
+            dst_ptr[1ULL * ichunk * nfreq_chunk_padded + ifreq] = spin_frequency;
+        }
+    }
+}
+
 } // end namespace dedisp
