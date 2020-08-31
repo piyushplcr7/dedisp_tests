@@ -702,18 +702,12 @@ void FDDGPUPlan::execute_gpu_segmented(
     mPrepSpinf.start();
     if (h_spin_frequencies.size() != nsamp_padded)
     {
-        // Repeat spin frequencies several times for the different chunks
+        // Generate spin frequencies on the host
         h_spin_frequencies.resize(nsamp_padded);
-        #pragma omp parallel for
-        for (unsigned int ifreq = 0; ifreq < nfreq_chunk; ifreq++)
-        {
-            float spin_frequency = ifreq * (1.0/(nfft*dt));
-            for (unsigned int ichunk = 0; ichunk < chunks.size(); ichunk++)
-            {
-                float* dst_ptr = (float *) h_spin_frequencies.data();
-                dst_ptr[(1ULL) * ichunk * nfreq_chunk_padded + ifreq] = spin_frequency;
-            }
-        }
+        generate_spin_frequency_table_chunks(
+            chunks, h_spin_frequencies,
+            nfreq_chunk, nfreq_chunk_padded,
+            nfft, dt);
 
         // Copy segmented spin frequencies to the GPU
         d_spin_frequencies.resize(h_spin_frequencies.size() * sizeof(float));

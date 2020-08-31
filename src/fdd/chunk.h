@@ -42,6 +42,14 @@ void copy_chunk_output(
     unsigned int nsamp_good,
     std::vector<Chunk>& chunks);
 
+void generate_spin_frequency_table_chunks(
+    std::vector<Chunk>& chunks,
+    std::vector<float>& spin_frequencies,
+    unsigned int nfreq_chunk,
+    unsigned int nfreq_chunk_padded,
+    unsigned int nfft,
+    float dt);
+
 } // end namespace dedisp
 
 #endif // H_CHUNK_INCLUDE_GUARD

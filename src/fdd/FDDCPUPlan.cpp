@@ -555,11 +555,12 @@ void FDDCPUPlan::execute_cpu_segmented(
     size_type        out_nbits)
 {
     // Parameters
-    float dt           = m_dt;       // sample time
-    unsigned int nchan = m_nchans;   // number of observering frequencies
-    unsigned int nsamp = nsamps;     // number of time samples
-    unsigned int ndm   = m_dm_count; // number of DMs
-    unsigned int nfft  = 16384;      // number of samples processed in a segment
+    float dt           = m_dt;          // sample time
+    unsigned int nchan = m_nchans;      // number of observering frequencies
+    unsigned int nsamp = nsamps;        // number of time samples
+    unsigned int nfreq = (nsamp/2 + 1); // number of spin frequencies
+    unsigned int ndm   = m_dm_count;    // number of DMs
+    unsigned int nfft  = 16384;         // number of samples processed in a segment
 
     // Compute the number of output samples
     unsigned int nsamp_computed = nsamp - m_max_delay;
@@ -605,10 +606,21 @@ void FDDCPUPlan::execute_cpu_segmented(
     std::vector<float> data_t_nu((size_t) nchan * nsamp_padded);
     std::vector<std::complex<float>> data_f_nu((size_t) nchan * nsamp_padded/2);
 
+    // Compute chunks
+    std::vector<Chunk> chunks(nchunk);
+    unsigned int nfreq_computed;
+    compute_chunks(
+        nsamp, nsamp_good, nfft,
+        nfreq_chunk_padded, nfreq_computed, chunks);
+
     // Generate spin frequency table
-    if (h_spin_frequencies.size() != nfreq_chunk)
+    if (h_spin_frequencies.size() != nsamp_padded)
     {
-        generate_spin_frequency_table(nfreq_chunk, nfft, dt);
+        h_spin_frequencies.resize(nsamp_padded);
+        generate_spin_frequency_table_chunks(
+            chunks, h_spin_frequencies,
+            nfreq_chunk, nfreq_chunk_padded,
+            nfft, dt);
     }
     init_timer->Pause();
 
@@ -624,13 +636,6 @@ void FDDCPUPlan::execute_cpu_segmented(
         nchan,             // scale
         in,                // in
         data_t_nu.data()); // out
-
-    // Compute chunks
-    std::vector<Chunk> chunks(nchunk);
-    unsigned int nfreq_computed;
-    compute_chunks(
-        nsamp, nsamp_good, nfft,
-        nfreq_chunk_padded, nfreq_computed, chunks);
 
     // Debug
     std::cout << debug_str << std::endl;
@@ -675,39 +680,73 @@ void FDDCPUPlan::execute_cpu_segmented(
     std::cout << fdd_dedispersion_str << std::endl;
     char* use_reference_str = getenv("USE_REFERENCE");
     bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
+    char* use_segmented_kernel_str = getenv("USE_SEGMENTED_KERNEL");
+    bool use_segmented_kernel = !use_segmented_kernel_str ? false : atoi(use_segmented_kernel_str);
     if (use_reference)
     {
-        std::cout << ">> Running reference implementation" << std::endl;
         dedispersion_timer->Start();
-        dedisperse_segmented_reference<float, float>(
-            ndm, nchan,                              // data dimensions
-            dt,                                      // sample time
-            h_spin_frequencies.data(),               // spin frequencies
-            h_dm_list.data(),                        // DMs
-            h_delay_table.data(),                    // delay table
-            nsamp_padded/2,                          // in stride
-            nsamp_padded/2,                          // out stride
-            nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
-            data_f_nu.data(),                        // input
-            data_f_dm.data()                         // output
-        );
+        if (use_segmented_kernel)
+        {
+            std::cout << ">> Running segmented reference kernel" << std::endl;
+            dedisperse_segmented_reference<float, float>(
+                ndm, nchan,                              // data dimensions
+                dt,                                      // sample time
+                h_spin_frequencies.data(),               // spin frequencies
+                h_dm_list.data(),                        // DMs
+                h_delay_table.data(),                    // delay table
+                nsamp_padded/2,                          // in stride
+                nsamp_padded/2,                          // out stride
+                nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
+                data_f_nu.data(),                        // input
+                data_f_dm.data()                         // output
+            );
+        } else {
+            std::cout << ">> Running reference kernel" << std::endl;
+            dedisperse_reference<float, float>(
+                ndm, nfreq, nchan,         // data dimensions
+                dt,                        // sample time
+                h_spin_frequencies.data(), // spin frequencies
+                h_dm_list.data(),          // DMs
+                h_delay_table.data(),      // delay table
+                nsamp_padded/2,            // in stride
+                nsamp_padded/2,            // out stride
+                data_f_nu.data(),          // input
+                data_f_dm.data()           // output
+            );
+        }
     }
     else
     {
-        std::cout << ">> Running optimized implementation" << std::endl;
         dedispersion_timer->Start();
-        dedisperse_segmented_optimized<float, float>(
-            ndm, nchan,                              // data dimensions
-            dt,                                      // sample time
-            h_spin_frequencies.data(),               // spin frequencies
-            h_dm_list.data(),                        // DMs
-            h_delay_table.data(),                    // delay table
-            nsamp_padded/2,                          // in stride
-            nsamp_padded/2,                          // out stride
-            nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
-            data_f_nu.data(),                        // input
-            data_f_dm.data()                         // output
-        );
+        if (use_segmented_kernel)
+        {
+            std::cout << ">> Running segmented optimized kernel" << std::endl;
+            dedisperse_segmented_optimized<float, float>(
+                ndm, nchan,                              // data dimensions
+                dt,                                      // sample time
+                h_spin_frequencies.data(),               // spin frequencies
+                h_dm_list.data(),                        // DMs
+                h_delay_table.data(),                    // delay table
+                nsamp_padded/2,                          // in stride
+                nsamp_padded/2,                          // out stride
+                nchunk, nfreq_chunk, nfreq_chunk_padded, // chunk parameters
+                data_f_nu.data(),                        // input
+                data_f_dm.data()                         // output
+            );
+        } else {
+            std::cout << ">> Running optimized kernel" << std::endl;
+            dedisperse_optimized<float, float, 32, true>(
+                ndm, nfreq, nchan,         // data dimensions
+                dt,                        // sample time
+                h_spin_frequencies.data(), // spin frequencies
+                h_dm_list.data(),          // DMs
+                h_delay_table.data(),      // delay table
+                nsamp_padded/2,            // in stride
+                nsamp_padded/2,            // out stride
+                data_f_nu.data(),          // input
+                data_f_dm.data()           // output
+            );
+        }
     }
     dedispersion_timer->Pause();
 
