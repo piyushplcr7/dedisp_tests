@@ -36,10 +36,14 @@ void transpose_unpack_kernel(
         size_t index_in_y = blockIdx.y * TILE_DIM + threadIdx.y + i;
         size_t index_in   = index_in_x + index_in_y*in_stride;
 
-        __syncthreads();
+        // Determine whether the sample index is in range
+        bool valid_index = index_in_x < width && index_in_y < height;
 
-        if (index_in_x < width && index_in_y < height)
+        // Unpack samples from device memory to shared memory
+        __syncthreads();
+        if (valid_index)
         {
+            #pragma unroll
             for (unsigned int j = 0; j < EXPANSION; j++)
             {
                 // Load input word
@@ -56,9 +60,12 @@ void transpose_unpack_kernel(
                 // Store result in shared memory
                 s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = result;
             }
+        }
 
-            __syncthreads();
-
+        // Transpose samples from shared memory to shared memory
+        __syncthreads();
+        if (valid_index)
+        {
             // Offsets in output matrix
             size_t offset_out_x = blockIdx.y * TILE_DIM;
             size_t offset_out_y = blockIdx.x * (TILE_DIM*EXPANSION);

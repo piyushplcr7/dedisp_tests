@@ -560,7 +560,8 @@ void FDDGPUPlan::execute_gpu_segmented(
 
     // Compute the number of chunks
     unsigned int nsamp_dm   = std::ceil(m_max_delay);
-    while (nfft < nsamp_dm) { nfft *= 2; };
+    float min_efficiency    = 0.8;
+    while ((nfft * (1.0 - min_efficiency)) < nsamp_dm) { nfft *= 2; };
     unsigned int nsamp_good = nfft - nsamp_dm;
     unsigned int nchunk     = std::ceil((float) nsamp / nsamp_good);
 
@@ -715,7 +716,7 @@ void FDDGPUPlan::execute_gpu_segmented(
         }
 
         // Copy segmented spin frequencies to the GPU
-        d_spin_frequencies.resize(h_spin_frequencies.size());
+        d_spin_frequencies.resize(h_spin_frequencies.size() * sizeof(float));
         htodstream->memcpyHtoDAsync(d_spin_frequencies, h_spin_frequencies.data(), d_spin_frequencies.size());
     }
     mPrepSpinf.end();
