@@ -716,7 +716,7 @@ void FDDGPUPlan::execute_gpu_segmented(
         }
 
         // Copy segmented spin frequencies to the GPU
-        d_spin_frequencies.resize(h_spin_frequencies.size());
+        d_spin_frequencies.resize(h_spin_frequencies.size() * sizeof(float));
         htodstream->memcpyHtoDAsync(d_spin_frequencies, h_spin_frequencies.data(), d_spin_frequencies.size());
     }
     mPrepSpinf.end();
