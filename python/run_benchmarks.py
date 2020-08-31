@@ -20,6 +20,8 @@ def create_arg_parser():
                     help='Optional the number of iterations')
     parser.add_argument('--GPU',
                     help='Which GPU to use')
+    parser.add_argument('--dryRun',
+                    help='Dry Run')
     return parser
 
 if __name__ == "__main__":
@@ -29,7 +31,7 @@ if __name__ == "__main__":
     parsedArgs = argParser.parse_args(sys.argv[1:])
 
     #How many times to repeat each test
-    if(parsedArgs.niterations): niterations = parsedArgs.niterations
+    if(parsedArgs.niterations): niterations = int(parsedArgs.niterations)
     else: niterations = 5 #default
 
     if os.path.exists(parsedArgs.executableDirectory):
@@ -164,7 +166,9 @@ if __name__ == "__main__":
         #Loop over application and get timings, show progress bar
         for i in tqdm.tqdm(range(niterations)):
             #Run the application and capture output
-            output = subprocess.getoutput(mytests[testentry])
+            if(not parsedArgs.dryRun):
+                output = subprocess.getoutput(mytests[testentry])
+            else: output = '...'
             #Save to file
             stringTestenty = '###\n'
             stringTestenty += f'### Iteration {i} ###\n'
