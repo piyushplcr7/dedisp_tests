@@ -81,10 +81,10 @@ if __name__ == "__main__":
                             "GPU_TDD_ndm800"                    : string_numactl + path_benchdedisp + string_default_param + "-n 800"}
     mytest_GPU_ndm1200 = {  "GPU_FDD_ndm1200"                    : string_numactl + path_benchfdd + string_default_param + "-n 1200",
                             "GPU_TDD_ndm1200"                    : string_numactl + path_benchdedisp + string_default_param + "-n 1200"}
-    mytest_GPU_segmented = {"GPU_FDD_segmented"                 : string_numactl + string_use_segmented + path_benchfdd + string_default_param,
-                            "GPU_FDD_segmented_ndm400"          : string_numactl + string_use_segmented + path_benchfdd + string_default_param + "-n 400",
-                            "GPU_FDD_segmented_ndm800"          : string_numactl + string_use_segmented + path_benchfdd + string_default_param + "-n 800",
-                            "GPU_FDD_segmented_ndm1200"          : string_numactl + string_use_segmented + path_benchfdd + string_default_param + "-n 1200"}
+    mytest_GPU_segmented = {"GPU_FDD_segmented"                 : string_use_segmented + string_numactl + path_benchfdd + string_default_param,
+                            "GPU_FDD_segmented_ndm400"          : string_use_segmented + string_numactl + path_benchfdd + string_default_param + "-n 400",
+                            "GPU_FDD_segmented_ndm800"          : string_use_segmented + string_numactl + path_benchfdd + string_default_param + "-n 800",
+                            "GPU_FDD_segmented_ndm1200"          : string_use_segmented + string_numactl + path_benchfdd + string_default_param + "-n 1200"}
 
     mytest_CPU_ref_nsamp48 =    {   "CPU_reference_nsamp48"                     : string_use_cpu_ref + path_benchfdd + string_nsamp48,
                                     "CPU_reference_segmented_nsamp48"           : string_use_cpu_ref + string_use_segmented + path_benchfdd + string_nsamp48}
@@ -104,10 +104,10 @@ if __name__ == "__main__":
                                     "GPU_TDD_ndm800_nsamp48"                    : string_numactl + path_benchdedisp + string_nsamp48 + "-n 800"}
     mytest_GPU_ndm1200_nsamp48 = {  "GPU_FDD_ndm1200_nsamp48"                   : string_numactl + path_benchfdd + string_nsamp48 + "-n 1200",
                                     "GPU_TDD_ndm1200_nsamp48"                   : string_numactl + path_benchdedisp + string_nsamp48 + "-n 1200"}
-    mytest_GPU_segmented_nsamp48 = {"GPU_FDD_segmented_nsamp48"                 : string_numactl + string_use_segmented + path_benchfdd + string_nsamp48,
-                                    "GPU_FDD_segmented_ndm400_nsamp48"          : string_numactl + string_use_segmented + path_benchfdd + string_nsamp48 + "-n 400",
-                                    "GPU_FDD_segmented_ndm800_nsamp48"          : string_numactl + string_use_segmented + path_benchfdd + string_nsamp48 + "-n 800",
-                                    "GPU_FDD_segmented_ndm1200_nsamp48"          : string_numactl + string_use_segmented + path_benchfdd + string_nsamp48 + "-n 1200"}
+    mytest_GPU_segmented_nsamp48 = {"GPU_FDD_segmented_nsamp48"                 : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48,
+                                    "GPU_FDD_segmented_ndm400_nsamp48"          : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48 + "-n 400",
+                                    "GPU_FDD_segmented_ndm800_nsamp48"          : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48 + "-n 800",
+                                    "GPU_FDD_segmented_ndm1200_nsamp48"          : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48 + "-n 1200"}
 
     # Select which tests to run
     mytests = mytest_CPU_ref

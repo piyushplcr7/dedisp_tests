@@ -158,14 +158,15 @@ if __name__ == "__main__":
     print("### Re-formatting data to mean values:")
     for testName in allmydata:
         #Create Dict with test name with dict of timing name and mean value
+        print(f'\n### Benchmark \n{testName}')
         mymeandata = {}
         for timing in mytimings:
             countnonzero=np.count_nonzero(allmydata[testName][timing])
             countnan=np.count_nonzero(np.isnan(allmydata[testName][timing]))
             if(not(countnan) and countnonzero): # if it contains data
                 mymeandata[timing] = np.nanmean(allmydata[testName][timing])
-                #print('{:30}: {:.4f}'.format(testName, mymeandata[testName]))
-        #else: print('{:30}: Contains errors'.format(testName))
+                print('{:30} {:.4f}'.format(timing, mymeandata[timing]))
+            else: print('{:30} Contains errors'.format(timing))
         #if(verbose): print(f'Re-formatted data for {testName} {timing} to a structure with shape {len(mymeandata)}')
         #print(mymeandata)
         allmymeandata[testName]=mymeandata
