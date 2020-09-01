@@ -763,6 +763,7 @@ void FDDCPUPlan::execute_cpu_segmented(
         data_t_dm.data(),                   // out
         onembed_c2r, 1, onembed_c2r[0],     // onembed, ostride, odist
         FFTW_ESTIMATE);                     // flags
+    #pragma omp parallel for
     for (unsigned int idm = 0; idm < ndm; idm++)
     {
         auto *in  = (fftwf_complex *) data_f_dm.data() + (1ULL * idm * nsamp_padded/2);
