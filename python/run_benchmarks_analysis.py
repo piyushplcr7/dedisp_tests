@@ -9,13 +9,15 @@ import tqdm #progress bar
 import sys
 import os
 import argparse
+import matplotlib
+import matplotlib.pyplot as plt
 
 def create_arg_parser():
     # Creates and returns the ArgumentParser object
 
     parser = argparse.ArgumentParser(description='Analyze muliple consecutive benchmarks')
     parser.add_argument('inputDirectory',
-                    help='The directory with the benchmarks')
+                    help='The directory with the benchmark results')
     parser.add_argument('--quiet',
                     help='Suppress verbose output')
     parser.add_argument('--showPlot',
@@ -72,6 +74,7 @@ if __name__ == "__main__":
     #Init dicts
     allmydata = {}
     meanTotals = {}
+    allmymeandata = {}
 
     #Get application start times and format them
     starttime=time.localtime()
@@ -113,7 +116,7 @@ if __name__ == "__main__":
     # Iterate over all files in the directory, file name is the test name
     for i in range(nfiles):
         #Init
-        mydata = {}
+        mydata = {} #Dict for timing name + timing values
         #Open te file, get test name (based on file name)
         fileName = fileList[i]
         filePath = os.path.join(inputDirectory, fileName)
@@ -124,9 +127,8 @@ if __name__ == "__main__":
 
         #Get my timings, return results for multiple instances (iterations) of the timing
         for timing in mytimings:
-            mydata[timing]=get_timing(benchmarkResults,timing)
-            #Returns np.nan on error
-        allmydata[testName]=mydata
+            mydata[timing]=get_timing(benchmarkResults, timing) #Returns an array with values
+        allmydata[testName]=mydata #Dict with for each test name a dict with test names and values
         f.close()
 
         if(verbose):
@@ -151,11 +153,30 @@ if __name__ == "__main__":
                 if(not(countnan) and countnonzero): # if it contains data
                     print('{:30}: {:.4f}'.format(timing, np.nanmean(mydata[timing])))
 
+
     #Create datastructures with only mean times per test
-    print('### Mean totals:')
-    tidx=mytimings[len(mytimings)-1]
+    print("### Re-formatting data to mean values:")
     for testName in allmydata:
-        #Dict with total times
+        #Create Dict with test name with dict of timing name and mean value
+        print(f'\n### Benchmark \n{testName}')
+        mymeandata = {}
+        for timing in mytimings:
+            countnonzero=np.count_nonzero(allmydata[testName][timing])
+            countnan=np.count_nonzero(np.isnan(allmydata[testName][timing]))
+            if(not(countnan) and countnonzero): # if it contains data
+                mymeandata[timing] = np.nanmean(allmydata[testName][timing])
+                print('{:30} {:.4f}'.format(timing, mymeandata[timing]))
+            else: print('{:30} Contains errors'.format(timing))
+        #if(verbose): print(f'Re-formatted data for {testName} {timing} to a structure with shape {len(mymeandata)}')
+        #print(mymeandata)
+        allmymeandata[testName]=mymeandata
+
+    #Create datastructures with only mean times per test
+    tidx=mytimings[len(mytimings)-1]
+    print('\n')
+    print(f'### Summary of mean totals for \"{tidx}\":')
+    for testName in allmydata:
+        #Create Dict with total mean times
         countnonzero=np.count_nonzero(allmydata[testName][tidx])
         countnan=np.count_nonzero(np.isnan(allmydata[testName][tidx]))
         if(not(countnan) and countnonzero): # if it contains data
@@ -163,8 +184,15 @@ if __name__ == "__main__":
             #print(allmydata[testName][tidx])
             meanTotals[testName] = np.nanmean(allmydata[testName][tidx])
             print('{:30}: {:.4f}'.format(testName, meanTotals[testName]))
+        else: print('{:30}: Contains errors'.format(testName))
     #print(meanTotals)
        # for timing in mytimings:
+
+    #Bar plot of mean totals:
+    # keys = meanTotals.keys()
+    # values = meanTotals.values()
+    # plt.bar(keys, values)
+    # plt.show()
 
     # Plot ?
     # if parsedArgs.savePlot:
