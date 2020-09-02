@@ -1,4 +1,4 @@
-#include <tdd-ref/DedispPlan.hpp>
+#include <tdd/TDDPlan.hpp>
 
 #include "test.hpp"
 
@@ -7,5 +7,5 @@ int run();
 
 int main(int argc, char* argv[])
 {
-  return run<dedisp::DedispPlan>();
+  return run<dedisp::TDDPlan>();
 }

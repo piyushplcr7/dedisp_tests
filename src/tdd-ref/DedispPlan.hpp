@@ -79,7 +79,7 @@ public:
                  size_type        in_nbits,
                  byte_type*       out,
                  size_type        out_nbits,
-                 unsigned         flags);
+                 unsigned         flags = 0);
 
     void execute_adv(size_type        nsamps,
                      const byte_type* in,
