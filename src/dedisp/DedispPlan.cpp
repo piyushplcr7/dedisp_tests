@@ -7,15 +7,15 @@
 
 #include "common/dedisp_types.h"
 #include "common/dedisp_error.hpp"
+#include "common/dedisp_strings.h"
+
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"
 
 #if defined(DEDISP_BENCHMARK)
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <memory>
-using std::cout;
-using std::endl;
 #include "external/Stopwatch.h"
 #endif
 
@@ -356,17 +356,31 @@ void DedispPlan::execute_guru(size_type        nsamps,
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
+#ifdef DEDISP_BENCHMARK
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    total_timer->Start();
+    init_timer->Start();
+#endif
+
     // Organise device memory pointers
     cu::DeviceMemory d_in(in_count_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
 
+
 #ifdef DEDISP_BENCHMARK
-    std::unique_ptr<Stopwatch> copy_to_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> copy_from_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> transpose_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> kernel_timer(Stopwatch::create());
+    // The initialization is finished
+    init_timer->Pause();
+
+    // Measure the total time of the gulp loop
+    cu::Event gulpStart, gulpEnd;
+    htodstream.record(gulpStart);
 #endif
 
     // Gulp loop
@@ -382,7 +396,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
             * DEDISP_SAMPS_PER_THREAD + m_max_delay;
 
 #ifdef DEDISP_BENCHMARK
-        copy_to_timer->Start();
+        input_timer->Start();
 #endif
         // Copy the input data from host to device
         htodstream.memcpyHtoD2DAsync(
@@ -395,8 +409,8 @@ void DedispPlan::execute_guru(size_type        nsamps,
         htodstream.synchronize();
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
-        copy_to_timer->Pause();
-        transpose_timer->Start();
+        input_timer->Pause();
+        preprocessing_timer->Start();
 #endif
         // Transpose the words in the input
         transpose((dedisp_word *) d_in,
@@ -405,15 +419,18 @@ void DedispPlan::execute_guru(size_type        nsamps,
                   (dedisp_word *) d_transposed);
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
-        transpose_timer->Pause();
-
-        kernel_timer->Start();
+        preprocessing_timer->Pause();
 #endif
 
         // Unpack the transposed data
         unpack(d_transposed, nsamps_padded_gulp, nchan_words,
                d_unpacked,
                in_nbits, unpacked_in_nbits);
+
+#ifdef DEDISP_BENCHMARK
+        preprocessing_timer->Pause();
+        dedispersion_timer->Start();
+#endif
 
         // Perform direct dedispersion without scrunching
         if( !dedisperse(//d_transposed,
@@ -435,13 +452,13 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
-        kernel_timer->Pause();
+        dedispersion_timer->Pause();
 #endif
         // Copy output back to host memory
         dedisp_size gulp_samp_byte_idx = gulp_samp_idx * out_bytes_per_sample;
         dedisp_size nsamp_bytes_computed_gulp = nsamps_computed_gulp * out_bytes_per_sample;
 #ifdef DEDISP_BENCHMARK
-        copy_from_timer->Start();
+        output_timer->Start();
 #endif
         dtohstream.memcpyDtoH2DAsync(
             out + gulp_samp_byte_idx,  // dst
@@ -453,29 +470,33 @@ void DedispPlan::execute_guru(size_type        nsamps,
         dtohstream.synchronize();
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
-        copy_from_timer->Pause();
+        output_timer->Pause();
 #endif
 
     } // End of gulp loop
 
 #ifdef DEDISP_BENCHMARK
-    cout << "Copy to time:   " << copy_to_timer->ToString() << endl;
-    cout << "Copy from time: " << copy_from_timer->ToString() << endl;
-    cout << "Transpose time: " << transpose_timer->ToString() << endl;
-    cout << "Kernel time:    " << kernel_timer->ToString() << endl;
-    auto total_time = copy_to_timer->Milliseconds() +
-                      copy_from_timer->Milliseconds() +
-                      transpose_timer->Milliseconds() +
-                      kernel_timer->Milliseconds();
-    cout << "Total time:     " << Stopwatch::ToString(total_time) << endl;
+    dtohstream.record(gulpEnd);
+    gulpEnd.synchronize();
+    total_timer->Pause();
+
+    // Print timings
+    std::cout << timings_str << std::endl;
+    std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
+    std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
+    std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
+    std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
+    std::cout << std::endl;
 
     // Append the timing results to a log file
+    auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));
     std::ofstream perf_file("perf.log", std::ios::app);
-    perf_file << copy_to_timer->ToString() << "\t"
-              << copy_from_timer->ToString() << "\t"
-              << transpose_timer->ToString() << "\t"
-              << kernel_timer->ToString() << "\t"
-              << Stopwatch::ToString(total_time) << endl;
+    perf_file << input_timer->ToString() << "\t"
+              << output_timer->ToString() << "\t"
+              << dedispersion_timer->ToString() << "\t"
+              << total_time << std::endl;
     perf_file.close();
 #endif
 }
