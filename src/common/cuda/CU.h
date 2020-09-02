@@ -31,7 +31,9 @@ namespace cu {
             Device(int device);
 
             unsigned int get_capability();
-            size_t get_total_const_memory();
+            size_t get_total_const_memory() const;
+            size_t get_free_memory() const;
+            size_t get_total_memory() const;
 
         private:
             int m_device;
