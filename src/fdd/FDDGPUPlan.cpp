@@ -299,7 +299,7 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_end;
         unsigned int ndm_current;
         float* h_out_ptr;
-        dedisp_float2* d_out_ptr;
+        cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
         cu::Event dedispersionStart, dedispersionEnd;
         cu::Event postprocessingStart, postprocessingEnd;
@@ -315,7 +315,7 @@ void FDDGPUPlan::execute_gpu(
         job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
         job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
         job.idm_end     = job.idm_start + job.ndm_current;
-        job.d_out_ptr   = d_data_x_dm_[job_id % ndm_buffers];
+        job.d_data_x_dm = &d_data_x_dm_[job_id % ndm_buffers];
         if (job.ndm_current == 0)
         {
             dm_jobs.pop_back();
@@ -398,20 +398,6 @@ void FDDGPUPlan::execute_gpu(
             }
             executestream->record(channel_job.preprocessingEnd);
 
-            // Initialize output to zero
-            if (channel_job_id == 0)
-            {
-                // Wait for all previous output copies to finish
-                dtohstream->synchronize();
-
-                for (cu::DeviceMemory& d_data_f_dm : d_data_x_dm_)
-                {
-                    // Use executestream to make sure dedispersion
-                    // starts only after initializing the output buffer
-                    d_data_f_dm.zero(*executestream);
-                }
-            }
-
             // Process DM batches
             for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
             {
@@ -428,6 +414,18 @@ void FDDGPUPlan::execute_gpu(
                     std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
                 }
 
+                // Initialize output to zero
+                if (channel_job_id == 0)
+                {
+                    // Wait for previous output copy to finish
+                    if (dm_job_id_outer > 0)
+                    {
+                        dm_job.outputEnd.synchronize();
+                    }
+
+                    dm_job.d_data_x_dm->zero(*executestream);
+                }
+
                 // Wait for temporary output from previous job to be copied
                 if (channel_job_id > (nchan_buffers-1))
                 {
@@ -437,6 +435,7 @@ void FDDGPUPlan::execute_gpu(
 
                 // Dedispersion in frequency domain
                 executestream->record(dm_job.dedispersionStart);
+                auto d_out = (dedisp_float2 *) dm_job.d_data_x_dm->data();
                 kernel.launch(
                     dm_job.ndm_current,        // ndm
                     nfreq,                     // nfreq
@@ -445,7 +444,7 @@ void FDDGPUPlan::execute_gpu(
                     d_spin_frequencies,        // d_spin_frequencies
                     d_dm_list,                 // d_dm_list
                     d_data_x_nu,               // d_in
-                    dm_job.d_out_ptr,          // d_out
+                    d_out,                     // d_out
                     nsamp_padded/2,            // in stride
                     nsamp_padded/2,            // out stride
                     dm_job.idm_start,          // idm_start
@@ -509,7 +508,7 @@ void FDDGPUPlan::execute_gpu(
             dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = 1ULL * dm_job.idm_start * dm_stride;
             auto* h_out = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
-            auto *d_out = (float *) dm_job.d_out_ptr;
+            auto *d_out = (float *) dm_job.d_data_x_dm->data();
 
             // Fourier transform results back to time domain
             executestream->record(dm_job.postprocessingStart);
