@@ -17,6 +17,9 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 #define NFREQ_BATCH_GRID  128
 #define NFREQ_BATCH_BLOCK 256
 
+// Option to enable/disable caching input samples in shared memory
+#define USE_SHARED_MEMORY 0
+
 /*
  * Helper functions
  */
@@ -101,7 +104,9 @@ void dedisperse_kernel(
     }
 
     // Two input samples (two subsequent spin frequencies, float2 values) are stored as a float4 value
-    __shared__ float4 s_temp[NCHAN_BATCH_THREAD][NFREQ_BATCH_BLOCK/2];
+    #if USE_SHARED_MEMORY
+    __shared__ float4 s_temp[NCHAN_BATCH_THREAD][NFREQ_BATCH_BLOCK+1];
+    #endif
 
     for (unsigned int ifreq_current = ifreq_start + threadIdx.x; ifreq_current < nfreq; ifreq_current += ifreq_offset)
     {
@@ -126,6 +131,7 @@ void dedisperse_kernel(
         for (unsigned int ichan_outer = 0; ichan_outer < NCHAN; ichan_outer += NCHAN_BATCH_THREAD)
         {
             // Load samples from device memory to shared memory
+            #if USE_SHARED_MEMORY
             __syncthreads();
             for (unsigned int i = threadIdx.x; i < NCHAN_BATCH_THREAD * (NFREQ_BATCH_BLOCK/2); i += blockDim.x)
             {
@@ -137,6 +143,7 @@ void dedisperse_kernel(
                 s_temp[ichan_inner][ifreq_inner] = sample_ptr[ifreq_inner];
             }
             __syncthreads();
+            #endif
 
             if (extrapolate)
             {
@@ -157,8 +164,14 @@ void dedisperse_kernel(
                 #pragma unroll
                 for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH_THREAD; ichan_inner++)
                 {
+                    unsigned int ichan = ichan_outer + ichan_inner;
+
                     // Load input sample
+                    #if USE_SHARED_MEMORY
                     float2 sample = ((float2 *) &s_temp[ichan_inner][threadIdx.x/2])[threadIdx.x % 2];
+                    #else
+                    float2 sample = d_in[ichan * in_stride + ifreq_current];
+                    #endif
 
                     #pragma unroll
                     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
@@ -173,9 +186,14 @@ void dedisperse_kernel(
             } else {
                 for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH_THREAD; ichan_inner++)
                 {
-                    // Load input sample
                     unsigned int ichan = ichan_outer + ichan_inner;
+
+                    // Load input sample
+                    #if USE_SHARED_MEMORY
                     float2 sample = ((float2 *) &s_temp[ichan_inner][threadIdx.x/2])[threadIdx.x % 2];
+                    #else
+                    float2 sample = d_in[ichan * in_stride + ifreq_current];
+                    #endif
 
                     #pragma unroll
                     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
