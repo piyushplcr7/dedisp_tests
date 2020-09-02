@@ -70,10 +70,24 @@ namespace cu {
                     device_props.minor;
     }
 
-    size_t Device::get_total_const_memory() {
+    size_t Device::get_total_const_memory() const {
         cudaDeviceProp device_props;
         cudaGetDeviceProperties(&device_props, m_device);
         return device_props.totalConstMem;
+    }
+
+    size_t Device::get_free_memory() const {
+        size_t free;
+        size_t total;
+        cudaMemGetInfo(&free, &total);
+        return free;
+    }
+
+    size_t Device::get_total_memory() const {
+        size_t free;
+        size_t total;
+        cudaMemGetInfo(&free, &total);
+        return total;
     }
 
 

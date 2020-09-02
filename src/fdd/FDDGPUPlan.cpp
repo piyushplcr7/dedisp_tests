@@ -96,15 +96,15 @@ void FDDGPUPlan::execute_gpu(
     std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
-    unsigned int ndm_batch_max = 32;
-    unsigned int ndm_fft_batch = 16;
+    unsigned int ndm_batch_max = 256;
+    unsigned int ndm_fft_batch = 32;
                  ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
-    unsigned int ndm_buffers   = 8;
+    unsigned int ndm_buffers   = 1;
                  ndm_buffers   = std::min(ndm_buffers, (unsigned int) ((ndm + ndm_batch_max) / ndm_batch_max));
 
     // Maximum number of channels processed in one gulp
-    unsigned int nchan_batch_max = 32;
-    unsigned int nchan_fft_batch = 32;
+    unsigned int nchan_batch_max = 128;
+    unsigned int nchan_fft_batch = 64;
     unsigned int nchan_buffers   = 2;
 
     // Verbose iteration reporting
@@ -137,25 +137,6 @@ void FDDGPUPlan::execute_gpu(
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
-
-    // Allocate memory
-    std::cout << memory_alloc_str << std::endl;
-    mAllocMem.start();
-    cu::HostMemory   h_data_dm(ndm * nsamp_padded * sizeof(float));
-    cu::DeviceMemory d_data_nu(nchan_batch_max * nsamp_padded * sizeof(float));
-    std::vector<cu::HostMemory> h_data_in_(nchan_buffers);
-    std::vector<cu::DeviceMemory> d_data_in_(nchan_buffers);
-    std::vector<cu::DeviceMemory> d_data_out_(ndm_buffers);
-    for (unsigned int i = 0; i < nchan_buffers; i++)
-    {
-        h_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
-        d_data_in_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
-    }
-    for (unsigned int i = 0; i < ndm_buffers; i++)
-    {
-        d_data_out_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
-    }
-    mAllocMem.end();
 
     // Prepare cuFFT plans
     std::cout << fft_plan_str << std::endl;
@@ -200,6 +181,73 @@ void FDDGPUPlan::execute_gpu(
     if (thread_c2r.joinable()) { thread_c2r.join(); }
     mPrepFFT.end();
 
+    // Determine the amount of memory to use
+    size_t memory_total = m_device->get_total_memory();
+    size_t memory_free = m_device->get_free_memory();
+    size_t sizeof_data_t_nu = 1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
+    size_t sizeof_data_t_dm = 1ULL * ndm * nsamp_padded * sizeof(float);
+    size_t sizeof_data_x_nu = 1ULL * nchan_batch_max * nsamp_padded * sizeof(float);
+    size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded * sizeof(float);
+    size_t memory_required  = sizeof_data_t_nu * nchan_buffers +
+                              sizeof_data_x_nu * 1 +
+                              sizeof_data_x_dm * ndm_buffers;
+    size_t memory_reserved  = 0.05 * memory_total;
+
+    while ((ndm_buffers * ndm_batch_max) < ndm &&
+           (memory_required + memory_reserved + sizeof_data_x_dm) < memory_free)
+    {
+        ndm_buffers++;
+        memory_required = sizeof_data_t_nu * nchan_buffers +
+                          sizeof_data_x_nu * 1 +
+                          sizeof_data_x_dm * (ndm_buffers);
+    };
+
+    // Debug
+    std::cout << debug_str << std::endl;
+    std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max << " DMs" << std::endl;
+    std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max << " channels" << std::endl;
+    std::cout << "Memory total    = " << memory_total / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Memory free     = " << memory_free  / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Memory required = " << memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+
+    // Allocate memory
+    std::cout << memory_alloc_str << std::endl;
+    mAllocMem.start();
+    /*
+        The buffers are used as follows:
+        1) copy into page-locked buffer: in -> memcpyHtoH -> h_data_t_nu
+        2) copy to device: h_data_t_nu -> memcopyHtoD -> d_data_t_nu
+        3) unpack and transpose: d_data_t_nu -> transpose_unpack -> d_data_tf_nu
+        4) in-place Fourier transform: d_data_x_nu -> fft_r2c -> d_data_x_nu
+        5) apply dedispersion: d_data_x_nu -> dedispserse -> d_data_x_dm
+        6) in-place Fourier transform: d_data_x_dm -> fft_c2r -> d_data_x_dm
+        7) copy to host: d_data_x_dm -> memcpyDtoH -> h_data_t_dm
+
+        The suffixes have the following meaning:
+        * The _t indicates that the buffer contains time domain data
+        * The _f indicates that the buffer contains Fourier domain data
+        * The _x indicates that the type of data various throughout processing
+        * The _nu indicates input data with observing frequencies as outer dimension
+        * The _dm indicates output data with DM as outer dimension
+
+        The vectors (with _ suffix) are used to implement multiple-buffering
+    */
+    std::vector<cu::HostMemory>   h_data_t_nu_(nchan_buffers);
+    std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
+                cu::DeviceMemory  d_data_x_nu(sizeof_data_x_nu);
+    std::vector<cu::DeviceMemory> d_data_x_dm_(ndm_buffers);
+                cu::HostMemory    h_data_t_dm(sizeof_data_t_dm);
+    for (unsigned int i = 0; i < nchan_buffers; i++)
+    {
+        h_data_t_nu_[i].resize(sizeof_data_t_nu);
+        d_data_t_nu_[i].resize(sizeof_data_t_nu);
+    }
+    for (unsigned int i = 0; i < ndm_buffers; i++)
+    {
+        d_data_x_dm_[i].resize(sizeof_data_x_dm);
+    }
+    mAllocMem.end();
+
     // Generate spin frequency table
     mPrepSpinf.start();
     if (h_spin_frequencies.size() != nfreq)
@@ -239,8 +287,8 @@ void FDDGPUPlan::execute_gpu(
         job.ichan_start   = job_id == 0 ? 0 : channel_jobs[job_id - 1].ichan_end;
         job.nchan_current = std::min(nchan_batch_max, nchan - job.ichan_start);
         job.ichan_end     = job.ichan_start + job.nchan_current;
-        job.h_in_ptr      = h_data_in_[job_id % nchan_buffers];
-        job.d_in_ptr      = d_data_in_[job_id % nchan_buffers];
+        job.h_in_ptr      = h_data_t_nu_[job_id % nchan_buffers];
+        job.d_in_ptr      = d_data_t_nu_[job_id % nchan_buffers];
         if (job.nchan_current == 0) {
             channel_jobs.pop_back();
         }
@@ -251,7 +299,7 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_end;
         unsigned int ndm_current;
         float* h_out_ptr;
-        dedisp_float2* d_out_ptr;
+        cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
         cu::Event dedispersionStart, dedispersionEnd;
         cu::Event postprocessingStart, postprocessingEnd;
@@ -267,7 +315,7 @@ void FDDGPUPlan::execute_gpu(
         job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
         job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
         job.idm_end     = job.idm_start + job.ndm_current;
-        job.d_out_ptr   = d_data_out_[job_id % ndm_buffers];
+        job.d_data_x_dm = &d_data_x_dm_[job_id % ndm_buffers];
         if (job.ndm_current == 0)
         {
             dm_jobs.pop_back();
@@ -324,13 +372,13 @@ void FDDGPUPlan::execute_gpu(
                 nsamp,                               // input height
                 nchan_words_gulp,                    // in_stride
                 nsamp_padded,                        // out_stride
-                d_data_nu,                           // d_out
+                d_data_x_nu,                         // d_out
                 in_nbits, 32,                        // in_nbits, out_nbits
                 1.0/nchan,                           // scale
                 *executestream);                     // stream
 
             // Apply zero padding
-            auto dst_ptr = ((float *) d_data_nu.data()) + nsamp;
+            auto dst_ptr = ((float *) d_data_x_nu.data()) + nsamp;
             unsigned int nsamp_padding = nsamp_padded - nsamp;
             cu::checkError(cudaMemset2DAsync(
                 dst_ptr,                       // devPtr
@@ -344,25 +392,11 @@ void FDDGPUPlan::execute_gpu(
             // FFT data (real to complex) along time axis
             for (unsigned int i = 0; i < nchan_batch_max/nchan_fft_batch; i++)
             {
-                cufftReal    *idata = (cufftReal *) d_data_nu.data() + i * nsamp_padded * nchan_fft_batch;
+                cufftReal    *idata = (cufftReal *) d_data_x_nu.data() + i * nsamp_padded * nchan_fft_batch;
                 cufftComplex *odata = (cufftComplex *) idata;
                 cufftExecR2C(plan_r2c, idata, odata);
             }
             executestream->record(channel_job.preprocessingEnd);
-
-            // Initialize output to zero
-            if (channel_job_id == 0)
-            {
-                // Wait for all previous output copies to finish
-                dtohstream->synchronize();
-
-                for (cu::DeviceMemory& d_data_out : d_data_out_)
-                {
-                    // Use executestream to make sure dedispersion
-                    // starts only after initializing the output buffer
-                    d_data_out.zero(*executestream);
-                }
-            }
 
             // Process DM batches
             for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
@@ -380,6 +414,18 @@ void FDDGPUPlan::execute_gpu(
                     std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
                 }
 
+                // Initialize output to zero
+                if (channel_job_id == 0)
+                {
+                    // Wait for previous output copy to finish
+                    if (dm_job_id_outer > 0)
+                    {
+                        dm_job.outputEnd.synchronize();
+                    }
+
+                    dm_job.d_data_x_dm->zero(*executestream);
+                }
+
                 // Wait for temporary output from previous job to be copied
                 if (channel_job_id > (nchan_buffers-1))
                 {
@@ -389,6 +435,7 @@ void FDDGPUPlan::execute_gpu(
 
                 // Dedispersion in frequency domain
                 executestream->record(dm_job.dedispersionStart);
+                auto d_out = (dedisp_float2 *) dm_job.d_data_x_dm->data();
                 kernel.launch(
                     dm_job.ndm_current,        // ndm
                     nfreq,                     // nfreq
@@ -396,8 +443,8 @@ void FDDGPUPlan::execute_gpu(
                     dt,                        // dt
                     d_spin_frequencies,        // d_spin_frequencies
                     d_dm_list,                 // d_dm_list
-                    d_data_nu,                 // d_in
-                    dm_job.d_out_ptr,          // d_out
+                    d_data_x_nu,               // d_in
+                    d_out,                     // d_out
                     nsamp_padded/2,            // in stride
                     nsamp_padded/2,            // out stride
                     dm_job.idm_start,          // idm_start
@@ -458,10 +505,10 @@ void FDDGPUPlan::execute_gpu(
             auto& dm_job = dm_jobs[dm_job_id];
 
             // Get pointer to DM output data on host and on device
-            dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
-            dedisp_size dm_offset = dm_job.idm_start * dm_stride;
-            auto* h_out = (void *) (((size_t) h_data_dm.data()) + dm_offset);
-            auto *d_out = (float *) dm_job.d_out_ptr;
+            dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
+            dedisp_size dm_offset = 1ULL * dm_job.idm_start * dm_stride;
+            auto* h_out = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
+            auto *d_out = (float *) dm_job.d_data_x_dm->data();
 
             // Fourier transform results back to time domain
             executestream->record(dm_job.postprocessingStart);
@@ -485,10 +532,11 @@ void FDDGPUPlan::execute_gpu(
             // Copy output
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
+            dedisp_size size = 1ULL * dm_job.ndm_current * dm_stride;
             dtohstream->memcpyDtoHAsync(
-                h_out,                           // dst
-                d_out,                           // src
-                dm_job.ndm_current * dm_stride); // size
+                h_out, // dst
+                d_out, // src
+                size); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
     } // end for dm_job_id_outer
@@ -502,15 +550,15 @@ void FDDGPUPlan::execute_gpu(
     std::cout << copy_output_str << std::endl;
     mCopyMem.start();
     output_timer->Start();
-    dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
-    dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
+    dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
+    dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
     memcpy2D(
-        out,        // dst
-        dst_stride, // dst width
-        h_data_dm,  // src
-        src_stride, // src width
-        dst_stride, // width bytes
-        ndm);       // height
+        out,         // dst
+        dst_stride,  // dst width
+        h_data_t_dm, // src
+        src_stride,  // src width
+        dst_stride,  // width bytes
+        ndm);        // height
     output_timer->Pause();
     mCopyMem.end();
     total_timer->Pause();
@@ -757,7 +805,7 @@ void FDDGPUPlan::execute_gpu_segmented(
         unsigned int idm_start;
         unsigned int idm_end;
         unsigned int ndm_current;
-        float* h_data_t_dm_ptr;
+        float* h_in_ptr;
         dedisp_float2* d_data_f_dm_ptr;
         dedisp_float2* d_data_t_dm_ptr;
         cu::Event inputStart, inputEnd;
@@ -970,15 +1018,15 @@ void FDDGPUPlan::execute_gpu_segmented(
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = dm_job.idm_start * dm_stride;
             auto* h_data_t_dm_ptr = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
-            auto* d_data_f_dm = (float *) dm_job.d_data_f_dm_ptr;
-            auto* d_data_t_dm = (float *) dm_job.d_data_t_dm_ptr;
+            auto* d_data_f_dm_ptr = (float *) dm_job.d_data_f_dm_ptr;
+            auto* d_data_t_dm_ptr = (float *) dm_job.d_data_t_dm_ptr;
 
             // Fourier transform results back to time domain
             executestream->record(dm_job.postprocessingStart);
             for (unsigned int idm = 0; idm < dm_job.ndm_current; idm++)
             {
-                auto *idata  = (cufftComplex *) d_data_f_dm + (1ULL * idm * nsamp_padded/2);
-                auto *odata = (cufftReal *) d_data_t_dm + (1ULL * idm * nsamp_padded);
+                auto *idata = (cufftComplex *) d_data_f_dm_ptr + (1ULL * idm * nsamp_padded/2);
+                auto *odata = (cufftReal *) d_data_t_dm_ptr + (1ULL * idm * nsamp_padded);
                 cufftExecC2R(plan_c2r, idata, odata);
             }
 
@@ -988,7 +1036,7 @@ void FDDGPUPlan::execute_gpu_segmented(
                 nsamp_padded,       // width
                 nsamp_padded,       // stride
                 1.0f / nfft,        // scale
-                d_data_t_dm,        // d_data
+                d_data_t_dm_ptr,    // d_data
                 *executestream);    // stream
             executestream->record(dm_job.postprocessingEnd);
 
@@ -997,7 +1045,7 @@ void FDDGPUPlan::execute_gpu_segmented(
             dtohstream->record(dm_job.outputStart);
             dtohstream->memcpyDtoHAsync(
                 h_data_t_dm_ptr,                 // dst
-                d_data_t_dm,                     // src
+                d_data_t_dm_ptr,                 // src
                 dm_job.ndm_current * dm_stride); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
