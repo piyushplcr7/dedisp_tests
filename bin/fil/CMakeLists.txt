@@ -9,7 +9,7 @@ target_include_directories(dedisp_fil PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(dedisp_fil tdd-ref)
+target_link_libraries(dedisp_fil dedisp)
 
 
 ################################################################################

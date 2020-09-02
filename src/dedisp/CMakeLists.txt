@@ -2,7 +2,7 @@
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 cuda_add_library(
-    tdd-ref SHARED
+    dedisp SHARED
     DedispPlan.cpp
     dedisperse/dedisperse.cu
     unpack/unpack.cu
@@ -10,31 +10,31 @@ cuda_add_library(
 )
 
 target_link_libraries(
-    tdd-ref
+    dedisp
     ${CUDA_CUDART_LIBRARY}
     common
     external
 )
 
 target_include_directories(
-   tdd-ref
+   dedisp
    PRIVATE ${CMAKE_SOURCE_DIR}/src
 )
 
 set_target_properties(
-    tdd-ref
+    dedisp
     PROPERTIES PUBLIC_HEADER DedispPlan.hpp
 )
 
 set_target_properties(
-    tdd-ref PROPERTIES
+    dedisp PROPERTIES
     VERSION ${DEDISP_VERSION}
     SOVERSION ${DEDISP_VERSION_MAJOR}
 )
 
 install(
     TARGETS
-        tdd-ref
+        dedisp
     LIBRARY
         DESTINATION lib
     PUBLIC_HEADER

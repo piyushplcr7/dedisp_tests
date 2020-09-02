@@ -9,7 +9,7 @@ target_include_directories(testdedisp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(testdedisp tdd-ref)
+target_link_libraries(testdedisp dedisp)
 
 
 ################################################################################
