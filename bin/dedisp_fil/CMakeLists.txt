@@ -4,7 +4,7 @@ add_executable(dedisp_fil
 
 target_include_directories(dedisp_fil PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/common
+    ${CMAKE_SOURCE_DIR}/src/tdd-ref
 )
 
 target_link_libraries(dedisp_fil dedisp)

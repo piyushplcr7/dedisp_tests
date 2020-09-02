@@ -1,4 +1,4 @@
-#include "dedisp_types.h"
+#include "common/dedisp_types.h"
 
 void unpack(const dedisp_word* d_transposed,
             dedisp_size nsamps, dedisp_size nchan_words,

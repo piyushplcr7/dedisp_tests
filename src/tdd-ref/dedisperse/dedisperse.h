@@ -1,6 +1,6 @@
-#include "dedisp_types.h"
-#include "dedisp_defines.h"
-#include "dedisp_error.hpp"
+#include "common/dedisp_types.h"
+#include "common/dedisp_defines.h"
+#include "common/dedisp_error.hpp"
 
 void copy_delay_table(
     const void* src,

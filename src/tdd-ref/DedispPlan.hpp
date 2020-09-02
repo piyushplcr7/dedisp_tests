@@ -9,7 +9,7 @@
 #include <sstream>
 #include <vector>
 
-#include "dedisp_types.h"
+#include "common/dedisp_types.h"
 #include "common/cuda/CU.h"
 
 namespace dedisp

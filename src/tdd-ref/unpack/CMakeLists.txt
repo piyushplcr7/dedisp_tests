@@ -1,5 +1,6 @@
-cuda_add_library(unpack SHARED
-    ${CMAKE_SOURCE_DIR}/src/unpack/unpack.cu
+cuda_add_library(
+    unpack SHARED
+    unpack.cu
 )
 
 install(

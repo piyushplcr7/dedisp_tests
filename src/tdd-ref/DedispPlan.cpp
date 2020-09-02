@@ -5,11 +5,10 @@
 #include "DedispPlan.hpp"
 #include "transpose/transpose.hpp"
 
-#include "dedisp_defines.h"
-#include "dedisp_error.hpp"
+#include "common/dedisp_defines.h"
+#include "common/dedisp_error.hpp"
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"
-#include "common/cuda/CU.h"
 
 #if defined(DEDISP_BENCHMARK)
 #include <iostream>
