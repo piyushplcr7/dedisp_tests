@@ -14,8 +14,8 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 
 // The spin frequencies are processed in batches of NFREQ_BATCH_GRID thread blocks at once,
 // where each thread block processes NFREQ_BATCH_BLOCK spin frequencies per iteration.
-#define NFREQ_BATCH_GRID  32
-#define NFREQ_BATCH_BLOCK 128
+#define NFREQ_BATCH_GRID  128
+#define NFREQ_BATCH_BLOCK 256
 
 /*
  * Helper functions
