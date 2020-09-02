@@ -776,7 +776,7 @@ void FDDGPUPlan::execute_gpu_segmented(
         unsigned int idm_start;
         unsigned int idm_end;
         unsigned int ndm_current;
-        float* h_data_t_dm_ptr;
+        float* h_in_ptr;
         dedisp_float2* d_data_f_dm_ptr;
         dedisp_float2* d_data_t_dm_ptr;
         cu::Event inputStart, inputEnd;
@@ -989,15 +989,15 @@ void FDDGPUPlan::execute_gpu_segmented(
             dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = dm_job.idm_start * dm_stride;
             auto* h_data_t_dm_ptr = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
-            auto* d_data_f_dm = (float *) dm_job.d_data_f_dm_ptr;
-            auto* d_data_t_dm = (float *) dm_job.d_data_t_dm_ptr;
+            auto* d_data_f_dm_ptr = (float *) dm_job.d_data_f_dm_ptr;
+            auto* d_data_t_dm_ptr = (float *) dm_job.d_data_t_dm_ptr;
 
             // Fourier transform results back to time domain
             executestream->record(dm_job.postprocessingStart);
             for (unsigned int idm = 0; idm < dm_job.ndm_current; idm++)
             {
-                auto *idata  = (cufftComplex *) d_data_f_dm + (1ULL * idm * nsamp_padded/2);
-                auto *odata = (cufftReal *) d_data_t_dm + (1ULL * idm * nsamp_padded);
+                auto *idata = (cufftComplex *) d_data_f_dm_ptr + (1ULL * idm * nsamp_padded/2);
+                auto *odata = (cufftReal *) d_data_t_dm_ptr + (1ULL * idm * nsamp_padded);
                 cufftExecC2R(plan_c2r, idata, odata);
             }
 
@@ -1007,7 +1007,7 @@ void FDDGPUPlan::execute_gpu_segmented(
                 nsamp_padded,       // width
                 nsamp_padded,       // stride
                 1.0f / nfft,        // scale
-                d_data_t_dm,        // d_data
+                d_data_t_dm_ptr,    // d_data
                 *executestream);    // stream
             executestream->record(dm_job.postprocessingEnd);
 
@@ -1016,7 +1016,7 @@ void FDDGPUPlan::execute_gpu_segmented(
             dtohstream->record(dm_job.outputStart);
             dtohstream->memcpyDtoHAsync(
                 h_data_t_dm_ptr,                 // dst
-                d_data_t_dm,                     // src
+                d_data_t_dm_ptr,                 // src
                 dm_job.ndm_current * dm_stride); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
