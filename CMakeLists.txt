@@ -25,6 +25,7 @@ endif()
 
 # set default compiler flags
 set(CMAKE_CXX_FLAGS "-Wall -g -O3")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 
 ################################################################################
@@ -73,7 +74,6 @@ add_subdirectory(src)
 # binaries
 ################################################################################
 add_subdirectory(bin)
-
 
 
 ################################################################################

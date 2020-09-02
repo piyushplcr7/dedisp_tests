@@ -33,4 +33,15 @@ template<int IN_NBITS> struct SumType { typedef dedisp_word type; };
 // Note: For 32-bit input, we must accumulate using a larger data type
 template<> struct SumType<32> { typedef unsigned long long type; };
 
+// Flags
+// -----
+typedef enum {
+       DEDISP_USE_DEFAULT       = 0,
+       DEDISP_HOST_POINTERS     = 1 << 1,
+       DEDISP_DEVICE_POINTERS   = 1 << 2,
+
+       DEDISP_WAIT              = 1 << 3,
+       DEDISP_ASYNC             = 1 << 4
+} dedisp_flag;
+
 #endif // DEDISP_TYPES_H_INCLUDE_GUARD

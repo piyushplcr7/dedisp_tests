@@ -13,6 +13,20 @@ target_link_libraries(benchdedisp dedisp)
 
 
 ################################################################################
+# test for tdd library
+################################################################################
+add_executable(benchtdd
+    benchtdd.cpp
+)
+
+target_include_directories(benchtdd PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(benchtdd tdd)
+
+
+################################################################################
 # test for fdd library
 ################################################################################
 add_executable(benchfdd

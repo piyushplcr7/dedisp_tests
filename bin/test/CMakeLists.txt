@@ -13,6 +13,20 @@ target_link_libraries(testdedisp dedisp)
 
 
 ################################################################################
+# test for tdd library
+################################################################################
+add_executable(testtdd
+    testtdd.cpp
+)
+
+target_include_directories(testtdd PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(testtdd tdd)
+
+
+################################################################################
 # test for fdd library
 ################################################################################
 add_executable(testfdd
@@ -32,6 +46,7 @@ target_link_libraries(testfdd fdd)
 install(
     TARGETS
         testdedisp
+        testtdd
         testfdd
     RUNTIME
         DESTINATION bin

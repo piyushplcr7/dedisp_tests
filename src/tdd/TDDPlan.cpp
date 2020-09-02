@@ -15,8 +15,6 @@
 
 #if defined(DEDISP_BENCHMARK)
 #include <fstream>
-using std::cout;
-using std::endl;
 #include "external/Stopwatch.h"
 #endif
 
@@ -448,7 +446,7 @@ void TDDPlan::execute_guru(
     perf_file << input_timer->ToString() << "\t"
               << output_timer->ToString() << "\t"
               << dedispersion_timer->ToString() << "\t"
-              << total_time << endl;
+              << total_time << std::endl;
     perf_file.close();
 #endif
 
