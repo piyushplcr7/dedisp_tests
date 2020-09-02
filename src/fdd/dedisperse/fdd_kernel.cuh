@@ -21,8 +21,12 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
  * Helper functions
  */
 inline __device__ float2 operator*(float2 a, float2 b) {
-    return make_float2(a.x * b.x - a.y * b.y,
-                       a.x * b.y + a.y * b.x);
+    float2 c;
+    asm ("mul.f32 %0,%1,%2;" : "=f"(c.x) : "f"(a.x), "f"(b.x));
+    asm ("mul.f32 %0,%1,%2;" : "=f"(c.y) : "f"(a.x), "f"(b.y));
+    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.x) : "f"(-a.y), "f"(b.y), "f"(c.x));
+    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.y) : "f"( a.y), "f"(b.x), "f"(c.y));
+    return c;
 }
 
 inline __device__ void operator+=(float2 &a, float2 b) {
@@ -35,6 +39,29 @@ inline __device__ void operator*=(float2 &a, float2 b) {
     a.x = c.x;
     a.y = c.y;
 }
+
+inline __device__ void cmac(float2 &a, float2 b, float2 c)
+{
+    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
+    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.x), "f"(c.y), "f"(a.y));
+    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(-b.y), "f"(c.y), "f"(a.x));
+    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.y), "f"(c.x), "f"(a.y));
+}
+
+inline __device__ float raw_sin(float a)
+{
+    float r;
+    asm ("sin.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    return r;
+}
+
+inline __device__ float raw_cos(float a)
+{
+    float r;
+    asm ("cos.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    return r;
+}
+
 
 /*
  * dedisperse kernel
@@ -123,8 +150,8 @@ void dedisperse_kernel(
                     float phase0 = 2.0f * ((float) M_PI) * f * tdm0;
                     float phase1 = 2.0f * ((float) M_PI) * f * tdm1;
                     float phase_delta = phase1 - phase0;
-                    phasors[i]       = make_float2(cosf(phase0), sinf(phase0));
-                    phasors_delta[i] = make_float2(cosf(phase_delta), sinf(phase_delta));
+                    phasors[i]       = make_float2(raw_cos(phase0), raw_sin(phase0));
+                    phasors_delta[i] = make_float2(raw_cos(phase_delta), raw_sin(phase_delta));
                 }
 
                 #pragma unroll
@@ -137,7 +164,7 @@ void dedisperse_kernel(
                     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
                     {
                         // Update sum
-                        sums[i] += sample * phasors[i];
+                        cmac(sums[i], sample, phasors[i]);
 
                         // Update phasor
                         phasors[i] *= phasors_delta[i];
@@ -160,10 +187,10 @@ void dedisperse_kernel(
                         float phase = 2.0f * ((float) M_PI) * f * tdm;
 
                         // Compute phasor
-                        float2 phasor = make_float2(cosf(phase), sinf(phase));
+                        float2 phasor = make_float2(raw_cos(phase), raw_sin(phase));
 
                         // Update sum
-                        sums[i] += sample * phasor;
+                        cmac(sums[i], sample, phasor);
                     }
                 } // end for ichan_inner
             } // end if extrapolate
