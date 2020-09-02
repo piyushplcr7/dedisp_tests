@@ -9,7 +9,21 @@ target_include_directories(dedisp_fil PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(dedisp_fil tdd)
+target_link_libraries(dedisp_fil tdd-ref)
+
+
+################################################################################
+# tdd_fil binary
+################################################################################
+add_executable(tdd_fil
+    tdd_fil.cpp
+)
+
+target_include_directories(tdd_fil PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tdd_fil tdd)
 
 
 ################################################################################
@@ -32,6 +46,7 @@ target_link_libraries(fdd_fil fdd)
 install(
     TARGETS
         dedisp_fil
+        tdd_fil
         fdd_fil
     RUNTIME
         DESTINATION bin
