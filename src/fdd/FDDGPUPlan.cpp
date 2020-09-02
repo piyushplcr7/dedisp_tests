@@ -96,10 +96,10 @@ void FDDGPUPlan::execute_gpu(
     std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
-    unsigned int ndm_batch_max = 64;
+    unsigned int ndm_batch_max = 256;
     unsigned int ndm_fft_batch = 32;
                  ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
-    unsigned int ndm_buffers   = 4;
+    unsigned int ndm_buffers   = 1;
                  ndm_buffers   = std::min(ndm_buffers, (unsigned int) ((ndm + ndm_batch_max) / ndm_batch_max));
 
     // Maximum number of channels processed in one gulp
@@ -137,44 +137,6 @@ void FDDGPUPlan::execute_gpu(
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
-
-    // Allocate memory
-    std::cout << memory_alloc_str << std::endl;
-    mAllocMem.start();
-    /*
-        The buffers are used as follows:
-        1) copy into page-locked buffer: in -> memcpyHtoH -> h_data_t_nu
-        2) copy to device: h_data_t_nu -> memcopyHtoD -> d_data_t_nu
-        3) unpack and transpose: d_data_t_nu -> transpose_unpack -> d_data_tf_nu
-        4) in-place Fourier transform: d_data_x_nu -> fft_r2c -> d_data_x_nu
-        5) apply dedispersion: d_data_x_nu -> dedispserse -> d_data_x_dm
-        6) in-place Fourier transform: d_data_x_dm -> fft_c2r -> d_data_x_dm
-        7) copy to host: d_data_x_dm -> memcpyDtoH -> h_data_t_dm
-
-        The suffixes have the following meaning:
-        * The _t indicates that the buffer contains time domain data
-        * The _f indicates that the buffer contains Fourier domain data
-        * The _x indicates that the type of data various throughout processing
-        * The _nu indicates input data with observing frequencies as outer dimension
-        * The _dm indicates output data with DM as outer dimension
-
-        The vectors (with _ suffix) are used to implement multiple-buffering
-    */
-    std::vector<cu::HostMemory>   h_data_t_nu_(nchan_buffers);
-    std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
-                cu::DeviceMemory  d_data_x_nu(nchan_batch_max * nsamp_padded * sizeof(float));
-    std::vector<cu::DeviceMemory> d_data_x_dm_(ndm_buffers);
-                cu::HostMemory    h_data_t_dm(ndm * nsamp_padded * sizeof(float));
-    for (unsigned int i = 0; i < nchan_buffers; i++)
-    {
-        h_data_t_nu_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
-        d_data_t_nu_[i].resize(nsamp * nchan_words_gulp * sizeof(dedisp_word));
-    }
-    for (unsigned int i = 0; i < ndm_buffers; i++)
-    {
-        d_data_x_dm_[i].resize(ndm_batch_max * nsamp_padded * sizeof(float));
-    }
-    mAllocMem.end();
 
     // Prepare cuFFT plans
     std::cout << fft_plan_str << std::endl;
@@ -218,6 +180,73 @@ void FDDGPUPlan::execute_gpu(
     if (thread_r2c.joinable()) { thread_r2c.join(); }
     if (thread_c2r.joinable()) { thread_c2r.join(); }
     mPrepFFT.end();
+
+    // Determine the amount of memory to use
+    size_t memory_total = m_device->get_total_memory();
+    size_t memory_free = m_device->get_free_memory();
+    size_t sizeof_data_t_nu = 1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
+    size_t sizeof_data_t_dm = 1ULL * ndm * nsamp_padded * sizeof(float);
+    size_t sizeof_data_x_nu = 1ULL * nchan_batch_max * nsamp_padded * sizeof(float);
+    size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded * sizeof(float);
+    size_t memory_required  = sizeof_data_t_nu * nchan_buffers +
+                              sizeof_data_x_nu * 1 +
+                              sizeof_data_x_dm * ndm_buffers;
+    size_t memory_reserved  = 0.05 * memory_total;
+
+    while ((ndm_buffers * ndm_batch_max) < ndm &&
+           (memory_required + memory_reserved + sizeof_data_x_dm) < memory_free)
+    {
+        ndm_buffers++;
+        memory_required = sizeof_data_t_nu * nchan_buffers +
+                          sizeof_data_x_nu * 1 +
+                          sizeof_data_x_dm * (ndm_buffers);
+    };
+
+    // Debug
+    std::cout << debug_str << std::endl;
+    std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max << " DMs" << std::endl;
+    std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max << " channels" << std::endl;
+    std::cout << "Memory total    = " << memory_total / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Memory free     = " << memory_free  / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Memory required = " << memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+
+    // Allocate memory
+    std::cout << memory_alloc_str << std::endl;
+    mAllocMem.start();
+    /*
+        The buffers are used as follows:
+        1) copy into page-locked buffer: in -> memcpyHtoH -> h_data_t_nu
+        2) copy to device: h_data_t_nu -> memcopyHtoD -> d_data_t_nu
+        3) unpack and transpose: d_data_t_nu -> transpose_unpack -> d_data_tf_nu
+        4) in-place Fourier transform: d_data_x_nu -> fft_r2c -> d_data_x_nu
+        5) apply dedispersion: d_data_x_nu -> dedispserse -> d_data_x_dm
+        6) in-place Fourier transform: d_data_x_dm -> fft_c2r -> d_data_x_dm
+        7) copy to host: d_data_x_dm -> memcpyDtoH -> h_data_t_dm
+
+        The suffixes have the following meaning:
+        * The _t indicates that the buffer contains time domain data
+        * The _f indicates that the buffer contains Fourier domain data
+        * The _x indicates that the type of data various throughout processing
+        * The _nu indicates input data with observing frequencies as outer dimension
+        * The _dm indicates output data with DM as outer dimension
+
+        The vectors (with _ suffix) are used to implement multiple-buffering
+    */
+    std::vector<cu::HostMemory>   h_data_t_nu_(nchan_buffers);
+    std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
+                cu::DeviceMemory  d_data_x_nu(sizeof_data_x_nu);
+    std::vector<cu::DeviceMemory> d_data_x_dm_(ndm_buffers);
+                cu::HostMemory    h_data_t_dm(sizeof_data_t_dm);
+    for (unsigned int i = 0; i < nchan_buffers; i++)
+    {
+        h_data_t_nu_[i].resize(sizeof_data_t_nu);
+        d_data_t_nu_[i].resize(sizeof_data_t_nu);
+    }
+    for (unsigned int i = 0; i < ndm_buffers; i++)
+    {
+        d_data_x_dm_[i].resize(sizeof_data_x_dm);
+    }
+    mAllocMem.end();
 
     // Generate spin frequency table
     mPrepSpinf.start();
