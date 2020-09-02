@@ -363,7 +363,7 @@ void FDDGPUPlan::execute_gpu(
             // FFT data (real to complex) along time axis
             for (unsigned int i = 0; i < nchan_batch_max/nchan_fft_batch; i++)
             {
-                cufftReal    *idata = (cufftReal *) d_data_t_nu.data() + i * nsamp_padded * nchan_fft_batch;
+                cufftReal    *idata = (cufftReal *) d_data_x_nu.data() + i * nsamp_padded * nchan_fft_batch;
                 cufftComplex *odata = (cufftComplex *) idata;
                 cufftExecR2C(plan_r2c, idata, odata);
             }
