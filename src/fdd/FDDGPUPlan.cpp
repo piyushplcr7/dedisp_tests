@@ -506,8 +506,8 @@ void FDDGPUPlan::execute_gpu(
             auto& dm_job = dm_jobs[dm_job_id];
 
             // Get pointer to DM output data on host and on device
-            dedisp_size dm_stride = nsamp_padded * out_bytes_per_sample;
-            dedisp_size dm_offset = dm_job.idm_start * dm_stride;
+            dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
+            dedisp_size dm_offset = 1ULL * dm_job.idm_start * dm_stride;
             auto* h_out = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
             auto *d_out = (float *) dm_job.d_out_ptr;
 
@@ -533,10 +533,11 @@ void FDDGPUPlan::execute_gpu(
             // Copy output
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
+            dedisp_size size = 1ULL * dm_job.ndm_current * dm_stride;
             dtohstream->memcpyDtoHAsync(
-                h_out,                           // dst
-                d_out,                           // src
-                dm_job.ndm_current * dm_stride); // size
+                h_out, // dst
+                d_out, // src
+                size); // size
             dtohstream->record(dm_job.outputEnd);
         } // end for dm_job_id_inner
     } // end for dm_job_id_outer
@@ -550,8 +551,8 @@ void FDDGPUPlan::execute_gpu(
     std::cout << copy_output_str << std::endl;
     mCopyMem.start();
     output_timer->Start();
-    dedisp_size dst_stride = nsamp_computed * out_bytes_per_sample;
-    dedisp_size src_stride = nsamp_padded * out_bytes_per_sample;
+    dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
+    dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
     memcpy2D(
         out,         // dst
         dst_stride,  // dst width
