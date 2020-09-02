@@ -56,7 +56,7 @@ void FDDKernel::launch(
 
     // Execute the kernel
     #define CALL_KERNEL(NCHAN)        \
-    dedisperse_kernel<NCHAN, false>   \
+    dedisperse_kernel<NCHAN, true>    \
     <<<grid, block, 0, stream>>>(     \
         nfreq,                        \
         dt,                           \
