@@ -20,7 +20,7 @@ add_library(plan OBJECT Plan.cpp GPUPlan.cpp)
 # tdd reference library
 ################################################################################
 
-#add_subdirectory(tdd-ref)
+add_subdirectory(tdd-ref)
 
 
 ################################################################################
