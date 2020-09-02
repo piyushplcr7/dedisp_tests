@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include <cuda_runtime.h>
+#include <nvToolsExt.h>
 
 namespace cu {
 
@@ -28,6 +29,12 @@ namespace cu {
     class Device {
         public:
             Device(int device);
+
+            unsigned int get_capability();
+            size_t get_total_const_memory();
+
+        private:
+            int m_device;
     };
 
     class Memory {
@@ -47,7 +54,7 @@ namespace cu {
 
     class HostMemory : public virtual Memory {
         public:
-            HostMemory(size_t size = 0, int flags = cudaHostAllocDefault);
+            HostMemory(size_t size = 0, int flags = cudaHostAllocPortable);
             virtual ~HostMemory();
 
             void resize(size_t size) override;
@@ -98,21 +105,68 @@ namespace cu {
             void memcpyDtoHAsync(void *hostPtr, void *devPtr, size_t size);
             void memcpyDtoDAsync(void *dstPtr, void *srcPtr, size_t size);
             void memcpyHtoD2DAsync(
-                void *dstPtr, size_t dstStride,
-                const void *srcPtr, size_t srcStride,
-                size_t width_bytes, size_t height);
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
             void memcpyDtoH2DAsync(
-                void *dstPtr, size_t dstStride,
-                const void *srcPtr, size_t srcStride,
-                size_t width_bytes, size_t height);
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
+            void memcpyHtoH2DAsync(
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);
+            void zero(void *ptr, size_t size);
 
             operator cudaStream_t();
 
         private:
             cudaStream_t m_stream;
+    };
+
+    class Marker {
+        public:
+            enum Color {
+              red , green, blue, yellow, black
+            };
+
+            Marker(
+              const char *message,
+              Marker::Color color = Color::red);
+
+            void start();
+            void end();
+            void start(
+              cu::Event& event);
+            void end(
+              cu::Event& event);
+
+        private:
+          unsigned int convert(Color color);
+
+        protected:
+          nvtxEventAttributes_t _attributes;
+          nvtxRangeId_t _id;
+    };
+
+    class ScopedMarker : public Marker {
+        public:
+
+            ScopedMarker(
+                const char *message,
+                Marker::Color color = Color::red);
+
+            ~ScopedMarker();
+
+            void start() = delete;
+            void end() = delete;
+            void start(
+              cu::Event& event) = delete;
+            void end(
+              cu::Event& event) = delete;
     };
 
 } // end namespace cu

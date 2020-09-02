@@ -1,5 +1,6 @@
 add_library(common OBJECT
     dedisp_error.cpp
+    helper.cpp
 )
 
 set_property(TARGET common

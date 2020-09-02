@@ -5,7 +5,7 @@
 #include "DedispPlan.hpp"
 #include "transpose/transpose.hpp"
 
-#include "common/dedisp_defines.h"
+#include "common/dedisp_types.h"
 #include "common/dedisp_error.hpp"
 #include "dedisperse/dedisperse.h"
 #include "unpack/unpack.h"

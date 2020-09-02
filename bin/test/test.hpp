@@ -1,4 +1,3 @@
-
 /*
   Simple test application for libdedisp
   By Paul Ray (2013)
@@ -13,7 +12,11 @@
 #include <random>
 #include <functional>
 
-#include <DedispPlan.hpp>
+#include <Plan.hpp>
+
+// Debug options
+#define WRITE_INPUT_DATA  0
+#define WRITE_OUTPUT_DATA 0
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
@@ -92,7 +95,8 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean, dedisp
   return;
 }
 
-int main(int argc, char* argv[])
+template<typename PlanType>
+int run()
 {
   int          device_idx  = 0;
 
@@ -144,9 +148,8 @@ int main(int argc, char* argv[])
   printf("\n");
 
   /* Initialize random number generator */
-  std::mt19937::result_type seed = std::time(0);
   auto random = std::bind(std::normal_distribution<float>(0, 1),
-                          std::mt19937(seed));
+                          std::mt19937(0));
 
   /* First build 2-D array of floats with our signal in it */
   rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
@@ -213,7 +216,7 @@ int main(int argc, char* argv[])
 
   printf("Create plan\n");
   // Create a dedispersion plan
-  dedisp::DedispPlan plan(nchans, dt, f0, df);
+  PlanType plan(nchans, dt, f0, df);
 
   printf("Init GPU\n");
   // Initialise the GPU
@@ -250,8 +253,7 @@ int main(int argc, char* argv[])
   // Compute the dedispersion transform on the GPU
   plan.execute(nsamps,
 			 input, in_nbits,
-			 (dedisp_byte *)output, out_nbits,
-			 DEDISP_USE_DEFAULT);
+			 (dedisp_byte *)output, out_nbits);
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
         
   // Look for significant peaks 
@@ -276,6 +278,18 @@ int main(int argc, char* argv[])
     if (i>100)
       break;
   }
+
+  #if WRITE_INPUT_DATA
+  FILE *file_in = fopen("input.bin", "wb");
+  fwrite(input, 1, (size_t) nsamps * nchans * (in_nbits/8), file_in);
+  fclose(file_in);
+  #endif
+
+  #if WRITE_OUTPUT_DATA
+  FILE *file_out = fopen("output.bin", "wb");
+  fwrite(output, 1, (size_t) nsamps_computed * dm_count * out_nbits/8, file_out);
+  fclose(file_out);
+  #endif
         
   // Clean up
   free(output);

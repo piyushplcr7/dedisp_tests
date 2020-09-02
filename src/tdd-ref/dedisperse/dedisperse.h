@@ -1,6 +1,15 @@
 #include "common/dedisp_types.h"
-#include "common/dedisp_defines.h"
 #include "common/dedisp_error.hpp"
+
+
+#define DEDISP_DEFAULT_GULP_SIZE 65536 // 131072
+
+// TODO: Make sure this doesn't limit GPU constant memory
+//         available to users.
+#define DEDISP_MAX_NCHANS 8192
+
+// Kernel tuning parameters
+#define DEDISP_SAMPS_PER_THREAD 2 // 4 is better for Fermi?
 
 void copy_delay_table(
     const void* src,
