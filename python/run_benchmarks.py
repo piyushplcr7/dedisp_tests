@@ -14,13 +14,13 @@ import argparse
 def create_arg_parser():
     # Creates and returns the ArgumentParser object
     parser = argparse.ArgumentParser(description='Batch process benchmarks and store output')
-    parser.add_argument('executableDirectory',
+    parser.add_argument('executableDirectory', nargs='?', default="",
                     help='The directory with the executables for the benchmarks, e.g. ...bin/dedisp/bin/')
-    parser.add_argument('--niterations',
-                    help='Optional the number of iterations')
+    parser.add_argument('--niterations', nargs='?', default=5,
+                    help='How many times to repeat each test')
     parser.add_argument('--GPU',
                     help='Which GPU to use')
-    parser.add_argument('--dryRun',
+    parser.add_argument('--dryRun', action='store_true',
                     help='Dry Run')
     return parser
 
@@ -31,12 +31,10 @@ if __name__ == "__main__":
     parsedArgs = argParser.parse_args(sys.argv[1:])
 
     #How many times to repeat each test
-    if(parsedArgs.niterations): niterations = int(parsedArgs.niterations)
-    else: niterations = 5 #default
+    niterations = int(parsedArgs.niterations)
 
-    if os.path.exists(parsedArgs.executableDirectory):
-        executableDirectory = parsedArgs.executableDirectory
-    else: #raise exception
+    executableDirectory = parsedArgs.executableDirectory
+    if executableDirectory and not os.path.exists(parsedArgs.executableDirectory):
         raise("Directory" + parsedArgs.executableDirectory + "does not exist")
 
     # if (parsedArgs.GPU):
