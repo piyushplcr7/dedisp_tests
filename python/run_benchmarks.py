@@ -14,13 +14,13 @@ import argparse
 def create_arg_parser():
     # Creates and returns the ArgumentParser object
     parser = argparse.ArgumentParser(description='Batch process benchmarks and store output')
-    parser.add_argument('executableDirectory',
+    parser.add_argument('executableDirectory', nargs='?', default="",
                     help='The directory with the executables for the benchmarks, e.g. ...bin/dedisp/bin/')
-    parser.add_argument('--niterations',
-                    help='Optional the number of iterations')
+    parser.add_argument('--niterations', nargs='?', default=5,
+                    help='How many times to repeat each test')
     parser.add_argument('--GPU',
                     help='Which GPU to use')
-    parser.add_argument('--dryRun',
+    parser.add_argument('--dryRun', action='store_true',
                     help='Dry Run')
     return parser
 
@@ -31,12 +31,10 @@ if __name__ == "__main__":
     parsedArgs = argParser.parse_args(sys.argv[1:])
 
     #How many times to repeat each test
-    if(parsedArgs.niterations): niterations = int(parsedArgs.niterations)
-    else: niterations = 5 #default
+    niterations = int(parsedArgs.niterations)
 
-    if os.path.exists(parsedArgs.executableDirectory):
-        executableDirectory = parsedArgs.executableDirectory
-    else: #raise exception
+    executableDirectory = parsedArgs.executableDirectory
+    if executableDirectory and not os.path.exists(parsedArgs.executableDirectory):
         raise("Directory" + parsedArgs.executableDirectory + "does not exist")
 
     # if (parsedArgs.GPU):
@@ -52,85 +50,51 @@ if __name__ == "__main__":
     # No spaces in mytest name!
     # For reference
     string_numactl          =   "numactl --cpunodebind=0 "
-    path_benchfdd           =   os.path.join(executableDirectory, "benchfdd ")
-    path_benchdedisp        =   os.path.join(executableDirectory, "benchdedisp ")
-    string_use_cpu          =   " USE_CPU=1 "
-    string_use_cpu_ref      =   " USE_CPU=1 USE_REFERENCE=1 "
-    string_use_segmented    =   " USE_SEGMENTED=1 "
-    string_nsamp24          =   " -s 240000 "
-    string_nsamp48          =   " -s 480000 "
-    string_default_param    =   string_nsamp24
-    mytests_stub = {    "Test1": os.path.join(executableDirectory, "print.sh 1"),
-                        "Test2": os.path.join(executableDirectory, "print.sh 2"),
-                        "Test3": os.path.join(executableDirectory, "print.sh 3")}
-    mytest_CPU_ref =    {   "CPU_reference"                     : string_use_cpu_ref + path_benchfdd + string_default_param,
-                            "CPU_reference_segmented"           : string_use_cpu_ref + string_use_segmented + path_benchfdd + string_default_param}
-    mytest_CPU =        {   "CPU_optimized"                     : string_use_cpu + path_benchfdd + string_default_param,
-                            "CPU_optimized_segmented"           : string_use_cpu + string_use_segmented + path_benchfdd + string_default_param}
-    mytest_CPU_ndm400 = {   "CPU_optimized_ndm400"              : string_use_cpu + path_benchfdd + string_default_param + "-n 400",
-                            "CPU_optimized_segmented_ndm400"    : string_use_cpu + string_use_segmented + path_benchfdd + string_default_param + "-n 400"}
-    mytest_CPU_ndm800 = {   "CPU_optimized_ndm800"              : string_use_cpu + path_benchfdd + string_default_param + "-n 800",
-                            "CPU_optimized_segmented_ndm800"    : string_use_cpu + string_use_segmented + path_benchfdd + string_default_param + "-n 800"}
-    mytest_CPU_ndm1200 = {  "CPU_optimized_ndm1200"              : string_use_cpu + path_benchfdd + string_default_param + "-n 1200",
-                            "CPU_optimized_segmented_ndm1200"    : string_use_cpu + string_use_segmented + path_benchfdd + string_default_param + "-n 1200"}
-    mytest_GPU =        {   "GPU_FDD"                           : string_numactl + path_benchfdd + string_default_param,
-                            "GPU_TDD"                           : string_numactl + path_benchdedisp + string_default_param}
-    mytest_GPU_ndm400 = {   "GPU_FDD_ndm400"                    : string_numactl + path_benchfdd + string_default_param + "-n 400",
-                            "GPU_TDD_ndm400"                    : string_numactl + path_benchdedisp + string_default_param + "-n 400"}
-    mytest_GPU_ndm800 = {   "GPU_FDD_ndm800"                    : string_numactl + path_benchfdd + string_default_param + "-n 800",
-                            "GPU_TDD_ndm800"                    : string_numactl + path_benchdedisp + string_default_param + "-n 800"}
-    mytest_GPU_ndm1200 = {  "GPU_FDD_ndm1200"                    : string_numactl + path_benchfdd + string_default_param + "-n 1200",
-                            "GPU_TDD_ndm1200"                    : string_numactl + path_benchdedisp + string_default_param + "-n 1200"}
-    mytest_GPU_segmented = {"GPU_FDD_segmented"                 : string_use_segmented + string_numactl + path_benchfdd + string_default_param,
-                            "GPU_FDD_segmented_ndm400"          : string_use_segmented + string_numactl + path_benchfdd + string_default_param + "-n 400",
-                            "GPU_FDD_segmented_ndm800"          : string_use_segmented + string_numactl + path_benchfdd + string_default_param + "-n 800",
-                            "GPU_FDD_segmented_ndm1200"          : string_use_segmented + string_numactl + path_benchfdd + string_default_param + "-n 1200"}
+    path_benchdedisp        =   os.path.join(executableDirectory, "benchdedisp")
+    path_benchtdd           =   os.path.join(executableDirectory, "benchtdd")
+    path_benchfdd           =   os.path.join(executableDirectory, "benchfdd")
 
-    mytest_CPU_ref_nsamp48 =    {   "CPU_reference_nsamp48"                     : string_use_cpu_ref + path_benchfdd + string_nsamp48,
-                                    "CPU_reference_segmented_nsamp48"           : string_use_cpu_ref + string_use_segmented + path_benchfdd + string_nsamp48}
-    mytest_CPU_nsamp48 =        {   "CPU_optimized_nsamp48"                     : string_use_cpu + path_benchfdd + string_nsamp48,
-                                    "CPU_optimized_segmented_nsamp48"           : string_use_cpu + string_use_segmented + path_benchfdd + string_nsamp48}
-    mytest_CPU_ndm400_nsamp48 = {   "CPU_optimized_ndm400_nsamp48"              : string_use_cpu + path_benchfdd + string_nsamp48 + "-n 400",
-                                    "CPU_optimized_segmented_ndm400_nsamp48"    : string_use_cpu + string_use_segmented + path_benchfdd + string_nsamp48 + "-n 400"}
-    mytest_CPU_ndm800_nsamp48 = {   "CPU_optimized_ndm800_nsamp48"              : string_use_cpu + path_benchfdd + string_nsamp48 + "-n 800",
-                                    "CPU_optimized_segmented_ndm800_nsamp48"    : string_use_cpu + string_use_segmented + path_benchfdd + string_nsamp48 + "-n 800"}
-    mytest_CPU_ndm1200_nsamp48 = {  "CPU_optimized_ndm1200_nsamp48"             : string_use_cpu + path_benchfdd + string_nsamp48 + "-n 1200",
-                                    "CPU_optimized_segmented_ndm1200_nsamp48"   : string_use_cpu + string_use_segmented + path_benchfdd + string_nsamp48 + "-n 1200"}
-    mytest_GPU_nsamp48 =        {   "GPU_FDD_nsamp48"                           : string_numactl + path_benchfdd + string_nsamp48,
-                                    "GPU_TDD_nsamp48"                           : string_numactl + path_benchdedisp + string_nsamp48}
-    mytest_GPU_ndm400_nsamp48 = {   "GPU_FDD_ndm400_nsamp48"                    : string_numactl + path_benchfdd + string_nsamp48 + "-n 400",
-                                    "GPU_TDD_ndm400_nsamp48"                    : string_numactl + path_benchdedisp + string_nsamp48 + "-n 400"}
-    mytest_GPU_ndm800_nsamp48 = {   "GPU_FDD_ndm800_nsamp48"                    : string_numactl + path_benchfdd + string_nsamp48 + "-n 800",
-                                    "GPU_TDD_ndm800_nsamp48"                    : string_numactl + path_benchdedisp + string_nsamp48 + "-n 800"}
-    mytest_GPU_ndm1200_nsamp48 = {  "GPU_FDD_ndm1200_nsamp48"                   : string_numactl + path_benchfdd + string_nsamp48 + "-n 1200",
-                                    "GPU_TDD_ndm1200_nsamp48"                   : string_numactl + path_benchdedisp + string_nsamp48 + "-n 1200"}
-    mytest_GPU_segmented_nsamp48 = {"GPU_FDD_segmented_nsamp48"                 : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48,
-                                    "GPU_FDD_segmented_ndm400_nsamp48"          : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48 + "-n 400",
-                                    "GPU_FDD_segmented_ndm800_nsamp48"          : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48 + "-n 800",
-                                    "GPU_FDD_segmented_ndm1200_nsamp48"          : string_use_segmented + string_numactl + path_benchfdd + string_nsamp48 + "-n 1200"}
+    mytests = dict()
 
-    # Select which tests to run
-    mytests = mytest_CPU_ref
-    mytests.update(mytest_CPU)
-    mytests.update(mytest_CPU_ndm400)
-    mytests.update(mytest_CPU_ndm800)
-    mytests.update(mytest_CPU_ndm1200)
-    mytests.update(mytest_GPU)
-    mytests.update(mytest_GPU_ndm400)
-    mytests.update(mytest_GPU_ndm800)
-    mytests.update(mytest_GPU_ndm1200)
-    mytests.update(mytest_GPU_segmented)
-    #nsamp48
-    mytests.update(mytest_CPU_ref_nsamp48)
-    mytests.update(mytest_CPU_nsamp48)
-    mytests.update(mytest_CPU_ndm400_nsamp48)
-    mytests.update(mytest_CPU_ndm800_nsamp48)
-    mytests.update(mytest_CPU_ndm1200_nsamp48)
-    mytests.update(mytest_GPU_nsamp48)
-    mytests.update(mytest_GPU_ndm400_nsamp48)
-    mytests.update(mytest_GPU_ndm800_nsamp48)
-    mytests.update(mytest_GPU_ndm1200_nsamp48)
-    mytests.update(mytest_GPU_segmented_nsamp48)
+    parameters_benchmark = { "dedisp", "tdd", "fdd" }
+    parameters_device = { "CPU", "GPU" }
+    parameters_nsamp = { 24, 48 }
+    parameters_segmented = { True, False }
+    parameters_ndm = { 128, 256, 512, 1024 }
+
+    for benchmark in parameters_benchmark:
+        for device in parameters_device:
+            for segmented in parameters_segmented:
+                for nsamp in parameters_nsamp:
+                    for ndm in parameters_ndm:
+
+                        # Skip certain combination of parameters
+                        if (benchmark is not "fdd"):
+                            # Only run CPU benchmark for FDD
+                            if (device is "CPU"):
+                                continue
+                            # Only run segmented benchmark for FDD
+                            if (segmented):
+                                continue
+
+                        # Set environment variables
+                        if (device is "GPU"):
+                            # Use numactl for all GPU benchmarks
+                            executable = string_numactl + f"bench{benchmark}"
+                            environment = "USE_CPU=0"
+                        else:
+                            executable = f"bench{benchmark}"
+                            environment = "USE_CPU=1"
+
+                        if (benchmark is "fdd"):
+                            environment += f" USE_SEGMENTED={segmented}"
+
+                        name = f"{device}_{benchmark}_nsamp{nsamp}_ndm{ndm}"
+                        command = f"{environment} {executable} -s {int(nsamp*1e4)} -n {ndm}"
+
+                        # Add test
+                        test = { name, command }
+                        mytests[name] = command
 
     #Get start times and format them
     starttime=time.localtime()
@@ -150,9 +114,9 @@ if __name__ == "__main__":
     print(mytests)
 
     #Loop over all tests
-    for testentry in mytests:
-        print(f'### Running test: \"{testentry}\" out of {len(mytests)}')
-        print(f'{mytests[testentry]}')
+    for i, testentry in enumerate(mytests):
+        print(f'### Running test: {i} out of {len(mytests)}')
+        print(f'{testentry}')
 
         #Create file to store output
         path = os.path.join(directory,testentry+".txt")
