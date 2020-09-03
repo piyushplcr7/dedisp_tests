@@ -46,6 +46,7 @@ target_link_libraries(benchfdd fdd)
 install(
     TARGETS
         benchdedisp
+        benchtdd
         benchfdd
     RUNTIME
         DESTINATION bin
