@@ -13,6 +13,6 @@ int main(int argc, char* argv[])
   // Get parameters from argv
   if (parseParameters(argc, argv, benchParameter)!=0) return -1;
 
-  std::cout << "Benchmark TDD on GPU" << std::endl;
+  std::cout << "Benchmark dedisp on GPU" << std::endl;
   return run<dedisp::DedispPlan>(benchParameter);
 }
