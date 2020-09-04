@@ -20,10 +20,6 @@ def create_arg_parser():
                     help='The directory with the benchmark results')
     parser.add_argument('--quiet',
                     help='Suppress verbose output')
-    parser.add_argument('--showPlot',
-                    help='If specified the plot is generated and showed to screen')
-    parser.add_argument('--savePlot',
-                    help='If specified the plot is generated and saved to the specified file path')
     return parser
 
 def get_timing (stdout, timing):
@@ -97,22 +93,6 @@ if __name__ == "__main__":
     else: #raise exception
         raise("Directory" + parsedArgs.inputDirectory + "does not exist")
 
-    # # test
-    # fileName = fileList[1]
-    # filePath = os.path.join(inputDirectory, fileName)
-    # testName = str.split(fileName,'.')[0]
-    # f = open(filePath)
-    # benchmarkResults = f.read()
-
-    # #Get my timings
-    # for timing in mytimings:
-    #      temp=get_timing(benchmarkResults,timing)
-    #      print('Found:')
-    #      print(temp)
-    #     #Returns np.nan on error
-    # f.close()
-    # raise("Breakpoint")
-
     # Iterate over all files in the directory, file name is the test name
     for i in range(nfiles):
         #Init
@@ -155,51 +135,36 @@ if __name__ == "__main__":
 
 
     #Create datastructures with only mean times per test
-    print("### Re-formatting data to mean values:")
-    for testName in allmydata:
-        #Create Dict with test name with dict of timing name and mean value
-        print(f'\n### Benchmark \n{testName}')
-        mymeandata = {}
-        for timing in mytimings:
-            countnonzero=np.count_nonzero(allmydata[testName][timing])
-            countnan=np.count_nonzero(np.isnan(allmydata[testName][timing]))
-            if(not(countnan) and countnonzero): # if it contains data
-                mymeandata[timing] = np.nanmean(allmydata[testName][timing])
-                print('{:30} {:.4f}'.format(timing, mymeandata[timing]))
-            else: print('{:30} Contains errors'.format(timing))
-        #if(verbose): print(f'Re-formatted data for {testName} {timing} to a structure with shape {len(mymeandata)}')
-        #print(mymeandata)
-        allmymeandata[testName]=mymeandata
+    if(verbose):
+        print("### Re-formatting data to mean values:")
+        for testName in allmydata:
+            #Create Dict with test name with dict of timing name and mean value
+            print(f'\n### Benchmark \n{testName}')
+            mymeandata = {}
+            for timing in mytimings:
+                countnan=np.count_nonzero(np.isnan(allmydata[testName][timing]))
+                if((len(allmydata[testName][timing])>0) and not(countnan)): #if it contains data
+                    mymeandata[timing] = np.nanmean(allmydata[testName][timing])
+                    print('{:30} {:.4f}'.format(timing, mymeandata[timing]))
+                else:
+                    mymeandata[timing] = np.nan
+                    print('{:30} Not available'.format(timing))
+            allmymeandata[testName]=mymeandata
 
-    #Create datastructures with only mean times per test
-    tidx=mytimings[len(mytimings)-1]
+    #Summarized overview of results
     print('\n')
-    print(f'### Summary of mean totals for \"{tidx}\":')
-    for testName in allmydata:
-        #Create Dict with total mean times
-        countnonzero=np.count_nonzero(allmydata[testName][tidx])
-        countnan=np.count_nonzero(np.isnan(allmydata[testName][tidx]))
-        if(not(countnan) and countnonzero): # if it contains data
-            #print(allmydata[testName])
-            #print(allmydata[testName][tidx])
-            meanTotals[testName] = np.nanmean(allmydata[testName][tidx])
-            print('{:30}: {:.4f}'.format(testName, meanTotals[testName]))
-        else: print('{:30}: Contains errors'.format(testName))
-    #print(meanTotals)
-       # for timing in mytimings:
-
-    #Bar plot of mean totals:
-    # keys = meanTotals.keys()
-    # values = meanTotals.values()
-    # plt.bar(keys, values)
-    # plt.show()
-
-    # Plot ?
-    # if parsedArgs.savePlot:
-    #     plt.savefig(parsedArgs.savePlot)
-    #     print("Saved plot to " + parsedArgs.savePlot)
-    # else:
-    #     plt.show()
+    print(f'### Summary of mean values:')
+    summaryFormatString = "{:35}".format("Test name ")
+    summaryFormatString += ": "
+    for timing in mytimings:
+        summaryFormatString += "{:20}".format(timing)
+    print(summaryFormatString)
+    for testName in allmymeandata:
+        summaryResultString = "{:35}".format(testName)
+        for timing in mytimings:
+            timingstr = "{:4.6f}".format(allmymeandata[testName][timing])
+            summaryResultString += ": {:20}".format(timingstr)
+        print(summaryResultString)
 
     #Wrap up
     totaltime = time.time()-totaltime
