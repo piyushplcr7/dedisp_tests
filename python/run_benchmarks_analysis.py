@@ -154,16 +154,21 @@ if __name__ == "__main__":
     #Summarized overview of results
     print('\n')
     print(f'### Summary of mean values:')
+    print("Defining Run time as: total time - init time")
     summaryFormatString = "{:35}".format("Test name ")
     summaryFormatString += ": "
     for timing in mytimings:
         summaryFormatString += "{:20}".format(timing)
+    summaryFormatString += "{:20}".format("Run time ")
     print(summaryFormatString)
     for testName in allmymeandata:
         summaryResultString = "{:35}".format(testName)
         for timing in mytimings:
             timingstr = "{:4.6f}".format(allmymeandata[testName][timing])
             summaryResultString += ": {:20}".format(timingstr)
+        #Calculate Run time and add it; Run time = Total time - Init time
+        timingstr = "{:4.6f}".format(allmymeandata[testName][mytimings[len(mytimings)-1]]-allmymeandata[testName][mytimings[0]])
+        summaryResultString += ": {:20}".format(timingstr)
         print(summaryResultString)
 
     #Wrap up
