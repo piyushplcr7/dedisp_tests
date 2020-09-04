@@ -18,8 +18,8 @@ def create_arg_parser():
                     help='The directory with the executables for the benchmarks, e.g. ...bin/dedisp/bin/')
     parser.add_argument('--niterations', nargs='?', default=5,
                     help='How many times to repeat each test')
-    parser.add_argument('--GPU',
-                    help='Which GPU to use')
+    #parser.add_argument('--GPU',
+    #                help='Which GPU to use')
     parser.add_argument('--dryRun', action='store_true',
                     help='Dry Run')
     return parser
@@ -49,18 +49,16 @@ if __name__ == "__main__":
     # Use full paths in the commands
     # No spaces in mytest name!
     # For reference
-    string_numactl          =   "numactl --cpunodebind=0 "
-    path_benchdedisp        =   os.path.join(executableDirectory, "benchdedisp")
-    path_benchtdd           =   os.path.join(executableDirectory, "benchtdd")
-    path_benchfdd           =   os.path.join(executableDirectory, "benchfdd")
+    string_numactl   =   "numactl --cpunodebind=0 "
+    path_bench       =   os.path.join(executableDirectory, "bench")
 
     mytests = dict()
 
     parameters_benchmark = { "dedisp", "tdd", "fdd" }
-    parameters_device = { "CPU", "GPU" }
-    parameters_nsamp = { 24, 48 }
+    parameters_device = { "GPU" } #{ "CPU", "GPU" }
+    parameters_nsamp = { 224, 448 } #*1e4
     parameters_segmented = { True, False }
-    parameters_ndm = { 128, 256, 512, 1024 }
+    parameters_ndm = { 250, 256, 500, 512, 1000, 1024 }
 
     for benchmark in parameters_benchmark:
         for device in parameters_device:
@@ -80,10 +78,10 @@ if __name__ == "__main__":
                         # Set environment variables
                         if (device is "GPU"):
                             # Use numactl for all GPU benchmarks
-                            executable = string_numactl + f"bench{benchmark}"
+                            executable = string_numactl + path_bench + benchmark
                             environment = "USE_CPU=0"
                         else:
-                            executable = f"bench{benchmark}"
+                            executable = path_bench + benchmark
                             environment = "USE_CPU=1"
 
                         # Handle fdd segmented
