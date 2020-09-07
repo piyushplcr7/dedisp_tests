@@ -89,9 +89,9 @@ if __name__ == "__main__":
                         if (benchmark is "fdd"):
                             environment += f" USE_SEGMENTED={int(segmented)}"
                             if (segmented):
-                                suffix += "_segmented"
+                                suffix += "-seg"
 
-                        name = f"{device}_{benchmark}_nsamp{nsamp}_ndm{ndm}{suffix}"
+                        name = f"{device}_{benchmark}{suffix}_nsamp{nsamp}_ndm{ndm}"
                         command = f"{environment} {executable} -s {int(nsamp*1e4)} -n {ndm}"
 
                         # Add test
