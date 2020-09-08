@@ -131,6 +131,7 @@ void FDDGPUPlan::execute_gpu(
     cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
@@ -478,7 +479,8 @@ void FDDGPUPlan::execute_gpu(
             // Wait for current batch to finish
             executestream->synchronize();
 
-            // Add preprocessing time for the current channel job
+            // Add input and preprocessing time for the current channel job
+            input_timer->Add(channel_job.inputEnd.elapsedTime(channel_job.inputStart));
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
 
             // Add dedispersion time for current dm jobs
@@ -572,6 +574,7 @@ void FDDGPUPlan::execute_gpu(
     // Print timings
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
@@ -664,6 +667,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
     cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
@@ -988,7 +992,8 @@ void FDDGPUPlan::execute_gpu_segmented(
             // Wait for current batch to finish
             executestream->synchronize();
 
-            // Add preprocessing time for the current channel job
+            // Add input and preprocessing time for the current channel job
+            input_timer->Add(channel_job.inputEnd.elapsedTime(channel_job.inputStart));
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
 
             // Add dedispersion time for current dm jobs
@@ -1077,6 +1082,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     // Print timings
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
