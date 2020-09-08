@@ -24,6 +24,12 @@ def create_arg_parser():
                     help='Dry Run')
     return parser
 
+def prettyPrintDict(dictToPrint): #Print a dict
+    for key in dictToPrint:
+        printString = '{:35} {} '.format(key, dictToPrint[key])
+        print(printString)
+    return
+
 if __name__ == "__main__":
     #Run application and capture output
 
@@ -113,7 +119,7 @@ if __name__ == "__main__":
     print(f'Created directory {directory} for bechmark run results')
 
     print(f'Found {len(mytests)} tests to run:')
-    print(mytests)
+    prettyPrintDict(mytests)
 
     #Loop over all tests
     for i, testentry in enumerate(mytests):
