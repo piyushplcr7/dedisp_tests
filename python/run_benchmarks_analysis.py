@@ -165,22 +165,22 @@ if __name__ == "__main__":
     print('\n')
     print(f'### Summary of mean values:')
     print("Defining Run time as: total time - init time")
-    summaryFormatString = "{:35}".format("Test name")
+    summaryFormatString = "{:45}".format("Test name")
     summaryFormatString += ":"
-    summaryFormatString += "{:35}".format("Sort by : : : : ")  # For easy sorting in Excel
+    summaryFormatString += "{:45}".format("Sort by : : : : ")  # For easy sorting in Excel
     summaryFormatString += ": "
     for timing in mytimings:
         summaryFormatString += "{:20}".format(timing)
     summaryFormatString += "{:20}".format("Run time ")
     print(summaryFormatString)
     for testName in allmymeandata:
-        summaryResultString = "{:35}".format(testName)
+        summaryResultString = "{:45}".format(testName)
         # For easy sorting in Excel:
         temptestName = testName.replace('_',':')
         temptestName = temptestName.replace('nchan','')
         temptestName = temptestName.replace('nsamp','')
         temptestName = temptestName.replace('ndm','')
-        summaryResultString += ":{:35}".format(temptestName)
+        summaryResultString += ":{:45}".format(temptestName)
         # ToDo:
         # find a way to sort and cluser data, cluser by: 1) implementation, 2) nsamp, 3) ndm
         # e.g. for testName in sort(allmymeandata) ... but then for a dict of dicts on elements of the key

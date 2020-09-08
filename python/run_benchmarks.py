@@ -126,7 +126,7 @@ if __name__ == "__main__":
 
     #Loop over all tests
     for i, testentry in enumerate(mytests):
-        print(f'### Running test: {i} out of {len(mytests)}')
+        print(f'### Running test: {i+1} out of {len(mytests)}')
         print(f'{testentry}')
 
         #Create file to store output
