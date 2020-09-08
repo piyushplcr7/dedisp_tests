@@ -174,6 +174,21 @@ void TDDPlan::execute_guru(
         throw_error(DEDISP_UNSUPPORTED_OUT_NBITS);
     }
 
+    // Timers
+#ifdef DEDISP_BENCHMARK
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    total_timer->Start();
+    init_timer->Start();
+#endif
+    // Annotate the initialization
+    cu::Marker initMarker("initialization", cu::Marker::red);
+    initMarker.start();
+
     // Copy the lookup tables to constant memory on the device
     cu::Marker constantMarker("copy_constant_memory", cu::Marker::yellow);
     constantMarker.start();
@@ -226,22 +241,6 @@ void TDDPlan::execute_guru(
 
     // Compute the number of gulps (jobs)
     unsigned int nr_gulps = div_round_up(nsamps_computed, nsamps_computed_gulp_max);
-
-    // Annotate the initialization
-    cu::Marker initMarker("initialization", cu::Marker::red);
-    initMarker.start();
-
-    // Timers
-#ifdef DEDISP_BENCHMARK
-    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
-    total_timer->Start();
-    init_timer->Start();
-#endif
 
     // Organise device memory pointers
     std::cout << memory_alloc_str << std::endl;
