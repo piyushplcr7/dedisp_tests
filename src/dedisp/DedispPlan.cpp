@@ -300,6 +300,17 @@ void DedispPlan::execute_guru(size_type        nsamps,
         throw_error(DEDISP_UNSUPPORTED_OUT_NBITS);
     }
 
+#ifdef DEDISP_BENCHMARK
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    total_timer->Start();
+    init_timer->Start();
+#endif
+
     // Copy the lookup tables to constant memory on the device
     copy_delay_table(d_delay_table,
                      m_nchans * sizeof(dedisp_float),
@@ -356,17 +367,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
         out_stride_gulp_samples * out_bytes_per_sample;
     dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
 
-#ifdef DEDISP_BENCHMARK
-    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
-    total_timer->Start();
-    init_timer->Start();
-#endif
-
     // Organise device memory pointers
     cu::DeviceMemory d_in(in_count_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
@@ -419,7 +419,6 @@ void DedispPlan::execute_guru(size_type        nsamps,
                   (dedisp_word *) d_transposed);
 #ifdef DEDISP_BENCHMARK
         cudaDeviceSynchronize();
-        preprocessing_timer->Pause();
 #endif
 
         // Unpack the transposed data
@@ -428,6 +427,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                in_nbits, unpacked_in_nbits);
 
 #ifdef DEDISP_BENCHMARK
+        cudaDeviceSynchronize();
         preprocessing_timer->Pause();
         dedispersion_timer->Start();
 #endif
