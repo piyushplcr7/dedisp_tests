@@ -26,7 +26,7 @@ def create_arg_parser():
 
 def prettyPrintDict(dictToPrint): #Print a dict
     for key in dictToPrint:
-        printString = '{:35} {} '.format(key, dictToPrint[key])
+        printString = '{:45} {} '.format(key, dictToPrint[key])
         print(printString)
     return
 
@@ -62,47 +62,50 @@ if __name__ == "__main__":
 
     parameters_benchmark = { "dedisp", "tdd", "fdd" }
     parameters_device = { "GPU" } #{ "CPU", "GPU" }
-    parameters_nsamp = { 224, 448 } #*1e4
+    parameters_nchan = {1024, 4096}
+    parameters_nsamp = { 4689920, 9379840, 18759680} #5, 10, 20 minutes
     parameters_segmented = { True, False }
-    parameters_ndm = { 250, 256, 500, 512, 1000, 1024 }
+    parameters_ndm = { 100, 200, 400, 800, 1600, 3200, 6400, 12800 }
+    #parameters_ndm = { 128, 256, 512, 1024, 2048, 4096, 8192, 16384 }
 
     for benchmark in parameters_benchmark:
         for device in parameters_device:
-            for segmented in parameters_segmented:
-                for nsamp in parameters_nsamp:
-                    for ndm in parameters_ndm:
+            for nchan in parameters_nchan:
+                for segmented in parameters_segmented:
+                    for nsamp in parameters_nsamp:
+                        for ndm in parameters_ndm:
 
-                        # Skip certain combination of parameters
-                        if (benchmark is not "fdd"):
-                            # Only run CPU benchmark for FDD
-                            if (device is "CPU"):
-                                continue
-                            # Only run segmented benchmark for FDD
-                            if (segmented):
-                                continue
+                            # Skip certain combination of parameters
+                            if (benchmark is not "fdd"):
+                                # Only run CPU benchmark for FDD
+                                if (device is "CPU"):
+                                    continue
+                                # Only run segmented benchmark for FDD
+                                if (segmented):
+                                    continue
 
-                        # Set environment variables
-                        if (device is "GPU"):
-                            # Use numactl for all GPU benchmarks
-                            executable = string_numactl + path_bench + benchmark
-                            environment = "USE_CPU=0"
-                        else:
-                            executable = path_bench + benchmark
-                            environment = "USE_CPU=1"
+                            # Set environment variables
+                            if (device is "GPU"):
+                                # Use numactl for all GPU benchmarks
+                                executable = string_numactl + path_bench + benchmark
+                                environment = "USE_CPU=0"
+                            else:
+                                executable = path_bench + benchmark
+                                environment = "USE_CPU=1"
 
-                        # Handle fdd segmented
-                        suffix = ""
-                        if (benchmark is "fdd"):
-                            environment += f" USE_SEGMENTED={int(segmented)}"
-                            if (segmented):
-                                suffix += "-seg"
+                            # Handle fdd segmented
+                            suffix = ""
+                            if (benchmark is "fdd"):
+                                environment += f" USE_SEGMENTED={int(segmented)}"
+                                if (segmented):
+                                    suffix += "-seg"
 
-                        name = f"{device}_{benchmark}{suffix}_nsamp{nsamp}_ndm{ndm}"
-                        command = f"{environment} {executable} -s {int(nsamp*1e4)} -n {ndm}"
+                            name = f"{device}_{benchmark}{suffix}_nchan{nchan}_nsamp{nsamp}_ndm{ndm}"
+                            command = f"{environment} {executable} -s {int(nsamp)} -n {ndm} -c {nchan}"
 
-                        # Add test
-                        test = { name, command }
-                        mytests[name] = command
+                            # Add test
+                            test = { name, command }
+                            mytests[name] = command
 
     #Get start times and format them
     starttime=time.localtime()

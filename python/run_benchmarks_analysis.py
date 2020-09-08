@@ -167,7 +167,7 @@ if __name__ == "__main__":
     print("Defining Run time as: total time - init time")
     summaryFormatString = "{:35}".format("Test name")
     summaryFormatString += ":"
-    summaryFormatString += "{:35}".format("Sort by : : :")  # For easy sorting in Excel
+    summaryFormatString += "{:35}".format("Sort by : : : : ")  # For easy sorting in Excel
     summaryFormatString += ": "
     for timing in mytimings:
         summaryFormatString += "{:20}".format(timing)
@@ -177,6 +177,7 @@ if __name__ == "__main__":
         summaryResultString = "{:35}".format(testName)
         # For easy sorting in Excel:
         temptestName = testName.replace('_',':')
+        temptestName = temptestName.replace('nchan','')
         temptestName = temptestName.replace('nsamp','')
         temptestName = temptestName.replace('ndm','')
         summaryResultString += ":{:35}".format(temptestName)
