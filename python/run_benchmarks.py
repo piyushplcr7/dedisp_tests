@@ -62,11 +62,13 @@ if __name__ == "__main__":
 
     parameters_benchmark = { "dedisp", "tdd", "fdd" }
     parameters_device = { "GPU" } #{ "CPU", "GPU" }
-    parameters_nchan = {1024, 4096}
-    parameters_nsamp = { 4689920, 9379840, 18759680} #5, 10, 20 minutes
-    parameters_segmented = { True, False }
-    parameters_ndm = { 100, 200, 400, 800, 1600, 3200, 6400, 12800 }
-    #parameters_ndm = { 128, 256, 512, 1024, 2048, 4096, 8192, 16384 }
+    #parameters_nchan = {1024}
+    parameters_nchan = {1024, 2048}
+    parameters_nsamp = { 4689920, 9379840, 14069760} #5, 10, 15 minutes
+    parameters_segmented = { False }
+    #parameters_segmented = { True, False }
+    #parameters_ndm = { 256, 512, 1024}
+    parameters_ndm = { 128, 256, 512, 1024, 2048, 4096, 8192, 16384 }
 
     for benchmark in parameters_benchmark:
         for device in parameters_device:
@@ -101,7 +103,7 @@ if __name__ == "__main__":
                                     suffix += "-seg"
 
                             name = f"{device}_{benchmark}{suffix}_nchan{nchan}_nsamp{nsamp}_ndm{ndm}"
-                            command = f"{environment} {executable} -s {int(nsamp)} -n {ndm} -c {nchan}"
+                            command = f"{environment} {executable} -s {int(nsamp)} -n {ndm} -c {nchan} -i {niterations}"
 
                             # Add test
                             test = { name, command }
@@ -126,7 +128,7 @@ if __name__ == "__main__":
 
     #Loop over all tests
     for i, testentry in enumerate(mytests):
-        print(f'### Running test: {i+1} out of {len(mytests)}')
+        print(f'### {time.strftime("%Y_%m_%d-%H_%M_%S", time.localtime())} Running test: {i+1} out of {len(mytests)}')
         print(f'{testentry}')
 
         #Create file to store output
@@ -138,17 +140,13 @@ if __name__ == "__main__":
             break
         f.write(f'### Benchmark: {testentry}, command {mytests[testentry]} ###\n')
 
-        #Loop over application and get timings, show progress bar
-        for i in tqdm.tqdm(range(niterations)):
-            #Run the application and capture output
-            if(not parsedArgs.dryRun):
-                output = subprocess.getoutput(mytests[testentry])
-            else: output = '...'
-            #Save to file
-            stringTestenty = '###\n'
-            stringTestenty += f'### Iteration {i} ###\n'
-            stringTestenty += '###\n'
-            f.write(stringTestenty + output + '\n')
+        #Run the application and capture output
+        if(not parsedArgs.dryRun):
+            output = subprocess.getoutput(mytests[testentry])
+        else: output = '...'
+        #Save to file
+        f.write(output)
+
         f.close()
 
     #Wrap up
