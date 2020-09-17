@@ -395,6 +395,9 @@ void TDDPlan::execute_guru(
         job.output_lock.unlock();
     } // End of gulp loop
 
+    // Wait for host threads to exit
+    if (output_thread.joinable()) { output_thread.join(); }
+
 #ifdef DEDISP_BENCHMARK
     dtohstream->record(gulpEnd);
     gulpEnd.synchronize();
@@ -456,8 +459,6 @@ void TDDPlan::execute_guru(
     perf_file.close();
 #endif
 
-    // Wait for host threads to exit
-    if (output_thread.joinable()) { output_thread.join(); }
 }
 
 } // end namespace dedisp
