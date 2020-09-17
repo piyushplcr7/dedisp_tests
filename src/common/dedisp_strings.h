@@ -6,6 +6,7 @@ static const std::string dedispersion_time_str   = "Dedispersion time   : ";
 static const std::string postprocessing_time_str = "Postprocessing time : ";
 static const std::string input_memcpy_time_str   = "Input memcpy time   : ";
 static const std::string output_memcpy_time_str  = "Output memcpy time  : ";
+static const std::string runtime_time_str        = "Runtime             : ";
 static const std::string total_time_str          = "Total time          : ";
 
 static const std::string preprocessing_perf_str  = "Preprocessing performance : ";

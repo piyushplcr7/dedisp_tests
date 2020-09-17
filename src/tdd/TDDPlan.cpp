@@ -410,12 +410,19 @@ void TDDPlan::execute_guru(
     }
 
     // Print timings
+    long double runtime_time = preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds();
+    runtime_time *= 10e-3; //seconds
+    std::stringstream runtime_time_string;
+    runtime_time_string << std::fixed;
+    runtime_time_string << runtime_time;
+
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << runtime_time_str        << runtime_time_string.str() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 
