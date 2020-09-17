@@ -573,7 +573,7 @@ void FDDGPUPlan::execute_gpu(
 
     // Print timings
     long double runtime_time = preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds() + postprocessing_timer->Milliseconds();
-    runtime_time *= 10e-3; //seconds
+    runtime_time *= 1e-3; //seconds
     std::stringstream runtime_time_string;
     runtime_time_string << std::fixed;
     runtime_time_string << runtime_time;
@@ -1088,7 +1088,7 @@ void FDDGPUPlan::execute_gpu_segmented(
 
     // Print timings
     long double runtime_time = preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds() + postprocessing_timer->Milliseconds();
-    runtime_time *= 10e-3; //seconds
+    runtime_time *= 1e-3; //seconds
     std::stringstream runtime_time_string;
     runtime_time_string << std::fixed;
     runtime_time_string << runtime_time;

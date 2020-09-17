@@ -482,7 +482,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
 
     // Print timings
     long double runtime_time = input_timer->Milliseconds() + preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds() + output_timer->Milliseconds();
-    runtime_time *= 10e-3; //seconds
+    runtime_time *= 1e-3; //seconds
     std::stringstream runtime_time_string;
     runtime_time_string << std::fixed;
     runtime_time_string << runtime_time;
