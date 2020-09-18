@@ -182,6 +182,14 @@ void FDDGPUPlan::execute_gpu(
     if (thread_c2r.joinable()) { thread_c2r.join(); }
     mPrepFFT.end();
 
+    // Generate spin frequency table
+    mPrepSpinf.start();
+    if (h_spin_frequencies.size() != nfreq)
+    {
+        generate_spin_frequency_table(nfreq, nsamp, dt);
+    }
+    mPrepSpinf.end();
+
     // Determine the amount of memory to use
     size_t memory_total = m_device->get_total_memory();
     size_t memory_free = m_device->get_free_memory();
@@ -249,13 +257,8 @@ void FDDGPUPlan::execute_gpu(
     }
     mAllocMem.end();
 
-    // Generate spin frequency table
-    mPrepSpinf.start();
-    if (h_spin_frequencies.size() != nfreq)
-    {
-        generate_spin_frequency_table(nfreq, nsamp, dt);
-    }
-    mPrepSpinf.end();
+    size_t memory_free_after_malloc = m_device->get_free_memory();
+    std::cout << "Memory free after memory allocations    = " << memory_free_after_malloc  / std::pow(1024, 3) << " Gb" << std::endl;
 
     // Initialize FDDKernel
     FDDKernel kernel;
