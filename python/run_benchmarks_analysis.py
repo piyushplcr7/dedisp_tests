@@ -76,6 +76,7 @@ if __name__ == "__main__":
                     "Input memcpy time   : ",
                     "Output memcpy time  : ",
                     "Runtime             : ",
+                    "GPU execution time  : ",
                     "Total time          : ")
     #Init dicts
     allmydata = {}
