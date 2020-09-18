@@ -421,7 +421,8 @@ void FDDGPUPlan::execute_gpu(
                     // Wait for previous output copy to finish
                     if (dm_job_id_outer > 0)
                     {
-                        dm_job.outputEnd.synchronize();
+                        auto& dm_job_previous = dm_jobs[dm_job_id - ndm_buffers];
+                        dm_job_previous.outputEnd.synchronize();
                     }
 
                     dm_job.d_data_x_dm->zero(*executestream);
