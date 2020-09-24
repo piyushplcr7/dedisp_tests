@@ -62,13 +62,10 @@ if __name__ == "__main__":
 
     parameters_benchmark = { "dedisp", "tdd", "fdd" }
     parameters_device = { "GPU" } #{ "CPU", "GPU" }
-    #parameters_nchan = {1024}
-    parameters_nchan = {1024, 2048}
-    parameters_nsamp = { 4689920, 9379840, 14069760} #5, 10, 15 minutes
-    parameters_segmented = { False }
-    #parameters_segmented = { True, False }
-    #parameters_ndm = { 256, 512, 1024}
-    parameters_ndm = { 128, 256, 512, 1024, 2048, 4096, 8192, 16384 }
+    parameters_nchan = {1024} # {1024, 2048, 4096}
+    parameters_nsamp =  {4689920} #5 minutes # { 4689920, 9379840, 14069760} #5, 10, 15 minutes
+    parameters_segmented = { False } # { True, False }
+    parameters_ndm = { 128, 256, 512, 1024, 2048, 4096 } # { 128, 256, 512, 1024, 2048, 4096, 8192, 16384 }
 
     for benchmark in parameters_benchmark:
         for device in parameters_device:
@@ -85,6 +82,12 @@ if __name__ == "__main__":
                                 # Only run segmented benchmark for FDD
                                 if (segmented):
                                     continue
+
+                            if (benchmark is "fdd"):
+                                if (device is "GPU"):
+                                    # Skip ndm > 3000 (bug to be fixed)
+                                    if (int(ndm) > 3000):
+                                        continue
 
                             # Set environment variables
                             if (device is "GPU"):

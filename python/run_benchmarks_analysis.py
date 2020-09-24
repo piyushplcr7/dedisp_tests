@@ -166,7 +166,6 @@ if __name__ == "__main__":
     #Summarized overview of results
     print('\n')
     print(f'### Summary of mean values:')
-    print("Defining Run time as: total time - init time")
     summaryFormatString = "{:45}".format("Test name")
     summaryFormatString += ":"
     summaryFormatString += "{:45}".format("Sort by : : : : ")  # For easy sorting in Excel
