@@ -6,6 +6,7 @@
 #include <iostream>
 #include <iomanip>
 #include <thread>
+#include <mutex>
 
 #include <assert.h>
 #include <omp.h>
@@ -100,7 +101,6 @@ void FDDGPUPlan::execute_gpu(
     unsigned int ndm_fft_batch = 32;
                  ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
     unsigned int ndm_buffers   = 1;
-                 ndm_buffers   = std::min(ndm_buffers, (unsigned int) ((ndm + ndm_batch_max) / ndm_batch_max));
 
     // Maximum number of channels processed in one gulp
     unsigned int nchan_batch_max = 128;
@@ -131,9 +131,11 @@ void FDDGPUPlan::execute_gpu(
     cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> gpuexec_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
@@ -180,6 +182,14 @@ void FDDGPUPlan::execute_gpu(
     if (thread_r2c.joinable()) { thread_r2c.join(); }
     if (thread_c2r.joinable()) { thread_c2r.join(); }
     mPrepFFT.end();
+
+    // Generate spin frequency table
+    mPrepSpinf.start();
+    if (h_spin_frequencies.size() != nfreq)
+    {
+        generate_spin_frequency_table(nfreq, nsamp, dt);
+    }
+    mPrepSpinf.end();
 
     // Determine the amount of memory to use
     size_t memory_total = m_device->get_total_memory();
@@ -248,13 +258,8 @@ void FDDGPUPlan::execute_gpu(
     }
     mAllocMem.end();
 
-    // Generate spin frequency table
-    mPrepSpinf.start();
-    if (h_spin_frequencies.size() != nfreq)
-    {
-        generate_spin_frequency_table(nfreq, nsamp, dt);
-    }
-    mPrepSpinf.end();
+    size_t memory_free_after_malloc = m_device->get_free_memory();
+    std::cout << "Memory free after memory allocations    = " << memory_free_after_malloc  / std::pow(1024, 3) << " Gb" << std::endl;
 
     // Initialize FDDKernel
     FDDKernel kernel;
@@ -299,6 +304,7 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_end;
         unsigned int ndm_current;
         float* h_out_ptr;
+        std::mutex output_lock;
         cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
         cu::Event dedispersionStart, dedispersionEnd;
@@ -320,7 +326,42 @@ void FDDGPUPlan::execute_gpu(
         {
             dm_jobs.pop_back();
         }
+        job.output_lock.lock();
     }
+
+    std::thread output_thread = std::thread([&]()
+    {
+        for (auto& dm_job : dm_jobs)
+        {
+            // Wait for DtoH copy to finish for this job
+            dm_job.output_lock.lock();
+            dm_job.outputEnd.synchronize();
+
+            // Info
+            if (enable_verbose_iteration_reporting)
+            {
+                std::cout << "Copy output " << dm_job.idm_start << " to " << dm_job.idm_end << " with " << dm_job.ndm_current << " ndms" << std::endl;
+            }
+            // copy part from pinned h_data_t_dm to part of paged return buffer out
+            // GPU Host mem pointers
+            dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
+            dedisp_size src_offset = 1ULL * dm_job.idm_start * src_stride;
+            auto* h_src = (void *) (((size_t) h_data_t_dm.data()) + src_offset);
+            // CPU mem pointers
+            dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
+            dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
+            auto* h_dst = (void *) (((size_t) out) + dst_offset);
+            mCopyMem.start();
+            memcpy2D(
+                h_dst,                  // dst
+                dst_stride,             // dst stride
+                h_src,                  // src
+                src_stride,             // src stride
+                dst_stride,             // width bytes
+                dm_job.ndm_current);    // height
+            mCopyMem.end();
+        }
+    });
 
     std::cout << fdd_dedispersion_str << std::endl;
     htodstream->record(eStartGPU);
@@ -420,7 +461,8 @@ void FDDGPUPlan::execute_gpu(
                     // Wait for previous output copy to finish
                     if (dm_job_id_outer > 0)
                     {
-                        dm_job.outputEnd.synchronize();
+                        auto& dm_job_previous = dm_jobs[dm_job_id - ndm_buffers];
+                        dm_job_previous.outputEnd.synchronize();
                     }
 
                     dm_job.d_data_x_dm->zero(*executestream);
@@ -478,7 +520,8 @@ void FDDGPUPlan::execute_gpu(
             // Wait for current batch to finish
             executestream->synchronize();
 
-            // Add preprocessing time for the current channel job
+            // Add input and preprocessing time for the current channel job
+            input_timer->Add(channel_job.inputEnd.elapsedTime(channel_job.inputStart));
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
 
             // Add dedispersion time for current dm jobs
@@ -503,6 +546,12 @@ void FDDGPUPlan::execute_gpu(
                 break;
             }
             auto& dm_job = dm_jobs[dm_job_id];
+
+            // Info
+            if (enable_verbose_iteration_reporting)
+            {
+                std::cout << "Post-processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << " with job_id " << dm_job_id << std::endl;
+            }
 
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
@@ -530,6 +579,7 @@ void FDDGPUPlan::execute_gpu(
             executestream->record(dm_job.postprocessingEnd);
 
             // Copy output
+            // Output is picked up by host side thread and copied from CPU pinned to paged memory
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
             dedisp_size size = 1ULL * dm_job.ndm_current * dm_stride;
@@ -538,44 +588,42 @@ void FDDGPUPlan::execute_gpu(
                 d_out, // src
                 size); // size
             dtohstream->record(dm_job.outputEnd);
+            dm_job.output_lock.unlock();
         } // end for dm_job_id_inner
     } // end for dm_job_id_outer
 
     // Wait for final memory transfer
+    // Wait for host threads to exit
+    if (output_thread.joinable()) { output_thread.join(); }
     dtohstream->record(eEndGPU);
     mExeGPU.end(eEndGPU);
-    dtohstream->synchronize();
-
-    // Copy output
-    std::cout << copy_output_str << std::endl;
-    mCopyMem.start();
-    output_timer->Start();
-    dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
-    dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
-    memcpy2D(
-        out,         // dst
-        dst_stride,  // dst width
-        h_data_t_dm, // src
-        src_stride,  // src width
-        dst_stride,  // width bytes
-        ndm);        // height
-    output_timer->Pause();
-    mCopyMem.end();
     total_timer->Pause();
+
+    gpuexec_timer->Add(eEndGPU.elapsedTime(eStartGPU));
 
     // Accumulate postprocessing time for all dm jobs
     for (auto& job : dm_jobs)
     {
         postprocessing_timer->Add(job.postprocessingEnd.elapsedTime(job.postprocessingStart));
+        output_timer->Add(job.outputEnd.elapsedTime(job.outputStart));
     }
 
     // Print timings
+    long double runtime_time = preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds() + postprocessing_timer->Milliseconds();
+    runtime_time *= 1e-3; //seconds
+    std::stringstream runtime_time_string;
+    runtime_time_string << std::fixed;
+    runtime_time_string << runtime_time;
+
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << runtime_time_str        << runtime_time_string.str() << " sec." << std::endl;
+    std::cout << gpuexec_time_str        << gpuexec_timer->ToString() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 }
@@ -664,6 +712,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
     cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
@@ -988,7 +1037,8 @@ void FDDGPUPlan::execute_gpu_segmented(
             // Wait for current batch to finish
             executestream->synchronize();
 
-            // Add preprocessing time for the current channel job
+            // Add input and preprocessing time for the current channel job
+            input_timer->Add(channel_job.inputEnd.elapsedTime(channel_job.inputStart));
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
 
             // Add dedispersion time for current dm jobs
@@ -1075,12 +1125,20 @@ void FDDGPUPlan::execute_gpu_segmented(
     }
 
     // Print timings
+    long double runtime_time = preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds() + postprocessing_timer->Milliseconds();
+    runtime_time *= 1e-3; //seconds
+    std::stringstream runtime_time_string;
+    runtime_time_string << std::fixed;
+    runtime_time_string << runtime_time;
+
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
+    std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << postprocessing_time_str << postprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << runtime_time_str        << runtime_time_string.str() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 }

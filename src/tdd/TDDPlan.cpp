@@ -174,6 +174,21 @@ void TDDPlan::execute_guru(
         throw_error(DEDISP_UNSUPPORTED_OUT_NBITS);
     }
 
+    // Timers
+#ifdef DEDISP_BENCHMARK
+    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
+    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+    total_timer->Start();
+    init_timer->Start();
+#endif
+    // Annotate the initialization
+    cu::Marker initMarker("initialization", cu::Marker::red);
+    initMarker.start();
+
     // Copy the lookup tables to constant memory on the device
     cu::Marker constantMarker("copy_constant_memory", cu::Marker::yellow);
     constantMarker.start();
@@ -226,22 +241,6 @@ void TDDPlan::execute_guru(
 
     // Compute the number of gulps (jobs)
     unsigned int nr_gulps = div_round_up(nsamps_computed, nsamps_computed_gulp_max);
-
-    // Annotate the initialization
-    cu::Marker initMarker("initialization", cu::Marker::red);
-    initMarker.start();
-
-    // Timers
-#ifdef DEDISP_BENCHMARK
-    std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
-    std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
-    total_timer->Start();
-    init_timer->Start();
-#endif
 
     // Organise device memory pointers
     std::cout << memory_alloc_str << std::endl;
@@ -396,6 +395,9 @@ void TDDPlan::execute_guru(
         job.output_lock.unlock();
     } // End of gulp loop
 
+    // Wait for host threads to exit
+    if (output_thread.joinable()) { output_thread.join(); }
+
 #ifdef DEDISP_BENCHMARK
     dtohstream->record(gulpEnd);
     gulpEnd.synchronize();
@@ -411,12 +413,19 @@ void TDDPlan::execute_guru(
     }
 
     // Print timings
+    long double runtime_time = preprocessing_timer->Milliseconds() + dedispersion_timer->Milliseconds();
+    runtime_time *= 1e-3; //seconds
+    std::stringstream runtime_time_string;
+    runtime_time_string << std::fixed;
+    runtime_time_string << runtime_time;
+
     std::cout << timings_str << std::endl;
     std::cout << init_time_str           << init_timer->ToString() << " sec." << std::endl;
     std::cout << preprocessing_time_str  << preprocessing_timer->ToString() << " sec." << std::endl;
     std::cout << dedispersion_time_str   << dedispersion_timer->ToString() << " sec." << std::endl;
     std::cout << input_memcpy_time_str   << input_timer->ToString() << " sec." << std::endl;
     std::cout << output_memcpy_time_str  << output_timer->ToString() << " sec." << std::endl;
+    std::cout << runtime_time_str        << runtime_time_string.str() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 
@@ -450,8 +459,6 @@ void TDDPlan::execute_guru(
     perf_file.close();
 #endif
 
-    // Wait for host threads to exit
-    if (output_thread.joinable()) { output_thread.join(); }
 }
 
 } // end namespace dedisp

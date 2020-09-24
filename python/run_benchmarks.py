@@ -24,6 +24,12 @@ def create_arg_parser():
                     help='Dry Run')
     return parser
 
+def prettyPrintDict(dictToPrint): #Print a dict
+    for key in dictToPrint:
+        printString = '{:45} {} '.format(key, dictToPrint[key])
+        print(printString)
+    return
+
 if __name__ == "__main__":
     #Run application and capture output
 
@@ -56,47 +62,55 @@ if __name__ == "__main__":
 
     parameters_benchmark = { "dedisp", "tdd", "fdd" }
     parameters_device = { "GPU" } #{ "CPU", "GPU" }
-    parameters_nsamp = { 224, 448 } #*1e4
-    parameters_segmented = { True, False }
-    parameters_ndm = { 250, 256, 500, 512, 1000, 1024 }
+    parameters_nchan = {1024} # {1024, 2048, 4096}
+    parameters_nsamp =  {4689920} #5 minutes # { 4689920, 9379840, 14069760} #5, 10, 15 minutes
+    parameters_segmented = { False } # { True, False }
+    parameters_ndm = { 128, 256, 512, 1024, 2048, 4096 } # { 128, 256, 512, 1024, 2048, 4096, 8192, 16384 }
 
     for benchmark in parameters_benchmark:
         for device in parameters_device:
-            for segmented in parameters_segmented:
-                for nsamp in parameters_nsamp:
-                    for ndm in parameters_ndm:
+            for nchan in parameters_nchan:
+                for segmented in parameters_segmented:
+                    for nsamp in parameters_nsamp:
+                        for ndm in parameters_ndm:
 
-                        # Skip certain combination of parameters
-                        if (benchmark is not "fdd"):
-                            # Only run CPU benchmark for FDD
-                            if (device is "CPU"):
-                                continue
-                            # Only run segmented benchmark for FDD
-                            if (segmented):
-                                continue
+                            # Skip certain combination of parameters
+                            if (benchmark is not "fdd"):
+                                # Only run CPU benchmark for FDD
+                                if (device is "CPU"):
+                                    continue
+                                # Only run segmented benchmark for FDD
+                                if (segmented):
+                                    continue
 
-                        # Set environment variables
-                        if (device is "GPU"):
-                            # Use numactl for all GPU benchmarks
-                            executable = string_numactl + path_bench + benchmark
-                            environment = "USE_CPU=0"
-                        else:
-                            executable = path_bench + benchmark
-                            environment = "USE_CPU=1"
+                            if (benchmark is "fdd"):
+                                if (device is "GPU"):
+                                    # Skip ndm > 3000 (bug to be fixed)
+                                    if (int(ndm) > 3000):
+                                        continue
 
-                        # Handle fdd segmented
-                        suffix = ""
-                        if (benchmark is "fdd"):
-                            environment += f" USE_SEGMENTED={int(segmented)}"
-                            if (segmented):
-                                suffix += "-seg"
+                            # Set environment variables
+                            if (device is "GPU"):
+                                # Use numactl for all GPU benchmarks
+                                executable = string_numactl + path_bench + benchmark
+                                environment = "USE_CPU=0"
+                            else:
+                                executable = path_bench + benchmark
+                                environment = "USE_CPU=1"
 
-                        name = f"{device}_{benchmark}{suffix}_nsamp{nsamp}_ndm{ndm}"
-                        command = f"{environment} {executable} -s {int(nsamp*1e4)} -n {ndm}"
+                            # Handle fdd segmented
+                            suffix = ""
+                            if (benchmark is "fdd"):
+                                environment += f" USE_SEGMENTED={int(segmented)}"
+                                if (segmented):
+                                    suffix += "-seg"
 
-                        # Add test
-                        test = { name, command }
-                        mytests[name] = command
+                            name = f"{device}_{benchmark}{suffix}_nchan{nchan}_nsamp{nsamp}_ndm{ndm}"
+                            command = f"{environment} {executable} -s {int(nsamp)} -n {ndm} -c {nchan} -i {niterations}"
+
+                            # Add test
+                            test = { name, command }
+                            mytests[name] = command
 
     #Get start times and format them
     starttime=time.localtime()
@@ -113,11 +127,11 @@ if __name__ == "__main__":
     print(f'Created directory {directory} for bechmark run results')
 
     print(f'Found {len(mytests)} tests to run:')
-    print(mytests)
+    prettyPrintDict(mytests)
 
     #Loop over all tests
     for i, testentry in enumerate(mytests):
-        print(f'### Running test: {i} out of {len(mytests)}')
+        print(f'### {time.strftime("%Y_%m_%d-%H_%M_%S", time.localtime())} Running test: {i+1} out of {len(mytests)}')
         print(f'{testentry}')
 
         #Create file to store output
@@ -129,17 +143,13 @@ if __name__ == "__main__":
             break
         f.write(f'### Benchmark: {testentry}, command {mytests[testentry]} ###\n')
 
-        #Loop over application and get timings, show progress bar
-        for i in tqdm.tqdm(range(niterations)):
-            #Run the application and capture output
-            if(not parsedArgs.dryRun):
-                output = subprocess.getoutput(mytests[testentry])
-            else: output = '...'
-            #Save to file
-            stringTestenty = '###\n'
-            stringTestenty += f'### Iteration {i} ###\n'
-            stringTestenty += '###\n'
-            f.write(stringTestenty + output + '\n')
+        #Run the application and capture output
+        if(not parsedArgs.dryRun):
+            output = subprocess.getoutput(mytests[testentry])
+        else: output = '...'
+        #Save to file
+        f.write(output)
+
         f.close()
 
     #Wrap up

@@ -105,11 +105,12 @@ void usage(void)
 {
   printf("Usage: benchfdd or benchdedisp with -n [nr of DM trials] -s [nr of samples] -c [nr of channels]\n\n");
   printf("No arguments        Default settings\n");
-  printf("-n [ntrails]        Number of DM trails.\n");
+  printf("-n [ntrails]        Number of DM trails\n");
   printf("-s [samples]        Number of samples to generate\n");
   printf("-c [samples]        Number of channels to generate\n");
   printf("-r [DM start(,end)] Alternative Start (and optional end) values of DM range to dedisperse\n");
-  printf("-t [Tobs]           Alternative observation time to use, use instead of -S\n");
+  printf("-t [Tobs]           Alternative observation time to use, use instead of -s\n");
+  printf("-i [niterations]    Number of iterations for the dedipsersion plan and execution\n");
   printf("-q                  Quiet; no verbose information to screen\n");
   printf("-h                  This help\n");
   return;
@@ -133,6 +134,7 @@ struct BenchParameters
   dedisp_size   nsamps          = 120000;
   dedisp_float  Tobs            = 0.0;
   bool          verbose         = true;
+  int           niterations     = 1;
 };
 
 int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
@@ -141,7 +143,7 @@ int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
   // Decode options
   if (argc>1)
   {
-    while ((arg=getopt(argc,argv,"r:s:n:c:t:q:h:"))!=-1)
+    while ((arg=getopt(argc,argv,"r:s:n:c:t:i:q:h:"))!=-1)
     {
       switch(arg)
       {
@@ -169,6 +171,10 @@ int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
 
         case 't':
           benchParameter.Tobs=atoi(optarg);
+        break;
+
+        case 'i':
+          benchParameter.niterations=atoi(optarg);
         break;
 
         case 'q':
@@ -229,15 +235,9 @@ int run(BenchParameters & benchParameter)
   dedisp_float Tobs        = benchParameter.Tobs;
   dedisp_float dt          = benchParameter.dt;
   dedisp_float f0          = benchParameter.f0;
-  dedisp_float bw          = benchParameter.bw;
   dedisp_size  nchans      = benchParameter.nchans;
   dedisp_float df          = benchParameter.df;
   dedisp_size  nsamps      = benchParameter.nsamps;
-
-  dedisp_float datarms     = 25.0;
-  dedisp_float sigDM = 41.159;
-  dedisp_float sigT = 3.14159; // seconds into time series (at f0)
-  dedisp_float sigamp = 25.0; // amplitude of signal
 
   dedisp_float dm_start    = benchParameter.dm_start;
   dedisp_float dm_end      = benchParameter.dm_end;
@@ -250,231 +250,144 @@ int run(BenchParameters & benchParameter)
   dedisp_float dm_step     = benchParameter.dm_step;
   dedisp_size  max_delay;
   dedisp_size  nsamps_computed;
-  dedisp_byte *input  = 0;
-  dedisp_float *output = 0;
 
-  unsigned int i,nc,ns,nd;
   dedisp_float *dmlist;
-  //const dedisp_size *dt_factors;
-  dedisp_float *delay_s;
-
-  dedisp_float *rawdata;
 
   std::unique_ptr<Stopwatch> tbench(Stopwatch::create());
   std::unique_ptr<Stopwatch> tinit(Stopwatch::create());
   std::unique_ptr<Stopwatch> tplan(Stopwatch::create());
   std::unique_ptr<Stopwatch> texecute(Stopwatch::create());
-  std::unique_ptr<Stopwatch> tcheck(Stopwatch::create());
   tbench->Start();
   tinit->Start();
 
-  printf("Starting benchmark\n");
+  printf("Starting benchmark for %d iterations \n", benchParameter.niterations);
+
+  auto maxBufferSize = std::max(nsamps * nchans * (in_nbits/8) * sizeof(dedisp_float), nsamps * dm_count * (out_nbits/8) * sizeof(dedisp_byte));
+
   if(benchParameter.verbose)
   {
-    printf("----------------------------- INPUT DATA ---------------------------------\n");
+    printf("------------------------ INPUT AND OUTPUT DATA ---------------------------\n");
     printf("Frequency of highest chanel [MHz]            : %.4f\n",f0);
-    printf("Bandwidth (MHz)                              : %.2f\n",bw);
     printf("NCHANS (Channel Width [MHz])                 : %lu (%f)\n",nchans,df);
-    printf("Sample time (after downsampling by %.0f [us])    : %f\n",downsamp,dt/1E-6);
+    printf("Sample time (after downsampling by %.0f [us])   : %f\n",downsamp,dt/1E-6);
     printf("Observation duration [s]                     : %f (%lu samples)\n",Tobs,nsamps);
-    printf("Data RMS (%2lu bit input data)                 : %f\n",in_nbits,datarms);
-    printf("Input data array size                        : %lu MB\n",(nsamps*nchans*sizeof(float))/(1<<20));
+    printf("Input data                                   : %2lu bits \n",in_nbits);
+    printf("Output data                                  : %2lu bits \n",out_nbits);
+    printf("Input data array size                        : %lu MB\n",(nsamps*nchans*(in_nbits/8)*sizeof(dedisp_float))/(1<<20));
+    printf("Output (max) data array size                 : %lu MB\n",(nsamps*dm_count*(out_nbits/8)*sizeof(dedisp_byte))/(1<<20));
+    printf("Shared input/output dummy buffer size        : %lu MB, %lu GB\n",maxBufferSize/(1<<20), maxBufferSize/(1<<30));
     printf("\n");
   }
 
-  /* Initialize random number generator */
-  auto random = std::bind(std::normal_distribution<float>(0, 1),
-                          std::mt19937(0));
+  /* Allocate a shared buffer for input and output, don't care about the contents.
+  This saves benchmarking initialization time but does not impact implementation benchmarking time */
 
-  /* First build 2-D array of floats with our signal in it */
-  rawdata = (dedisp_float *) malloc(nsamps*nchans*sizeof(dedisp_float));
-
-  //#pragma omp parallel for
-  for (ns=0; ns<nsamps; ns++) {
-    for (nc=0; nc<nchans; nc++) {
-      rawdata[ns*nchans+nc] = datarms*random();
-    }
+  auto dummyData = (dedisp_float *) malloc(maxBufferSize);
+  if (dummyData == NULL) {
+    printf("\nERROR: Failed to allocate shared input/output dummy buffer array\n");
+    return -1;
   }
 
-  /* Now embed a dispersed pulse signal in it */
-  delay_s = (dedisp_float *) malloc(nchans*sizeof(dedisp_float));
-  #pragma omp parallel for
-  for (nc=0; nc<nchans; nc++) {
-    dedisp_float a = 1.f/(f0+nc*df);
-    dedisp_float b = 1.f/f0;
-    delay_s[nc] = sigDM*4.15e3 * (a*a - b*b);
-  }
-  if(benchParameter.verbose) printf("Embedding signal\n");
-  #pragma omp parallel for
-  for (nc=0; nc<nchans; nc++) {
-    ns = (int)((sigT + delay_s[nc])/dt);
-    if (ns > nsamps) {
-      printf("ns too big %u\n",ns);
-      exit(1);
-    }
-    rawdata[ns*nchans + nc] += sigamp;
-  }
+  // both input and output point to the same dummy memory location, but with different pointer types
+  dedisp_byte *input  = (dedisp_byte *) dummyData;
+  dedisp_float *output = (dedisp_float *) dummyData;
 
   if(benchParameter.verbose)
   {
     printf("\n");
     printf("----------------------------- INJECTED SIGNAL  ----------------------------\n");
-    printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
-    printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
-    printf("Signal Delays : %f, %f, %f ... %f\n",delay_s[0],delay_s[1],delay_s[2],delay_s[nchans-1]);
-    /*
-      input is a pointer to an array containing a time series of length
-      nsamps for each frequency channel in plan. The data must be in
-      time-major order, i.e., frequency is the fastest-changing
-      dimension, time the slowest. There must be no padding between
-      consecutive frequency channels.
-    */
-
-    dedisp_float raw_mean, raw_sigma;
-    calc_stats_float(rawdata, nsamps*nchans, &raw_mean, &raw_sigma);
-    printf("Rawdata Mean (includes signal)    : %f\n",raw_mean);
-    printf("Rawdata StdDev (includes signal)  : %f\n",raw_sigma);
-    printf("Pulse S/N (per frequency channel) : %f\n",sigamp/datarms);
+    printf("Uninitialized dummy data \n");
   }
   tinit->Pause();
-  tplan->Start();
 
-  input = (dedisp_byte *) malloc(nsamps * nchans * (in_nbits/8));
-
-  if(benchParameter.verbose) printf("Quantizing array\n");
-  /* Now fill array by quantizing rawdata */
-  for (ns=0; ns<nsamps; ns++) {
-    for (nc=0; nc<nchans; nc++) {
-      input[ns*nchans+nc] = bytequant(rawdata[ns*nchans+nc]);
-    }
-  }
-
-  if(benchParameter.verbose)
+  for(int iPlan = 0; iPlan < benchParameter.niterations; iPlan++)
   {
-    dedisp_float in_mean, in_sigma;
-    calc_stats_8bit(input, nsamps*nchans, &in_mean, &in_sigma);
+    tplan->Start();
 
-    printf("Quantized data Mean (includes signal)    : %f\n",in_mean);
-    printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
     printf("\n");
-  }
+    printf("------------------------- ITERATION %d out of %d  -------------------------\n", iPlan+1, benchParameter.niterations);
 
-  if(benchParameter.verbose) printf("Create plan\n");
-  // Create a dedispersion plan
-  PlanType plan(nchans, dt, f0, df);
+    if(benchParameter.verbose) printf("Create plan\n");
+    // Create a dedispersion plan
+    PlanType plan(nchans, dt, f0, df);
 
-  if(benchParameter.verbose) printf("Init GPU\n");
-  // Initialise the GPU
-  plan.set_device(device_idx);
+    if(benchParameter.verbose) printf("Init GPU\n");
+    // Initialise the GPU
+    plan.set_device(device_idx);
 
-  if(benchParameter.verbose) printf("Gen DM list\n");
-  // Generate a list of dispersion measures for the plan
-  if (dm_count==0)
-  {
-    if (benchParameter.verbose) printf("Generating optimal DM trials\n");
-    plan.generate_dm_list(dm_start,dm_end,pulse_width,dm_tol);
-  }
-  else
-  { // Generate a list of dispersion measures for the plan
-    if (benchParameter.verbose) printf("Generating linear DM trials\n");
-    dmlist=(dedisp_float *) calloc(sizeof(dedisp_float),dm_count);
-    for (i=0;i<dm_count;i++)
+    if(benchParameter.verbose) printf("Gen DM list\n");
+    // Generate a list of dispersion measures for the plan
+    if (dm_count==0)
     {
-      dmlist[i]=(dedisp_float) dm_start+dm_step*i;
+      if (benchParameter.verbose) printf("Generating optimal DM trials\n");
+      plan.generate_dm_list(dm_start,dm_end,pulse_width,dm_tol);
     }
-    plan.set_dm_list(dmlist,dm_count);
-  }
-
-  // Find the parameters that determine the output size
-  dm_count = plan.get_dm_count();
-  max_delay = plan.get_max_delay();
-  nsamps_computed = nsamps - max_delay;
-  dmlist=(float *)plan.get_dm_list();
-  //dt_factors = plan.get_dt_factors(plan);
-
-  if(benchParameter.verbose)
-  {
-    printf("\n");
-    printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
-    printf("Computing %lu DMs from %f to %f pc/cm^3\n",dm_count,dmlist[0],dmlist[dm_count-1]);
-    printf("Max DM delay is %lu samples (%.f seconds)\n",max_delay,max_delay*dt);
-    printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",nsamps_computed,nsamps,100.0*(dedisp_float)nsamps_computed/nsamps);
-    printf("Output data array size : %lu MB\n",(dm_count*nsamps_computed*(out_nbits/8))/(1<<20));
-    printf("\n");
-  }
-
-  // Allocate space for the output data
-  output = (dedisp_float *) malloc(nsamps_computed * dm_count * out_nbits/8);
-  if (output == NULL) {
-    printf("\nERROR: Failed to allocate output array\n");
-    return -1;
-  }
-
-  tplan->Pause();
-  texecute->Start();
-
-  printf("\n");
-  printf("--------------------------- PERFORM DEDISPERSION  -------------------------\n");
-  // Compute the dedispersion transform on the GPU
-  plan.execute(nsamps,
-			 input, in_nbits,
-			 (dedisp_byte *)output, out_nbits);
-  texecute->Pause();
-  printf("\n");
-  printf("------------------------------ CHECK RESULT  ------------------------------\n");
-  // Look for significant peaks
-  tcheck->Start();
-  dedisp_float out_mean, out_sigma;
-  calc_stats_float(output, nsamps_computed*dm_count, &out_mean, &out_sigma);
-
-  printf("Output RMS                               : %f\n",out_mean);
-  printf("Output StdDev                            : %f\n",out_sigma);
-
-  if(benchParameter.verbose)
-  {
-  i=0;
-    for (nd=0; nd<dm_count; nd++) {
-      for (ns=0; ns<nsamps_computed; ns++) {
-        dedisp_size idx = nd*nsamps_computed+ns;
-        dedisp_float val = output[idx];
-        if (val-out_mean > 6.0*out_sigma) {
-    printf("DM trial %u (%.3f pc/cm^3), Samp %u (%.6f s): %f (%.2f sigma)\n",nd,dmlist[nd],ns,ns*dt,val,(val-out_mean)/out_sigma);
-    i++;
-    if (i>100)
-      break;
-        }
+    else
+    { // Generate a list of dispersion measures for the plan
+      if (benchParameter.verbose) printf("Generating linear DM trials\n");
+      dmlist=(dedisp_float *) calloc(sizeof(dedisp_float),dm_count);
+      for (dedisp_size i=0;i<dm_count;i++)
+      {
+        dmlist[i]=(dedisp_float) dm_start+dm_step*i;
       }
-      if (i>100)
-        break;
+      plan.set_dm_list(dmlist,dm_count);
     }
-  }
 
-  #if WRITE_INPUT_DATA
-  FILE *file_in = fopen("input.bin", "wb");
-  fwrite(input, 1, (size_t) nsamps * nchans * (in_nbits/8), file_in);
-  fclose(file_in);
-  #endif
+    // Find the parameters that determine the output size
+    dm_count = plan.get_dm_count();
+    max_delay = plan.get_max_delay();
+    nsamps_computed = nsamps - max_delay;
+    dmlist=(float *)plan.get_dm_list();
 
-  #if WRITE_OUTPUT_DATA
-  FILE *file_out = fopen("output.bin", "wb");
-  fwrite(output, 1, (size_t) nsamps_computed * dm_count * out_nbits/8, file_out);
-  fclose(file_out);
-  #endif
+    if(benchParameter.verbose)
+    {
+      printf("\n");
+      printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
+      printf("Computing %lu DMs from %f to %f pc/cm^3\n",dm_count,dmlist[0],dmlist[dm_count-1]);
+      printf("Max DM delay is %lu samples (%.f seconds)\n",max_delay,max_delay*dt);
+      printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",nsamps_computed,nsamps,100.0*(dedisp_float)nsamps_computed/nsamps);
+      printf("\n");
+    }
 
-  tcheck->Pause();
+    tplan->Pause();
+    texecute->Start();
+
+    printf("\n");
+    printf("--------------------------- PERFORM DEDISPERSION  -------------------------\n");
+    // Compute the dedispersion transform on the GPU
+    plan.execute(nsamps,
+        input, in_nbits,
+        (dedisp_byte *) output, out_nbits);
+    texecute->Pause();
+
+    // Print timings
+    if(benchParameter.verbose)
+    {
+      tbench->Pause();
+      printf("\n");
+      printf("------------- BENCHMARK TIMES (accumulated for %d iteration(s)) -------------\n", iPlan+1);
+      std::cout << "Benchmark total time:      " << tbench->ToString() << " sec." << std::endl;
+      std::cout << "Benchmark init time:       " << tinit->ToString() << " sec." << std::endl;
+      std::cout << "Benchmark plan time:       " << tplan->ToString() << " sec." << std::endl;
+      std::cout << "Benchmark execute time:    " << texecute->ToString() << " sec." << std::endl;
+      tbench->Start();
+    }
+  }// end for niterations
   tbench->Pause();
+
   // Print timings
-  printf("\n");
-  printf("----------------------------- BENCHMARK TIMES  ----------------------------\n");
-  std::cout << "Benchmark total time:      " << tbench->ToString() << " sec." << std::endl;
-  std::cout << "Benchmark init time:       " << tinit->ToString() << " sec." << std::endl;
-  std::cout << "Benchmark plan time:       " << tplan->ToString() << " sec." << std::endl;
-  std::cout << "Benchmark execute time:    " << texecute->ToString() << " sec." << std::endl;
-  std::cout << "Benchmark check time:      " << tcheck->ToString() << " sec." << std::endl;
+  if(!benchParameter.verbose)
+  {
+    printf("\n");
+    printf("------------- BENCHMARK TIMES (accumulated for %d iteration(s)) -------------\n", benchParameter.niterations);
+    std::cout << "Benchmark total time:      " << tbench->ToString() << " sec." << std::endl;
+    std::cout << "Benchmark init time:       " << tinit->ToString() << " sec." << std::endl;
+    std::cout << "Benchmark plan time:       " << tplan->ToString() << " sec." << std::endl;
+    std::cout << "Benchmark execute time:    " << texecute->ToString() << " sec." << std::endl;
+  }
 
   // Clean up
-  free(output);
-  free(input);
+  free(dummyData);
   printf("Benchmark finished\n");
   return 0;
 }
