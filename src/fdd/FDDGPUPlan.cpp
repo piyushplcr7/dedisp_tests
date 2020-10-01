@@ -97,13 +97,13 @@ void FDDGPUPlan::execute_gpu(
     std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
-    unsigned int ndm_batch_max = 256;
+    unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int) 64);
     unsigned int ndm_fft_batch = 32;
                  ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
     unsigned int ndm_buffers   = 1;
 
     // Maximum number of channels processed in one gulp
-    unsigned int nchan_batch_max = 128;
+    unsigned int nchan_batch_max = std::min(nchan / 4, (unsigned int) 64);
     unsigned int nchan_fft_batch = 64;
     unsigned int nchan_buffers   = 2;
 
