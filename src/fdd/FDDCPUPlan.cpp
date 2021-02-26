@@ -500,7 +500,8 @@ void FDDCPUPlan::execute_cpu(
     {
         std::cout << ">> Running optimized implementation" << std::endl;
         dedispersion_timer->Start();
-        dedisperse_optimized<float, float, 32, true>(
+        // Set last templated parameter to true to enable extrapolation feature
+        dedisperse_optimized<float, float, 32, false>(
             ndm, nfreq, nchan,                      // data dimensions
             dt,                                     // sample time
             h_spin_frequencies.data(),              // spin frequencies
@@ -735,7 +736,8 @@ void FDDCPUPlan::execute_cpu_segmented(
             );
         } else {
             std::cout << ">> Running optimized kernel" << std::endl;
-            dedisperse_optimized<float, float, 32, true>(
+            // Set last templated parameter to true to enable extrapolation feature
+            dedisperse_optimized<float, float, 32, false>(
                 ndm, nfreq, nchan,         // data dimensions
                 dt,                        // sample time
                 h_spin_frequencies.data(), // spin frequencies
