@@ -1,3 +1,9 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* This Stopwatch class is copied from the IDG repository
+* (https://git.astron.nl/RD/idg)
+*/
 #include "Stopwatch.h"
 
 #include <string>

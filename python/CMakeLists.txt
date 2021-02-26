@@ -1,9 +1,7 @@
 install(
     FILES
-        filterbank.py
-        plot_burst.py
-        psr_constants.py
-        sigproc.py
+        run_benchmarks.py
+        run_benchmarks_analysis.py
     DESTINATION bin/python
     PERMISSIONS
         OWNER_READ OWNER_WRITE OWNER_EXECUTE

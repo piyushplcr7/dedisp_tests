@@ -1,9 +1,12 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* Time Domain Dedispersion (TDD)
+* is an optimized version of the original dedisp implementation.
+*/
 #include "TDDKernel.hpp"
-
 #include "dedisperse_kernel.cuh"
-
 #include "common/cuda/CU.h"
-
 
 // Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256

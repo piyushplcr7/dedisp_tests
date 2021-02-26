@@ -1,3 +1,21 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* Time Domain Dedispersion (TDD)
+* is an optimized version of the original dedisp implementation.
+* Optimizations include:
+* - Overlapping of compute and I/O, moving input and output copy out of
+*   the critical path
+* - Changing paged memory transfers to pinned memory transfers,
+*   thus increasing transfer speeds by a factor of 2 to 3
+* - Fusing unpack and transpose kernels in to one kernel,
+*   thus requiring only a single pass over the data for the same operations.
+* - Texture memory was made optional (in TDDKernel.hpp)
+*   and is disabled for the current implementation on Nvidia Turing architecture.
+*   Perfromance of the kernel with/without texture memory differs per GPU architecture.
+*   Usage of texture memory is observed to be beneficial for Nvidia Pascal,
+*   but causes a performance degradation with Nvidia Turing architecture.
+*/
 #include <thread>
 #include <mutex>
 #include <iostream>

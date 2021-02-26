@@ -42,6 +42,12 @@ class DedispKernel
 
 
     private:
+        /* m_use_texture_mem is a tuning parameter.
+        *  Set m_use_texture_mem to true to enable usage of texture memory in the TDDKernel.
+        *  Perfromance of the kernel with/without texture memory differs per GPU architecture.
+        *  Usage of texture memory is beneficial for Nvidia Pascal,
+        *  but causes a performance degradation with Nvidia Turing architecture.
+        */
         bool m_use_texture_mem = false;
         dedisp_word* m_d_in = nullptr;
 };

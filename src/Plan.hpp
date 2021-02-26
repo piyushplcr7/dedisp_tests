@@ -1,3 +1,9 @@
+/*
+* Generic Plan class to be used with TDD and FDD implementations
+* Generic code from the original DedisPlan class was moved here,
+* with the intention that alternative dedispersion implementations
+* can be added without too much duplication.
+*/
 #ifndef DEDISP_PLAN_H_INCLUDE_GUARD
 #define DEDISP_PLAN_H_INCLUDE_GUARD
 

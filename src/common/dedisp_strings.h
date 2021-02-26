@@ -1,3 +1,8 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* String constants for consistency in stdout messages.
+*/
 #include <string>
 
 static const std::string init_time_str           = "Initialization time : ";

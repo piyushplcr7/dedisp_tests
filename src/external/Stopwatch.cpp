@@ -1,9 +1,21 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* This Stopwatch class is copied from the IDG repository
+* (https://git.astron.nl/RD/idg/-/commit/9bed1e356bcfde0e96b1a4d21f143a1eae4dbfcb)
+* and modified to work without the data.h header file.
+* The ToString method now only reports time in seconds and milliseconds.
+* Original:
+* SPDX-License-Identifier: GPL-3.0
+* SPDX-FileCopyrightText: 2020 ASTRON (Netherlands Institute for Radio Astronomy)
+*/
 #include "StopwatchImpl.h"
 
 #include <cmath>
 #include <ctime>
 #include <sstream>
 
+// Create a new Stopwatch
 Stopwatch* Stopwatch::create()
 {
     return new StopwatchImpl();
@@ -20,6 +32,7 @@ StopwatchImpl::~StopwatchImpl()
 {
 }
 
+// Start Stopwatch
 void StopwatchImpl::Start()
 {
     if (!m_running)
@@ -29,6 +42,7 @@ void StopwatchImpl::Start()
     }
 }
 
+// Pause Stopwatch
 void StopwatchImpl::Pause()
 {
     if (m_running)
@@ -40,12 +54,14 @@ void StopwatchImpl::Pause()
     }
 }
 
+// Reset the Stopwatch
 void StopwatchImpl::Reset()
 {
     m_running = false;
     m_time_sum = std::chrono::duration<double>::zero();
 }
 
+// Add ms [double] to this Stopwatch
 void StopwatchImpl::Add(
     double ms)
 {
@@ -53,6 +69,7 @@ void StopwatchImpl::Add(
     m_time_sum += std::chrono::microseconds(microseconds);
 }
 
+// Return string, convert from input ms to output seconds
 std::string Stopwatch::ToString(
     int64_t ms)
 {
@@ -65,6 +82,7 @@ std::string Stopwatch::ToString(
     return output.str();
 }
 
+// Return string, convert from duration in ms to string in ms
 std::string StopwatchImpl::ToString(
     const std::chrono::duration<double>& duration) const
 {
@@ -72,6 +90,7 @@ std::string StopwatchImpl::ToString(
     return Stopwatch::ToString(ms);
 }
 
+// Return Stopwatch sum as string
 std::string StopwatchImpl::ToString() const
 {
     if (m_running)
@@ -84,16 +103,19 @@ std::string StopwatchImpl::ToString() const
     }
 }
 
+// Return Stopwatch sum as milliseconds
 long double StopwatchImpl::Milliseconds() const
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(m_time_sum).count();
 }
 
+// Return Stopwatch sum as seconds
 long double StopwatchImpl::Seconds() const
 {
     return std::chrono::duration_cast<std::chrono::seconds>(m_time_sum).count();
 }
 
+// Return Stopwatch count [unsigned int]
 unsigned int StopwatchImpl::Count() const
 {
     return m_count;

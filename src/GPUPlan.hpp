@@ -1,3 +1,8 @@
+/*
+* Generic GPUPlan class to be used with TDD and FDD GPU implementations.
+* Generic GPU code from the original DedisPlan class was moved here.
+* Code that is common to both CPU and GPU implementations is in the Plan class.
+*/
 #ifndef DEDISP_PLAN_H_GPU_INCLUDE_GUARD
 #define DEDISP_PLAN_H_GPU_INCLUDE_GUARD
 

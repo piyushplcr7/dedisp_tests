@@ -1,3 +1,5 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "FDDGPUPlan.hpp"
 
 #include <complex>
@@ -38,7 +40,7 @@ FDDGPUPlan::FDDGPUPlan(
 FDDGPUPlan::~FDDGPUPlan()
 {}
 
-// Public interface
+// Public interface for FDD on GPU
 void FDDGPUPlan::execute(
     size_type        nsamps,
     const byte_type* in,
@@ -52,13 +54,13 @@ void FDDGPUPlan::execute(
     {
         std::cout << ">> Running segmented GPU implementation" << std::endl;
         execute_gpu_segmented(nsamps, in, in_nbits, out, out_nbits);
-    } else {
+    } else { // Default
         std::cout << ">> Running GPU implementation" << std::endl;
         execute_gpu(nsamps, in, in_nbits, out, out_nbits);
     }
 }
 
-// Private interface
+// Private interface for FDD on GPU
 void FDDGPUPlan::execute_gpu(
     size_type        nsamps,
     const byte_type* in,
@@ -85,9 +87,10 @@ void FDDGPUPlan::execute_gpu(
     unsigned int nsamp_computed = nsamp - m_max_delay;
 
     // Use zero-padded FFT
+    // This allows for a more efficient FFT implementation with cuFFT
     bool use_zero_padding = true;
-
     // Compute padded number of samples (for r2c transformation)
+    // the round_up value might be tuned for efficiency depending on system architecture
     unsigned int nsamp_fft    = use_zero_padding
                                 ? round_up(nsamp + 1, 16384)
                                 : nsamp;
@@ -97,12 +100,15 @@ void FDDGPUPlan::execute_gpu(
     std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 
     // Maximum number of DMs computed in one gulp
+    // Parameters might be tuned for efficiency depending on system architecture
     unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int) 64);
     unsigned int ndm_fft_batch = 32;
                  ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
+    // The number of buffers for DM results is configured below based on the amount of available GPU memory.
     unsigned int ndm_buffers   = 1;
 
     // Maximum number of channels processed in one gulp
+    // Parameters might be tuned for efficiency depending on system architecture
     unsigned int nchan_batch_max = std::min(nchan / 4, (unsigned int) 64);
     unsigned int nchan_fft_batch = 64;
     unsigned int nchan_buffers   = 2;
@@ -203,6 +209,7 @@ void FDDGPUPlan::execute_gpu(
                               sizeof_data_x_dm * ndm_buffers;
     size_t memory_reserved  = 0.05 * memory_total;
 
+    // Iteratively search for a maximum amount of ndm_buffers, with safety margin
     while ((ndm_buffers * ndm_batch_max) < ndm &&
            (memory_required + memory_reserved + sizeof_data_x_dm) < memory_free)
     {
@@ -283,9 +290,9 @@ void FDDGPUPlan::execute_gpu(
         cu::Event outputStart, outputEnd;
     };
 
+    // Configure ChannelData jobs
     unsigned int nchan_jobs = (nchan + nchan_batch_max) / nchan_batch_max;
     std::vector<ChannelData> channel_jobs(nchan_jobs);
-
     for (unsigned job_id = 0; job_id < nchan_jobs; job_id++)
     {
         ChannelData& job = channel_jobs[job_id];
@@ -312,9 +319,9 @@ void FDDGPUPlan::execute_gpu(
         cu::Event outputStart, outputEnd;
     };
 
+    // Configure DMData jobs
     unsigned int ndm_jobs = (ndm + ndm_batch_max) / ndm_batch_max;
     std::vector<DMData> dm_jobs(ndm_jobs);
-
     for (unsigned job_id = 0; job_id < ndm_jobs; job_id++)
     {
         DMData& job = dm_jobs[job_id];
@@ -329,6 +336,7 @@ void FDDGPUPlan::execute_gpu(
         job.output_lock.lock();
     }
 
+    // Launch thread to copy output data from device to host for each dm_job
     std::thread output_thread = std::thread([&]()
     {
         for (auto& dm_job : dm_jobs)
@@ -367,7 +375,7 @@ void FDDGPUPlan::execute_gpu(
     htodstream->record(eStartGPU);
     mExeGPU.start();
 
-    // Process all dm batches
+    // Process all dm batches (outer dm jobs)
     for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size(); dm_job_id_outer += ndm_buffers)
     {
         // Process all channel batches
@@ -439,7 +447,7 @@ void FDDGPUPlan::execute_gpu(
             }
             executestream->record(channel_job.preprocessingEnd);
 
-            // Process DM batches
+            // Process DM batches (inner dm jobs)
             for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
             {
                 unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
@@ -579,7 +587,8 @@ void FDDGPUPlan::execute_gpu(
             executestream->record(dm_job.postprocessingEnd);
 
             // Copy output
-            // Output is picked up by host side thread and copied from CPU pinned to paged memory
+            // Output is picked up by (already running) host side thread
+            // and is there copied from CPU pinned to paged memory
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
             dedisp_size size = 1ULL * dm_job.ndm_current * dm_stride;
@@ -628,6 +637,22 @@ void FDDGPUPlan::execute_gpu(
     std::cout << std::endl;
 }
 
+/*    Refer to execute_gpu() above for additional comments on common constructs
+    * Optional feature:
+    * Input samples are divided in to nicely dimensioned
+    * segments (time samples) and then processed for all DMs.
+    * This allows to only copy input data to the GPU once.
+    * Contrary to the alternative approach where, for large amounts of trial-DMs we introduce an
+    * outer DM job to overcome GPU memory size limitations, the separation in outer DM jobs
+    * requires an additional pass/passess over the input data which might lead to inefficiency.
+    * However we are able to overlap transfer and compute well, thus minimizing inefficiency.
+    * Also segmentation allows for smaller sized (more efficient) FFTs.
+    * We are leaving this feature in because the balance between the current default method
+    * (dimensioning in DM outer and inner jobs) and this feature might be different
+    * depending on the GPU Architecture.
+    * Note the time segmentation feature might miss very large DMs when using small segments of input data.
+ */
+// Private interface for FDD on GPU with time segmentation of input data
 void FDDGPUPlan::execute_gpu_segmented(
     size_type        nsamps,
     const byte_type* in,
@@ -650,11 +675,24 @@ void FDDGPUPlan::execute_gpu_segmented(
     unsigned int nfreq = (nsamp/2 + 1); // number of spin frequencies
     unsigned int ndm   = m_dm_count;    // number of DMs
     unsigned int nfft  = 16384;         // number of samples processed in a segment
+    // nfft should be set to a mulitple of powers of 2, 3 or 5 for good cuFFT performance
 
     // Compute the number of output samples
     unsigned int nsamp_computed = nsamp - m_max_delay;
 
-    // Compute the number of chunks
+    /* Compute the number of time segments ("chunks" hereafter):
+    *  Segmentation of input samples introduces errors in the FFTed data
+    *  nsamp_good denotes the good results, the other results are unused
+    *  thus creating an inefficiency.
+    *  The inefficiency might be acceptable depending on the cost of a.o.:
+    *  - copy of input data
+    *  - input data size (nfft)
+    *  - efficiency of the FFT (nfft)
+    *  - GPU memory size (nchan_ and ndm_ buffers)
+    *  - Balance between nfft and nsamp_dm
+    *  Here nfft is tuned to a specified minimal efficiency (min_efficiency)
+    *  nchunk is based on the number of good samples (nsamp_good)
+    */
     unsigned int nsamp_dm   = std::ceil(m_max_delay);
     float min_efficiency    = 0.8;
     while ((nfft * (1.0 - min_efficiency)) < nsamp_dm) { nfft *= 2; };
@@ -721,7 +759,10 @@ void FDDGPUPlan::execute_gpu_segmented(
     total_timer->Start();
     init_timer->Start();
 
-    // Allocate memory
+    /* Allocate memory
+    *  nchan_buffers and ndm_buffers might be made automatic tuning parameters.
+    *  When used in production one should add error checking on overallocating memory.
+    */
     std::cout << memory_alloc_str << std::endl;
     mAllocMem.start();
     cu::HostMemory   h_data_t_dm(ndm * nsamp_padded * sizeof(float));
@@ -1143,7 +1184,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     std::cout << std::endl;
 }
 
-// Private helper functions
+// Private helper function
 void FDDGPUPlan::generate_spin_frequency_table(
     dedisp_size nfreq,
     dedisp_size nsamp,

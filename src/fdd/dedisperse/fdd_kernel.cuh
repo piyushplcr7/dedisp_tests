@@ -1,9 +1,10 @@
-// This value is set according to the constant memory size
-// for all NVIDIA GPUs to date, which is 64 KB and
-// sizeof(dedisp_float) = 4
-#define DEDISP_MAX_NCHANS 16384
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 // Constant reference for input data
+// This value is set according to the constant memory size
+// for all NVIDIA GPUs to date, which is 64 KB and sizeof(dedisp_float) = 4
+#define DEDISP_MAX_NCHANS 16384
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 
 // The number of DMs computed by a single thread block
@@ -23,6 +24,8 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 /*
  * Helper functions
  */
+
+ // Multiply two float2 operands
 inline __device__ float2 operator*(float2 a, float2 b) {
     float2 c;
     asm ("mul.f32 %0,%1,%2;" : "=f"(c.x) : "f"(a.x), "f"(b.x));
@@ -32,17 +35,20 @@ inline __device__ float2 operator*(float2 a, float2 b) {
     return c;
 }
 
+// Add and assign two float2 operands
 inline __device__ void operator+=(float2 &a, float2 b) {
     a.x += b.x;
     a.y += b.y;
 }
 
+// Multiply and assign two float2 operands
 inline __device__ void operator*=(float2 &a, float2 b) {
     float2 c = a * b;
     a.x = c.x;
     a.y = c.y;
 }
 
+// Multiply-and-accumulate (MAC) for complex operands
 inline __device__ void cmac(float2 &a, float2 b, float2 c)
 {
     asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
@@ -51,6 +57,7 @@ inline __device__ void cmac(float2 &a, float2 b, float2 c)
     asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.y), "f"(c.x), "f"(a.y));
 }
 
+// Use the Special Function Unit (SFU) for the sine evaluation
 inline __device__ float raw_sin(float a)
 {
     float r;
@@ -58,6 +65,7 @@ inline __device__ float raw_sin(float a)
     return r;
 }
 
+// Use the Special Function Unit (SFU) for the cosine evaluation
 inline __device__ float raw_cos(float a)
 {
     float r;
@@ -65,9 +73,9 @@ inline __device__ float raw_cos(float a)
     return r;
 }
 
-
 /*
  * dedisperse kernel
+ * FDD computes dedispersion as phase rotations in the Fourier domain
  */
 template<unsigned int NCHAN, bool extrapolate>
 __global__
@@ -127,7 +135,7 @@ void dedisperse_kernel(
             f = d_spin_frequencies[ifreq_current];
         }
 
-        // Add to output sample
+        // Apply phase rotation to input sample and add to output sample
         for (unsigned int ichan_outer = 0; ichan_outer < NCHAN; ichan_outer += NCHAN_BATCH_THREAD)
         {
             // Load samples from device memory to shared memory
@@ -146,7 +154,11 @@ void dedisperse_kernel(
             #endif
 
             if (extrapolate)
-            {
+            {   // This is an experimental optimization feature,
+                // where extrapolation is used in the computation of the phasors
+                // in order to reach a better balance in sin and cos operations vs multiply and accumulate operations.
+                // This feature should be further explored to determine whether functional correctness is achieved at all times.
+
                 // Compute initial and delta phasor values
                 float2 phasors[NDM_BATCH_GRID];
                 float2 phasors_delta[NDM_BATCH_GRID];
@@ -183,7 +195,9 @@ void dedisperse_kernel(
                         phasors[i] *= phasors_delta[i];
                     }
                 } // end for ichan_inner
-            } else {
+            }
+            else // Not using the extrapolation feature
+            {
                 for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH_THREAD; ichan_inner++)
                 {
                     unsigned int ichan = ichan_outer + ichan_inner;
@@ -224,8 +238,8 @@ void dedisperse_kernel(
                 size_t out_idx = idm * out_stride + ifreq_current;
                 d_out[out_idx] = sums[i];
             }
-        } // end if ifreq
-    } // end for ifreq_outer
+        } // end if ifreq_current < nfreq
+    } // end for ifreq_current loop
 } // end dedisperse_kernel
 
 
