@@ -14,6 +14,7 @@ target_link_libraries(
     ${CUDA_CUDART_LIBRARY}
     common
     external
+    plan
 )
 
 target_include_directories(
