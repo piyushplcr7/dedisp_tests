@@ -9,17 +9,89 @@
 #include <math.h>
 #include <time.h>
 #include <dedisp.h>
-float gasdev(long *idum);
+
+/*
+* Random number generation in the required range.
+* Originally from separate file in dedisp/examples, with copy right notice:
+* (C) Copr. 1986-92 Numerical Recipes Software ,)'1.
+*/
+float gasdev(long *idum)
+{
+	float ran1(long *idum);
+	static int iset=0;
+	static float gset;
+	float fac,rsq,v1,v2;
+
+	if  (iset == 0) {
+		do {
+			v1=2.0*ran1(idum)-1.0;
+			v2=2.0*ran1(idum)-1.0;
+			rsq=v1*v1+v2*v2;
+		} while (rsq >= 1.0 || rsq == 0.0);
+		fac=sqrt(-2.0*log(rsq)/rsq);
+		gset=v1*fac;
+		iset=1;
+		return v2*fac;
+	} else {
+		iset=0;
+		return gset;
+	}
+}
+
+/*
+* Random number generation in the required range.
+* Originally from separate file in dedisp/examples, with copy right notice:
+* (C) Copr. 1986-92 Numerical Recipes Software ,)'1.
+*/
+float ran1(long *idum)
+{
+  // constants
+  const int IA = 16807;
+  const unsigned int IM = 2147483647;
+  const double AM = (1.0/IM);
+  const int IQ = 127773;
+  const int IR = 2836;
+  const int NTAB = 32;
+  const double NDIV = (1+(IM-1)/NTAB);
+  const double EPS = 1.2e-7;
+  const double RNMX = (1.0-EPS);
+
+	int j;
+	long k;
+	static long iy=0;
+	static long iv[NTAB];
+	float temp;
+
+	if (*idum <= 0 || !iy) {
+		if (-(*idum) < 1) *idum=1;
+		else *idum = -(*idum);
+		for (j=NTAB+7;j>=0;j--) {
+			k=(*idum)/IQ;
+			*idum=IA*(*idum-k*IQ)-IR*k;
+			if (*idum < 0) *idum += IM;
+			if (j < NTAB) iv[j] = *idum;
+		}
+		iy=iv[0];
+	}
+	k=(*idum)/IQ;
+	*idum=IA*(*idum-k*IQ)-IR*k;
+	if (*idum < 0) *idum += IM;
+	j=iy/NDIV;
+	iy=iv[j];
+	iv[j] = *idum;
+	if ((temp=AM*iy) > RNMX) return RNMX;
+	else return temp;
+}
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
 {
   dedisp_float v = f + 127.5f;
   dedisp_byte r;
-  if (v>255.0) { 
-    r= (dedisp_byte)255; 
+  if (v>255.0) {
+    r= (dedisp_byte)255;
   } else if (v<0.0f) {
-    r= (dedisp_byte)0; 
+    r= (dedisp_byte)0;
   } else {
     r = (dedisp_byte)roundf(v);
   }
@@ -103,7 +175,7 @@ int main(int argc, char* argv[])
 
   dedisp_size  nsamps      = Tobs / dt;
   dedisp_float datarms     = 25.0;
-  dedisp_float sigDM = 41.159; 
+  dedisp_float sigDM = 41.159;
   dedisp_float sigT = 3.14159; // seconds into time series (at f0)
   dedisp_float sigamp = 25.0; // amplitude of signal
 
@@ -113,7 +185,7 @@ int main(int argc, char* argv[])
   dedisp_float dm_tol      = 1.25;
   dedisp_size  in_nbits    = 8;
   dedisp_size  out_nbits   = 32;  // DON'T CHANGE THIS FROM 32, since that signals it to use floats
-        
+
   dedisp_plan  plan;
   dedisp_error error;
   dedisp_size  dm_count;
@@ -166,17 +238,17 @@ int main(int argc, char* argv[])
     }
     rawdata[ns*nchans + nc] += sigamp;
   }
-        
+
   printf("----------------------------- INJECTED SIGNAL  ----------------------------\n");
   printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
   printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
   printf("Signal Delays : %f, %f, %f ... %f\n",delay_s[0],delay_s[1],delay_s[2],delay_s[nchans-1]);
-  /* 
+  /*
      input is a pointer to an array containing a time series of length
      nsamps for each frequency channel in plan. The data must be in
      time-major order, i.e., frequency is the fastest-changing
      dimension, time the slowest. There must be no padding between
-     consecutive frequency channels. 
+     consecutive frequency channels.
    */
 
   dedisp_float raw_mean, raw_sigma;
@@ -220,7 +292,7 @@ int main(int argc, char* argv[])
 	   dedisp_get_error_string(error));
     return -1;
   }
-        
+
   printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
   error = dedisp_generate_dm_list(plan, dm_start, dm_end, pulse_width, dm_tol);
@@ -229,7 +301,7 @@ int main(int argc, char* argv[])
 	   dedisp_get_error_string(error));
     return -1;
   }
-        
+
   // Find the parameters that determine the output size
   dm_count = dedisp_get_dm_count(plan);
   max_delay = dedisp_get_max_delay(plan);
@@ -251,7 +323,7 @@ int main(int argc, char* argv[])
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
   }
-        
+
   printf("Compute on GPU\n");
   startclock = clock();
   // Compute the dedispersion transform on the GPU
@@ -265,8 +337,8 @@ int main(int argc, char* argv[])
     return -1;
   }
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
-        
-  // Look for significant peaks 
+
+  // Look for significant peaks
   dedisp_float out_mean, out_sigma;
   calc_stats_float(output, nsamps_computed*dm_count, &out_mean, &out_sigma);
 
@@ -288,7 +360,7 @@ int main(int argc, char* argv[])
     if (i>100)
       break;
   }
-        
+
   // Clean up
   free(output);
   free(input);
