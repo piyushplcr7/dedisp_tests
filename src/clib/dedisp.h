@@ -20,15 +20,19 @@
   benbarsdell@gmail.com
   Originally developed while at the Centre for Astrophysics and Supercomputing,
   Swinburne University of Technology, Victoria, Australia
-  
+
   Limitations:  in_nbits must be one of: 1, 2, 4, 8, 16, 32
                out_nbits must be one of: 8, 16, 32
 */
 
+/*
+ * Adapted to use as C interface on top of renewed CPP implementation for dedisp
+ * /
+
 /*! \file dedisp.h
- *  \brief Defines the interface to the dedisp library
+ *  \brief Defines the C interface to the dedisp library
  *
- *  dedisp is a C library for computing the incoherent dedispersion transform
+ *  dedisp is a CPP library for computing the incoherent dedispersion transform
  *    using a GPU. It takes filterbank data as input and computes multiple
  *    dedispersed integrated time series at different dispersion measures.
  *  The application programming interface (API) is based on that of the FFTW
@@ -73,7 +77,7 @@ typedef enum {
 	DEDISP_USE_DEFAULT       = 0,
 	DEDISP_HOST_POINTERS     = 1 << 1,
 	DEDISP_DEVICE_POINTERS   = 1 << 2,
-	
+
 	DEDISP_WAIT              = 1 << 3,
 	DEDISP_ASYNC             = 1 << 4
 } dedisp_flag;
@@ -131,11 +135,12 @@ typedef enum {
  * DEDISP_UNKNOWN_ERROR: An unexpected error has occurred. Please contact the authors if you get this error.
  */
 
+#ifdef NOTDEFINED
 // Plan management
 // ---------------
 /*! \p dedisp_create_plan builds a new plan object using the given parameters
  *  and returns it in \p *plan.
- *  
+ *
  *  \param plan Pointer to a dedisp_plan object
  *  \param nchans Number of frequency channels
  *  \param dt Time difference between two consecutive samples in seconds
@@ -145,7 +150,7 @@ typedef enum {
  *  \p DEDISP_NO_ERROR, \p DEDISP_NCHANS_EXCEEDS_LIMIT,
  *  \p DEDISP_MEM_ALLOC_FAILED, \p DEDISP_MEM_COPY_FAILED,
  *  \p DEDISP_PRIOR_GPU_ERROR
- *  
+ *
  */
 dedisp_error dedisp_create_plan(dedisp_plan* plan,
                                 dedisp_size  nchans,
@@ -154,9 +159,9 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
                                 dedisp_float df);
 
 /*! \p dedisp_destroy_plan frees a plan and its associated resources
- *  
+ *
  *  \param plan Plan object to destroy
- */ 
+ */
 void         dedisp_destroy_plan(dedisp_plan plan);
 
 // Setters
@@ -176,7 +181,7 @@ void         dedisp_destroy_plan(dedisp_plan plan);
 dedisp_error dedisp_set_device(int device_idx);
 
 /*! \p dedisp_set_gulp_size sets the internal gulp size used by the library
- *  
+ *
  *  \param plan Plan object to set gulp size of
  *  \param gulp_size The new internal gulp size (arbitrary units, default: 131072)
  *  \return One of the following error codes: \n
@@ -187,7 +192,7 @@ dedisp_error dedisp_set_device(int device_idx);
 dedisp_error dedisp_set_gulp_size(dedisp_plan plan,
                                   dedisp_size gulp_size);
 /*! \p dedisp_get_gulp_size gets the internal gulp size used by the library
- *  
+ *
  *  \param plan Plan object to set gulp size of
  *  \return The internal gulp size used by the library (arbitrary units, default: 131072)
  */
@@ -213,7 +218,7 @@ dedisp_error dedisp_set_killmask(dedisp_plan        plan,
 
 /*! \p dedisp_set_dm_list sets a list of dispersion measures to be computed
  *       during dedispersion
- *  
+ *
  *  \param plan Plan object to apply dm list to.
  *  \param dm_list Array containing dispersion measures to be computed
  *    (in pc cm^-3).
@@ -230,11 +235,11 @@ dedisp_error dedisp_set_dm_list(dedisp_plan         plan,
                                 dedisp_size         count);
 /*! \p dedisp_generate_dm_list generates a list of dispersion measures to be
  *       computed during dedispersion
- *  
+ *
  *  \param plan Plan object to generate DM list for.
  *  \param dm_start The lowest DM to use, in pc cm^-3.
  *  \param dm_end The highest DM to use, in pc cm^-3.
- *  \param pulse_width The expected intrinsic width of the pulse signal in 
+ *  \param pulse_width The expected intrinsic width of the pulse signal in
  *    microseconds.
  *  \param tol The smearing tolerance factor between DM trials (a typical value
  *    is 1.25).
@@ -260,59 +265,59 @@ dedisp_float * dedisp_generate_dm_list_guru (dedisp_float dm_start, dedisp_float
 /*! \p dedisp_get_max_delay gets the maximum delay (in samples) applied during
  *  dedispersion. During dedispersion, the last max_delay samples are required
  *  for the computation of other samples, but are not themselves dedispersed.
- * 
+ *
  *  \return The maximum delay that is applied during execution of \p plan.
  *  \note A DM list for \p plan must exist prior to calling this function.
  */
 dedisp_size         dedisp_get_max_delay(const dedisp_plan plan);
 /*! \p dedisp_get_dm_delay gets the delay for a dispersion trial.
- * 
+ *
  *  \return The delay in samples for a given dispersion trial.
  */
 dedisp_size         dedisp_get_dm_delay(const dedisp_plan plan, int channel);
 /*! \p dedisp_get_channel_count gets the number of frequency channels in a plan.
- * 
+ *
  *  \return The number of frequency channels in \p plan.
  */
 dedisp_size         dedisp_get_channel_count(const dedisp_plan plan);
 /*! \p dedisp_get_dm_count gets the number of dispersion measures in a plan.
- * 
+ *
  *  \return The number of dispersion measures in \p plan.
  */
 dedisp_size         dedisp_get_dm_count(const dedisp_plan plan);
 /*! \p dedisp_get_dm_list gets the list of dispersion measures in a plan.
- * 
+ *
  *  \return Pointer to an array of dispersion measures in \p plan.
  *  \note This function returns a host pointer, not a device pointer.
  */
 const dedisp_float* dedisp_get_dm_list(const dedisp_plan plan);
 /*! \p dedisp_get_killmask gets the killmask used in a plan.
- * 
+ *
  *  \return Pointer to an array of killmask values in \p plan.
  *  \note This function returns a host pointer, not a device pointer.
  */
 const dedisp_bool*  dedisp_get_killmask(const dedisp_plan plan);
 /*! \p dedisp_get_dt gets the difference in time between two consecutive
  *    samples for a plan.
- * 
+ *
  *  \return The difference in time between two consecutive samples for \p plan.
  */
 dedisp_float        dedisp_get_dt(const dedisp_plan plan);
 /*! \p dedisp_get_f0 gets the frequency of the first channel for a plan.
- * 
+ *
  *  \return The frequency of the first channel for \p plan.
  */
 dedisp_float        dedisp_get_f0(const dedisp_plan plan);
 /*! \p dedisp_get_df gets the difference in frequency between two consecutive
  *    channels for a plan.
- * 
+ *
  *  \return The difference in frequency between two consecutive channels for
  *     \p plan.
  */
 dedisp_float        dedisp_get_df(const dedisp_plan plan);
 /*! \p dedisp_get_error_string gives a human-readable description of a
  *    given error code.
- * 
+ *
  *  \param error The error code to describe.
  *  \return A string describing the error code.
  */
@@ -321,12 +326,12 @@ const char*         dedisp_get_error_string(dedisp_error error);
 // Plan execution
 // --------------
 /*! \p dedisp_execute executes a plan to dedisperse the given array of data.
- * 
+ *
  *  \param plan The plan to execute.
  *  \param nsamps The length in samples of each input time series.
  *  \param in Pointer to an array containing a time series of length \p nsamps
  *    for each frequency channel in \p plan.
- *    The data must be in <b>time-major order</b>, i.e., frequency is the 
+ *    The data must be in <b>time-major order</b>, i.e., frequency is the
  *      fastest-changing dimension, time the slowest.
  *    There must be no padding between consecutive frequency channels.
  *  \param in_nbits The number of bits per sample in the input data.
@@ -369,12 +374,12 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
                             dedisp_size        out_nbits,
                             unsigned           flags);
 /*! \p dedisp_execute_adv executes a plan to dedisperse the given array of data.
- * 
+ *
  *  \param plan The plan to execute.
  *  \param nsamps The length in samples of each input time series.
  *  \param in Pointer to an array containing a time series of length \p nsamps
  *    for each frequency channel in \p plan.
- *    The data must be in <b>time-major order</b>, i.e., frequency is the 
+ *    The data must be in <b>time-major order</b>, i.e., frequency is the
  *      fastest-changing dimension, time the slowest.
  *  \param in_nbits The number of bits per sample in the input data.
  *    Currently supported values are: 1, 2, 4, 8, 16, 32
@@ -423,12 +428,12 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
  *  \warning This function is experimental and may contain bugs.
  *  \bug This function cannot be used in conjunction with adaptive time
  *         resolution.
- * 
+ *
  *  \param plan The plan to execute.
  *  \param nsamps The length in samples of each input time series.
  *  \param in Pointer to an array containing a time series of length \p nsamps
  *    for each frequency channel in \p plan.
- *    The data must be in <b>time-major order</b>, i.e., frequency is the 
+ *    The data must be in <b>time-major order</b>, i.e., frequency is the
  *      fastest-changing dimension, time the slowest.
  *  \param in_nbits The number of bits per sample in the input data.
  *    Currently supported values are: 1, 2, 4, 8, 16, 32
@@ -481,7 +486,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
  *       before returning. This function can be used in conjunction with
  *       the DEDISP_ASYNC flag in dedisp_execute to overlap computation on
  *       the host and the device.
- *  
+ *
  *  \return One of the following error codes: \n
  *  \p DEDISP_NO_ERROR, \p DEDISP_PRIOR_GPU_ERROR
 */
@@ -491,9 +496,9 @@ dedisp_error dedisp_sync(void);
  *       time-resolution scheme. The time resolution is varied as a function
  *       of DM, decreasing by factors of 2 when the increase in smearing is
  *       below \p tol.
- * 
+ *
  *  \param plan The plan for which to enable adaptive time resolution.
- *  \param pulse_width The expected pulse width in microseconds (used to 
+ *  \param pulse_width The expected pulse width in microseconds (used to
  *           determine the total smearing).
  *  \param tol The smearing tolerance at which the time resolution is reduced.
  *           A typical value is 1.15, meaning a tolerance of 15%.
@@ -517,11 +522,13 @@ dedisp_bool  dedisp_using_adaptive_dt(const dedisp_plan plan);
  *  \param plan The plan from which to get the values.
  *  \return A pointer to an array of integer factors.
  *  \note A DM list for \p plan must exist prior to calling this function.
- *  \note This function may safely be called even when 
+ *  \note This function may safely be called even when
  *          \p dedisp_enable_adaptive_dt has not been called; in such cases the
  *          returned list will consist entirely of ones.
  */
 const dedisp_size* dedisp_get_dt_factors(const dedisp_plan plan);
+
+#endif //ifdef NOTDEFINED
 
 #ifdef __cplusplus
 } // closing brace for extern "C"

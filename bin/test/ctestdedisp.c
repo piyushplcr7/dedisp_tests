@@ -3,12 +3,11 @@
   Simple test application for libdedisp
   By Paul Ray (2013)
 */
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
-#include <dedisp.h>
+#include <clib/dedisp.h>
 
 /*
 * Random number generation in the required range.
@@ -59,7 +58,7 @@ float ran1(long *idum)
 	int j;
 	long k;
 	static long iy=0;
-	static long iv[NTAB];
+	static long iv[32]; //[NTAB]
 	float temp;
 
 	if (*idum <= 0 || !iy) {
@@ -275,6 +274,7 @@ int main(int argc, char* argv[])
   printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
   printf("\n");
 
+/*
   printf("Init GPU\n");
   // Initialise the GPU
   error = dedisp_set_device(device_idx);
@@ -363,8 +363,11 @@ int main(int argc, char* argv[])
 
   // Clean up
   free(output);
+  */
   free(input);
+  /*
   dedisp_destroy_plan(plan);
+  */
   printf("Dedispersion successful.\n");
   return 0;
 }
