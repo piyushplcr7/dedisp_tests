@@ -314,13 +314,9 @@ int run(BenchParameters & benchParameter)
     printf("\n");
     printf("------------------------- ITERATION %d out of %d  -------------------------\n", iPlan+1, benchParameter.niterations);
 
-    if(benchParameter.verbose) printf("Create plan\n");
+    if(benchParameter.verbose) printf("Create plan and init GPU\n");
     // Create a dedispersion plan
-    PlanType plan(nchans, dt, f0, df);
-
-    if(benchParameter.verbose) printf("Init GPU\n");
-    // Initialise the GPU
-    plan.set_device(device_idx);
+    PlanType plan(nchans, dt, f0, df, device_idx);
 
     if(benchParameter.verbose) printf("Gen DM list\n");
     // Generate a list of dispersion measures for the plan

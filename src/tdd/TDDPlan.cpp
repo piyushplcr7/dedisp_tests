@@ -44,8 +44,9 @@ TDDPlan::TDDPlan(
     size_type  nchans,
     float_type dt,
     float_type f0,
-    float_type df) :
-    GPUPlan(nchans, dt, f0, df)
+    float_type df,
+    int device_idx) :
+    GPUPlan(nchans, dt, f0, df, device_idx)
 {
     // Check for parameter errors
     if( nchans > compute_max_nchans() ) {

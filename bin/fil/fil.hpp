@@ -215,12 +215,8 @@ int run(int argc,char *argv[])
   fclose(file);
 
   // Create a dedispersion plan
-  if (verbose) printf("Creating dedispersion plan\n");
-  PlanType plan(h.nchan,h.tsamp,h.fch1,h.foff);
-
-  // Intialize GPU
-  if (verbose) printf("Intializing GPU (device %d)\n",device_id);
-  plan.set_device(device_id);
+  if (verbose) printf("Creating dedispersion plan and initialize GPU (device %d)\n",device_id);
+  PlanType plan(h.nchan,h.tsamp,h.fch1,h.foff,device_id);
 
   // Generate a list of dispersion measures for the plan
   if (dm_step==0) {

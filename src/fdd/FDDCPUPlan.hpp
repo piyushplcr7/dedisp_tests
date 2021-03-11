@@ -19,7 +19,9 @@ public:
         size_type  nchans,
         float_type dt,
         float_type f0,
-        float_type df);
+        float_type df,
+        int device_index = 0); //dummy parameter to match FDDGPUPlan constructor
+        //device_index might be use later to select the numa node
 
     // Destructor
     ~FDDCPUPlan();

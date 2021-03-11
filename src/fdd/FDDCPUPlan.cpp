@@ -28,7 +28,8 @@ FDDCPUPlan::FDDCPUPlan(
     size_type  nchans,
     float_type dt,
     float_type f0,
-    float_type df) :
+    float_type df,
+    int device_index) :
     Plan(nchans, dt, f0, df)
 {
 }

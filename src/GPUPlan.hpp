@@ -21,13 +21,15 @@ protected:
      *  \param dt Time difference between two consecutive samples in seconds
      *  \param f0 Frequency of the first (i.e., highest frequency) channel in MHz
      *  \param df Frequency difference between two consecutive channels in MHz
+     *  \param device_idx Select which GPU to use, default = 0
      *
      */
     GPUPlan(
         size_type  nchans,
         float_type dt,
         float_type f0,
-        float_type df);
+        float_type df,
+        int device_idx = 0);
 
     // No copying or assignment
     GPUPlan(const GPUPlan& other) = delete;
@@ -37,6 +39,7 @@ protected:
     virtual ~GPUPlan();
 
     // Device
+    void set_device(int device_idx);
     std::unique_ptr<cu::Device> m_device;
 
     // Device arrays
@@ -51,8 +54,6 @@ protected:
 
 public:
     // Public interface
-    void set_device(int device_idx = 0);
-
     void generate_dm_list(
         float_type dm_start,
         float_type dm_end,

@@ -17,7 +17,8 @@ public:
         size_type  nchans,
         float_type dt,
         float_type f0,
-        float_type df);
+        float_type df,
+        int device_idx = 0);
 
     // Destructor
     ~FDDGPUPlan();

@@ -217,13 +217,9 @@ int run()
   printf("\n");
 
 
-  printf("Create plan\n");
+  printf("Create plan and init GPU\n");
   // Create a dedispersion plan
-  PlanType plan(nchans, dt, f0, df);
-
-  printf("Init GPU\n");
-  // Initialise the GPU
-  plan.set_device(device_idx);
+  PlanType plan(nchans, dt, f0, df, device_idx);
 
   printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan

@@ -13,11 +13,12 @@ GPUPlan::GPUPlan(
     size_type  nchans,
     float_type dt,
     float_type f0,
-    float_type df) :
+    float_type df,
+    int device_idx) :
     Plan(nchans, dt, f0, df)
 {
     // Initialize device
-    set_device();
+    set_device(device_idx);
 
     // Initialize streams
     htodstream.reset(new cu::Stream());
