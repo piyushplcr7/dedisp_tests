@@ -54,18 +54,18 @@ protected:
 
 public:
     // Public interface
-    void generate_dm_list(
+    virtual void generate_dm_list(
         float_type dm_start,
         float_type dm_end,
         float_type ti,
-        float_type tol);
+        float_type tol) override;
 
-    void set_dm_list(
+    virtual void set_dm_list(
         const float_type* dm_list,
-        size_type count);
+        size_type count) override;
 
-    void set_killmask(
-        const bool_type* killmask);
+    virtual void set_killmask(
+        const bool_type* killmask) override;
 
 };
 

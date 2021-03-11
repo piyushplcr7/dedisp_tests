@@ -48,17 +48,17 @@ public:
     virtual ~Plan();
 
     // Public interface (common)
-    void generate_dm_list(
+    virtual void generate_dm_list(
         float_type dm_start,
         float_type dm_end,
         float_type ti,
         float_type tol);
 
-    void set_dm_list(
+    virtual void set_dm_list(
         const float_type* dm_list,
         size_type count);
 
-    void set_killmask(
+    virtual void set_killmask(
         const bool_type* killmask);
 
     float_type        get_max_delay()     const { return m_max_delay; }
