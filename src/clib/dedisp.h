@@ -49,12 +49,15 @@
 extern "C" {
 #endif
 
-// Types
+#include "common/dedisp_types.h"
+// Additional type(s)
 // -----
+/*
 typedef float                      dedisp_float;
 typedef unsigned char              dedisp_byte;
 typedef unsigned long              dedisp_size;
 typedef int                        dedisp_bool;
+*/
 typedef struct dedisp_plan_struct* dedisp_plan;
 
 /*! \typedef dedisp_float
@@ -73,6 +76,7 @@ typedef struct dedisp_plan_struct* dedisp_plan;
 
 // Flags
 // -----
+/*
 typedef enum {
 	DEDISP_USE_DEFAULT       = 0,
 	DEDISP_HOST_POINTERS     = 1 << 1,
@@ -81,15 +85,7 @@ typedef enum {
 	DEDISP_WAIT              = 1 << 3,
 	DEDISP_ASYNC             = 1 << 4
 } dedisp_flag;
-
-/*! \enum dedisp_flag
- * Flags for the library:\n
- * DEDISP_USE_DEFAULT: Use the default settings.\n
- * DEDISP_HOST_POINTERS: Instruct the function that the given pointers point to memory on the host.\n
- * DEDISP_DEVICE_POINTERS: Instruct the function that the given pointers point to memory on the device.\n
- * DEDISP_WAIT: Instruct the function to wait until all device operations are complete before returning.\n
- * DEDISP_ASYNC: Instruct the function to return before all device operations are complete.
- */
+*/
 
 // Error codes
 // -----------
@@ -112,8 +108,6 @@ typedef enum {
 	DEDISP_INTERNAL_GPU_ERROR,
 	DEDISP_UNKNOWN_ERROR
 } dedisp_error;
-
-
 /*! \enum dedisp_error
  * Error codes for the library:\n
  * DEDISP_NO_ERROR: No error occurred.\n
@@ -135,9 +129,31 @@ typedef enum {
  * DEDISP_UNKNOWN_ERROR: An unexpected error has occurred. Please contact the authors if you get this error.
  */
 
-#ifdef NOTDEFINED
+typedef enum {
+    DEDISP_DEDISP,
+    DEDISP_TDD,
+    DEDISP_FDD
+} dedisp_implementation;
+/*! \enum dedisp_implementation
+ * select different implementations for dedispersion:\n
+ * DEDISP_DEDISP: original implementation of dedisp.\n
+ * DEDISP_TDD: Time Domain Dedispersion, performance optimized implementation of dedisp.\n
+ * DEDISP_FDD: Fourier Domain Dedispersion, alternative implementation for dedispersion
+ * where dedispersion is performed in the Fourier-domain, performance improvement over dedisp and TDD.
+ */
+
 // Plan management
 // ---------------
+/*! \p dedisp_select_implementation select different implementations for dedispersion,
+ *  select one of the available implementations from \p dedisp_implementation ENUM
+ *  The selection is stored as static global and used in \p dedisp_create_plan
+ *  \param imp implemantation to use, default = DEDISP_DEDISP
+ *  \return One of the following error codes: (ToDo add new error type) \n
+ *  \p DEDISP_NO_ERROR, \p DEDISP_UNKNOWN_ERROR
+ *
+ */
+dedisp_error dedisp_select_implementation(dedisp_implementation imp);
+
 /*! \p dedisp_create_plan builds a new plan object using the given parameters
  *  and returns it in \p *plan.
  *
@@ -180,6 +196,7 @@ void         dedisp_destroy_plan(dedisp_plan plan);
  */
 dedisp_error dedisp_set_device(int device_idx);
 
+#ifdef NOTDEFINED
 /*! \p dedisp_set_gulp_size sets the internal gulp size used by the library
  *
  *  \param plan Plan object to set gulp size of
@@ -233,6 +250,7 @@ dedisp_error dedisp_set_killmask(dedisp_plan        plan,
 dedisp_error dedisp_set_dm_list(dedisp_plan         plan,
                                 const dedisp_float* dm_list,
                                 dedisp_size         count);
+#endif
 /*! \p dedisp_generate_dm_list generates a list of dispersion measures to be
  *       computed during dedispersion
  *
@@ -254,12 +272,12 @@ dedisp_error dedisp_generate_dm_list(dedisp_plan  plan,
                                      dedisp_float dm_end,
                                      dedisp_float pulse_width,
                                      dedisp_float tol);
-
+#ifdef NOTDEFINED
 dedisp_float * dedisp_generate_dm_list_guru (dedisp_float dm_start, dedisp_float dm_end,
                                      double dt, double ti, double f0, double df,
                                      dedisp_size nchans, double tol, dedisp_size * dm_count);
 
-
+#endif
 // Getters
 // -------
 /*! \p dedisp_get_max_delay gets the maximum delay (in samples) applied during
@@ -315,6 +333,7 @@ dedisp_float        dedisp_get_f0(const dedisp_plan plan);
  *     \p plan.
  */
 dedisp_float        dedisp_get_df(const dedisp_plan plan);
+
 /*! \p dedisp_get_error_string gives a human-readable description of a
  *    given error code.
  *
@@ -322,6 +341,7 @@ dedisp_float        dedisp_get_df(const dedisp_plan plan);
  *  \return A string describing the error code.
  */
 const char*         dedisp_get_error_string(dedisp_error error);
+
 
 // Plan execution
 // --------------
@@ -373,6 +393,7 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
                             dedisp_byte*       out,
                             dedisp_size        out_nbits,
                             unsigned           flags);
+
 /*! \p dedisp_execute_adv executes a plan to dedisperse the given array of data.
  *
  *  \param plan The plan to execute.
@@ -424,6 +445,7 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
                                 dedisp_size        out_nbits,
                                 dedisp_size        out_stride,
                                 unsigned           flags);
+#ifdef NOTDEFINED
 /*! \p dedisp_execute_guru executes a plan to dedisperse the given array of data.
  *  \warning This function is experimental and may contain bugs.
  *  \bug This function cannot be used in conjunction with adaptive time

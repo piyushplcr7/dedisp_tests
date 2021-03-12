@@ -274,7 +274,9 @@ int main(int argc, char* argv[])
   printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
   printf("\n");
 
-/*
+  //dedisp_select_implementation(DEDISP_FDD);
+  //dedisp_select_implementation(DEDISP_TDD);
+
   printf("Init GPU\n");
   // Initialise the GPU
   error = dedisp_set_device(device_idx);
@@ -304,10 +306,11 @@ int main(int argc, char* argv[])
 
   // Find the parameters that determine the output size
   dm_count = dedisp_get_dm_count(plan);
+  printf("dedisp_get_dm_count: %lu \n", dm_count);
   max_delay = dedisp_get_max_delay(plan);
   nsamps_computed = nsamps - max_delay;
   dmlist = dedisp_get_dm_list(plan);
-  //dt_factors = dedisp_get_dt_factors(plan);
+  //dedisp_float dt_factors = dedisp_get_dt(plan);
 
 
   printf("----------------------------- DM COMPUTATIONS  ----------------------------\n");
@@ -363,11 +366,8 @@ int main(int argc, char* argv[])
 
   // Clean up
   free(output);
-  */
   free(input);
-  /*
   dedisp_destroy_plan(plan);
-  */
   printf("Dedispersion successful.\n");
   return 0;
 }

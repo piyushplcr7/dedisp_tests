@@ -1,9 +1,12 @@
 add_library(clib OBJECT
-    dedisp.c
+    dedisp.cpp
 )
 
 target_link_libraries(
     clib
+    dedisp
+    tdd
+    fdd
 )
 
 target_include_directories(

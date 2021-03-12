@@ -21,15 +21,24 @@
 //#define DEDISP_BENCHMARK
 
 #include "dedisp.h"
+#include <memory> //for shared pointers
+#include <iostream>
+#include <typeinfo>
+
+// Generic dedisp Plan interface
+//#include <Plan.hpp>
+// Implementation specific CPP Plan interfaces
+#include <dedisp/DedispPlan.hpp>
+#include <tdd/TDDPlan.hpp> //-> conflicting declarations of typedef enum dedisp_error
+#include <fdd/FDDGPUPlan.hpp>
+#include <fdd/FDDCPUPlan.hpp>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef NOTDEFINED
-
 /*
-#include <../dedisp/DedispPlan.hpp>
-#include <../tdd/TDDPlan.hpp>
-#include <../fdd/FDDCPUPlan.hpp>
-#include <../fdd/FDDGPUPlan.hpp>
-#include <../GPUPlan.hpp>
-
 #include <vector>
 #include <algorithm> // For std::fill
 
@@ -62,9 +71,6 @@ using std::endl;
 
 #define DEDISP_DEFAULT_GULP_SIZE 65536 //131072
 
-// Note: The implementation of the sub-band algorithm is a prototype only
-//         Enable at your own risk! It may not be in a working state at all.
-//#define USE_SUBBAND_ALGORITHM
 #define DEDISP_DEFAULT_SUBBAND_SIZE 32
 
 // TODO: Make sure this doesn't limit GPU constant memory
@@ -75,8 +81,14 @@ typedef unsigned int dedisp_word;
 // Note: This must be included after the above #define and typedef
 #include "kernels.cuh"
 
+#endif
+
 // Define plan structure
+// with a C-compatible interface to a CPP dedisp::Plan
 struct dedisp_plan_struct {
+	// shared_ptr to implementation plan
+	std::shared_ptr<dedisp::Plan> ptr = nullptr;
+	/*
 	// Size parameters
 	dedisp_size  dm_count;
 	dedisp_size  nchans;
@@ -101,16 +113,24 @@ struct dedisp_plan_struct {
 	dedisp_bool  scrunching_enabled;
 	dedisp_float pulse_width;
 	dedisp_float scrunch_tol;
-
+	*/
 };
+
+// Global device index
+static int g_device_idx = 0;
+// Global implementation selection,
+// default to orignal dedispersion implemantation
+static dedisp_implementation g_implementation = DEDISP_DEDISP;
 
 // Private helper functions
 // ------------------------
+/*
 template<typename T>
 T min(T a, T b) { return a<b ? a : b; }
 unsigned long div_round_up(unsigned long a, unsigned long b) {
 	return (a-1) / b + 1;
 }
+*/
 
 // Internal abstraction for errors
 #if defined(DEDISP_DEBUG) && DEDISP_DEBUG
@@ -126,6 +146,7 @@ unsigned long div_round_up(unsigned long a, unsigned long b) {
 #define throw_error(error) return error
 #define throw_getter_error(error, retval) return retval
 #endif // DEDISP_DEBUG
+
 /*
 dedisp_error throw_error(dedisp_error error) {
 	// Note: Could, e.g., put an error callback in here
@@ -133,6 +154,7 @@ dedisp_error throw_error(dedisp_error error) {
 }
 */
 
+#ifdef NOTDEFINED
 dedisp_error update_scrunch_list(dedisp_plan plan) {
 	if( cudaGetLastError() != cudaSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
@@ -175,85 +197,72 @@ dedisp_error update_scrunch_list(dedisp_plan plan) {
 }
 // ------------------------
 
+#endif
+
 // Public functions
 // ----------------
-dedisp_error dedisp_create_plan(dedisp_plan* plan_,
+dedisp_error dedisp_create_plan(dedisp_plan* plan,
                                 dedisp_size  nchans,
                                 dedisp_float dt,
                                 dedisp_float f0,
                                 dedisp_float df)
 {
+	std::cout <<  "dedisp_create_plan()" << std::endl;
+
 	// Initialise to NULL for safety
-	*plan_ = 0;
+	*plan = 0;
 
 	if( cudaGetLastError() != cudaSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
-	int device_idx;
-	cudaGetDevice(&device_idx);
-
-	// Check for parameter errors
-	if( nchans > DEDISP_MAX_NCHANS ) {
-		throw_error(DEDISP_NCHANS_EXCEEDS_LIMIT);
-	}
-
-	// Force the df parameter to be negative such that
-	//   freq[chan] = f0 + chan * df.
-	df = -abs(df);
-
-	dedisp_plan plan = new dedisp_plan_struct();
+	// create plan structure
+	*plan = new dedisp_plan_struct();
 	if( !plan ) {
 		throw_error(DEDISP_MEM_ALLOC_FAILED);
 	}
 
-	plan->dm_count      = 0;
-	plan->nchans        = nchans;
-	plan->gulp_size     = DEDISP_DEFAULT_GULP_SIZE;
-	plan->max_delay     = 0;
-	plan->dt            = dt;
-	plan->f0            = f0;
-	plan->df            = df;
-	//plan->stream        = 0;
+	std::cout << "   shared_plan_pointer.use_count() = " << (*plan)->ptr.use_count() << std::endl;
 
-	// Generate delay table and copy to device memory
-	// Note: The DM factor is left out and applied during dedispersion
-	plan->delay_table.resize(plan->nchans);
-	generate_delay_table(&plan->delay_table[0], plan->nchans, dt, f0, df);
+	// Set environment variable USE_CPU to switch to CPU implementation of FDD
+  	// Using GPU implementation by default
+	char *use_cpu_str = getenv("USE_CPU");
+  	bool use_cpu = !use_cpu_str ? false : atoi(use_cpu_str);
+
 	try {
-		plan->d_delay_table.resize(plan->nchans);
+		// switch case based on optional implementation parameter
+		switch (g_implementation)
+		{
+		case DEDISP_DEDISP:
+			(*plan)->ptr.reset(new dedisp::DedispPlan(nchans, dt, f0, df, g_device_idx));
+		break;
+
+		case DEDISP_TDD:
+			//(*plan)->ptr.reset(new dedisp::TDDPlan(nchans, dt, f0, df, g_device_idx));
+			dedisp_destroy_plan(*plan);
+			return DEDISP_UNKNOWN_ERROR;
+		break;
+
+		case DEDISP_FDD:
+  			if (use_cpu) (*plan)->ptr.reset(new dedisp::FDDCPUPlan(nchans, dt, f0, df, g_device_idx));
+			else (*plan)->ptr.reset(new dedisp::FDDGPUPlan(nchans, dt, f0, df, g_device_idx));
+		break;
+
+		default:
+			dedisp_destroy_plan(*plan);
+			return DEDISP_UNKNOWN_ERROR; //ToDo: add new ERROR for unknown implementation ?
+		}
 	}
 	catch(...) {
-		dedisp_destroy_plan(plan);
-		throw_error(DEDISP_MEM_ALLOC_FAILED);
-	}
-	try {
-		plan->d_delay_table = plan->delay_table;
-	}
-	catch(...) {
-		dedisp_destroy_plan(plan);
-		throw_error(DEDISP_MEM_COPY_FAILED);
+		dedisp_destroy_plan(*plan);
+		throw_error(DEDISP_UNKNOWN_ERROR); //ToDo: add new ERROR for fail on plan creation ?
 	}
 
-	// Initialise the killmask
-	plan->killmask.resize(plan->nchans, (dedisp_bool)true);
-	try {
-		plan->d_killmask.resize(plan->nchans);
-	}
-	catch(...) {
-		dedisp_destroy_plan(plan);
-		throw_error(DEDISP_MEM_ALLOC_FAILED);
-	}
-	dedisp_error err = dedisp_set_killmask(plan, (dedisp_bool*)0);
-	if( err != DEDISP_NO_ERROR ) {
-		dedisp_destroy_plan(plan);
-		throw_error(err);
-	}
-
-	*plan_ = plan;
+	std::cout << "   shared_plan_pointer.use_count() = " << (*plan)->ptr.use_count() << std::endl;
 
 	return DEDISP_NO_ERROR;
 }
+#ifdef NOTDEFINED
 
 dedisp_error dedisp_set_gulp_size(dedisp_plan plan,
                                   dedisp_size gulp_size) {
@@ -303,44 +312,31 @@ dedisp_error dedisp_set_dm_list(dedisp_plan plan,
 	return DEDISP_NO_ERROR;
 }
 
+#endif
 dedisp_error dedisp_generate_dm_list(dedisp_plan plan,
                                      dedisp_float dm_start, dedisp_float dm_end,
                                      dedisp_float ti, dedisp_float tol)
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
+
 	if( cudaGetLastError() != cudaSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
-	// Generate the DM list (on the host)
-	plan->dm_list.clear();
-	generate_dm_list(plan->dm_list,
-					 dm_start, dm_end,
-					 plan->dt, ti, plan->f0, plan->df,
-					 plan->nchans, tol);
-	plan->dm_count = plan->dm_list.size();
-
-	// Allocate device memory for the DM list
-	try {
-		plan->d_dm_list.resize(plan->dm_count);
+	try
+	{
+		plan->ptr->generate_dm_list(dm_start, dm_end, ti, tol);
 	}
-	catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
-	try {
-		plan->d_dm_list = plan->dm_list;
+	catch(...)
+	{
+		throw_error(DEDISP_UNKNOWN_ERROR);
+		// ToDo: error passing from Plan methods to here might be improved
 	}
-	catch(...) { throw_error(DEDISP_MEM_COPY_FAILED); }
-
-	// Calculate the maximum delay and store it in the plan
-	plan->max_delay = dedisp_size(plan->dm_list[plan->dm_count-1] *
-								  plan->delay_table[plan->nchans-1] + 0.5);
-
-	dedisp_error error = update_scrunch_list(plan);
-	if( error != DEDISP_NO_ERROR ) {
-		throw_error(error);
-	}
+	std::cout << "   shared_plan_pointer.use_count() = " << plan->ptr.use_count() << std::endl;
 
 	return DEDISP_NO_ERROR;
 }
+#ifdef NOTDEFINED
 
 dedisp_float * dedisp_generate_dm_list_guru (dedisp_float dm_start, dedisp_float dm_end,
             double dt, double ti, double f0, double df,
@@ -354,26 +350,22 @@ dedisp_float * dedisp_generate_dm_list_guru (dedisp_float dm_start, dedisp_float
   *dm_count = dm_table.size();
   return &dm_table[0];
 }
+#endif
 
 dedisp_error dedisp_set_device(int device_idx) {
-	if( cudaGetLastError() != cudaSuccess ) {
-		throw_error(DEDISP_PRIOR_GPU_ERROR);
-	}
+	//keep global copy of device_idx for usage in dedisp_create_plan()
+	g_device_idx = device_idx;
 
-	cudaError_t error = cudaSetDevice(device_idx);
-	// Note: cudaErrorInvalidValue isn't a documented return value, but
-	//         it still gets returned :/
-	if( cudaErrorInvalidDevice == error ||
-		cudaErrorInvalidValue == error )
-		throw_error(DEDISP_INVALID_DEVICE_INDEX);
-	else if( cudaErrorSetOnActiveProcess == error )
-		throw_error(DEDISP_DEVICE_ALREADY_SET);
-	else if( cudaSuccess != error )
-		throw_error(DEDISP_UNKNOWN_ERROR);
-	else
-		return DEDISP_NO_ERROR;
+	return DEDISP_NO_ERROR;
 }
 
+dedisp_error dedisp_select_implementation(dedisp_implementation imp) {
+	//keep global copy of selected implementation for usage in dedisp_create_plan()
+	g_implementation = imp;
+
+	return DEDISP_NO_ERROR;
+}
+#ifdef NOTDEFINED
 dedisp_error dedisp_set_killmask(dedisp_plan plan, const dedisp_bool* killmask)
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
@@ -403,50 +395,52 @@ dedisp_plan dedisp_set_stream(dedisp_plan plan, StreamType stream)
 	return plan;
 }
 */
-
+#endif
 // Getters
 // -------
 dedisp_size         dedisp_get_max_delay(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	if( 0 == plan->dm_count ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
-	return plan->max_delay;
+	if( 0 == plan->ptr->get_dm_count()) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
+	return plan->ptr->get_max_delay();
 }
 dedisp_size         dedisp_get_dm_delay(const dedisp_plan plan, int dm_trial) {
   if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-  if( 0 == plan->dm_count ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
-  if (dm_trial < 0 || dm_trial >= plan->dm_count ) { throw_getter_error(DEDISP_UNKNOWN_ERROR,0); }
-  return (plan->dm_list[dm_trial] * plan->delay_table[plan->nchans-1] + 0.5);
+  if( 0 == plan->ptr->get_dm_count() ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
+  if (dm_trial < 0 || (dedisp_size)dm_trial >= plan->ptr->get_dm_count() ) { throw_getter_error(DEDISP_UNKNOWN_ERROR,0); }
+  // ToDo: make dm_trial of type dedisp_size such that it can not be smaller than 0, then cast to int to index dm_list
+  // changing this has impact on the interface of the function.
+  return (plan->ptr->get_dm_list()[dm_trial] * plan->ptr->get_delay_table()[plan->ptr->get_channel_count()-1] + 0.5);
 }
 dedisp_size         dedisp_get_channel_count(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	return plan->nchans;
+	return plan->ptr->get_channel_count();
 }
 dedisp_size         dedisp_get_dm_count(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	return plan->dm_count;
+	return plan->ptr->get_dm_count();
 }
 const dedisp_float* dedisp_get_dm_list(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	if( 0 == plan->dm_count ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
-	return &plan->dm_list[0];
+	if( 0 == plan->ptr->get_dm_count() ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
+	return &plan->ptr->get_dm_list()[0];
 }
 const dedisp_bool*  dedisp_get_killmask(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	return &plan->killmask[0];
+	return &plan->ptr->get_killmask()[0];
 }
 dedisp_float        dedisp_get_dt(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	return plan->dt;
+	return plan->ptr->get_dt();
 }
 dedisp_float        dedisp_get_f0(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	return plan->f0;
+	return plan->ptr->get_f0();
 }
 dedisp_float        dedisp_get_df(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
-	return plan->df;
+	return plan->ptr->get_df();
 }
-
+#ifdef NOTDEFINED
 // Warning: Big mother function
 dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
                                  dedisp_size        nsamps,
@@ -747,86 +741,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 			}
 		}
 
-#ifdef USE_SUBBAND_ALGORITHM
-		// TODO: This has not been updated to use d_unpacked!
-
-		dedisp_size chan_stride       = 1;
-		dedisp_size dm_stride         = dm_size;
-		dedisp_size ostride           = nsamps_padded_gulp * sb_count;
-		dedisp_size batch_size        = sb_count;
-		dedisp_size batch_in_stride   = nsamps_padded_gulp * sb_size / chans_per_word;
-		dedisp_size batch_dm_stride   = 0;
-		dedisp_size batch_chan_stride = sb_size;
-		dedisp_size batch_out_stride  = nsamps_padded_gulp;
-
-		/* // Consistency checks
-		   if( (nom_dm_count-1)*dm_stride + (batch_size-1)*batch_dm_stride >= dm_count ) {
-		   throw std::runtime_error("DM STRIDES ARE INCONSISTENT");
-		   }
-		   if( (sb_size-1)*chan_stride + (batch_size-1)*batch_chan_stride >= plan->nchans ) {
-		   throw std::runtime_error("CHAN STRIDES ARE INCONSISTENT");
-		   }
-		*/
-
-		// Both steps
-		if( !dedisperse(d_transposed,
-		                nsamps_padded_gulp,
-		                nsamps_computed_gulp,
-		                in_nbits,
-		                sb_size,
-		                chan_stride,
-		                thrust::raw_pointer_cast(&plan->d_dm_list[first_dm_idx]),
-		                nom_dm_count,
-		                dm_stride,
-		                (dedisp_byte*)d_intermediate,
-		                ostride,
-		                32,//out_nbits,
-		                batch_size,
-		                batch_in_stride,
-		                batch_dm_stride,
-		                batch_chan_stride,
-		                batch_out_stride) ) {
-			throw_error(DEDISP_INTERNAL_GPU_ERROR);
-		}
-
-		batch_size = nom_dm_count;
-		chan_stride       = sb_size;
-		dm_stride         = 1;
-		ostride           = out_stride_gulp_samples;
-		batch_in_stride   = nsamps_padded_gulp * sb_count;
-		batch_dm_stride   = 0;
-		batch_chan_stride = 0;
-		batch_out_stride  = out_stride_gulp_samples * dm_size;
-
-		/* // Consistency checks
-		   if( (dm_size-1)*dm_stride + (batch_size-1)*batch_dm_stride >= dm_count ) {
-		   throw std::runtime_error("DM STRIDES ARE INCONSISTENT");
-		   }
-		   if( (sb_count-1)*chan_stride + (batch_size-1)*batch_chan_stride >= plan->nchans ) {
-		   throw std::runtime_error("CHAN STRIDES ARE INCONSISTENT");
-		   }
-		*/
-
-		if( !dedisperse(d_intermediate,
-		                nsamps_padded_gulp,
-		                nsamps_computed_gulp,
-		                32,//in_nbits,
-		                sb_count,
-		                chan_stride,
-		                thrust::raw_pointer_cast(&plan->d_dm_list[first_dm_idx]),
-		                dm_size,
-		                dm_stride,
-		                d_out,
-		                ostride,
-		                out_nbits,
-		                batch_size,
-		                batch_in_stride,
-		                batch_dm_stride,
-		                batch_chan_stride,
-		                batch_out_stride) ) {
-			throw_error(DEDISP_INTERNAL_GPU_ERROR);
-		}
-#else // Use direct algorithm
+ // Use direct algorithm
 
 		if( plan->scrunching_enabled ) {
 
@@ -897,7 +812,6 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 				throw_error(DEDISP_INTERNAL_GPU_ERROR);
 			}
 		}
-#endif // SB/direct algorithm
 
 #ifdef DEDISP_BENCHMARK
 		cudaThreadSynchronize();
@@ -976,7 +890,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 	// Phew!
 	return DEDISP_NO_ERROR;
 }
-
+#endif
 dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
                                 dedisp_size        nsamps,
                                 const dedisp_byte* in,
@@ -988,12 +902,54 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
                                 unsigned           flags)
 {
 	dedisp_size first_dm_idx = 0;
-	dedisp_size dm_count = plan->dm_count;
-	return dedisp_execute_guru(plan, nsamps,
+	dedisp_size dm_count = plan->ptr->get_dm_count();
+
+	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
+
+	if( cudaGetLastError() != cudaSuccess ) {
+		throw_error(DEDISP_PRIOR_GPU_ERROR);
+	}
+
+	try
+	{
+		// Dedisp and TDD have an advanced interface, check type
+		// Cast to specific Plan, Dedisp has flags, TDD does not have flags
+		// If run with FDD, check parameters, if matching the normal execute function
+		//    then run that function, else error
+
+		//if(typeid(*plan->ptr.get())==typeid(dedisp::DedispPlan))
+		//{
+			// dedisp::DedispPlan has an interface with dedisp_flags
+			//std::cout << "dedisp_execute dedisp::DedispPlan with flags" << std::endl;
+		//	plan->ptr->execute(nsamps, in, in_nbits, out, out_nbits, flags);
+			//static_cast<dedisp::DedispPlan*>(plan->ptr.get())->execute_adv(...);
+		//}
+		//else
+		//{
+			// TDD and FDD have an execute() interface withouth flags
+			//std::cout << "dedisp_execute dedisp::TDDPlan or FDDPlan without flags" << std::endl;
+			//plan->ptr->execute(nsamps, in, in_nbits, out, out_nbits);
+		//}
+	}
+	catch(...)
+	{
+		throw_error(DEDISP_UNKNOWN_ERROR);
+	}
+	//std::cout << "   shared_plan_pointer.use_count() = " << plan->ptr.use_count() << std::endl;
+
+	/*
+	std::cout << "dedisp_execute plan->ptr type name is: " << typeid(plan->ptr).name() << std::endl;
+	std::cout << "dedisp_execute plan->ptr.get() type name is: " << typeid(plan->ptr.get()).name() << std::endl;
+	std::cout << "dedisp_execute *plan->ptr.get() type name is: " << typeid(*plan->ptr.get()).name() << std::endl;
+	std::cout << "dedisp_execute dedisp::DedispPlan type name is: " << typeid(dedisp::DedispPlan).name() << std::endl;
+	*/
+	return DEDISP_NO_ERROR;
+
+	/*return dedisp_execute_guru(plan, nsamps,
 	                           in, in_nbits, in_stride,
 	                           out, out_nbits, out_stride,
 	                           first_dm_idx, dm_count,
-	                           flags);
+	                           flags);*/
 }
 
 // TODO: Consider having the user specify nsamps_computed instead of nsamps
@@ -1006,24 +962,24 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
                             unsigned           flags)
 {
 
-	enum {
-		BITS_PER_BYTE = 8
-	};
+	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	// Note: The default out_stride is nsamps - plan->max_delay
-	dedisp_size out_bytes_per_sample =
-		out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
+	if( cudaGetLastError() != cudaSuccess ) {
+		throw_error(DEDISP_PRIOR_GPU_ERROR);
+	}
 
-	// Note: Must be careful with integer division
-	dedisp_size in_stride =
-		plan->nchans * in_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
-	dedisp_size out_stride = (nsamps - plan->max_delay) * out_bytes_per_sample;
-	return dedisp_execute_adv(plan, nsamps,
-	                          in, in_nbits, in_stride,
-	                          out, out_nbits, out_stride,
-	                          flags);
+	try
+	{
+		plan->ptr->execute(nsamps, in, in_nbits, out, out_nbits, flags);
+	}
+	catch(...)
+	{
+		throw_error(DEDISP_UNKNOWN_ERROR);
+	}
+
+	return DEDISP_NO_ERROR;
 }
-
+#ifdef NOTDEFINED
 dedisp_error dedisp_sync(void)
 {
 	if( cudaThreadSynchronize() != cudaSuccess )
@@ -1031,6 +987,7 @@ dedisp_error dedisp_sync(void)
 	else
 		return DEDISP_NO_ERROR;
 }
+#endif
 
 void dedisp_destroy_plan(dedisp_plan plan)
 {
@@ -1038,6 +995,8 @@ void dedisp_destroy_plan(dedisp_plan plan)
 		delete plan;
 	}
 }
+
+
 
 const char* dedisp_get_error_string(dedisp_error error)
 {
@@ -1080,6 +1039,7 @@ const char* dedisp_get_error_string(dedisp_error error)
 		return "Invalid error code";
 	}
 }
+#ifdef NOTDEFINED
 
 dedisp_error dedisp_enable_adaptive_dt(dedisp_plan  plan,
                                        dedisp_float pulse_width,
@@ -1106,4 +1066,8 @@ const dedisp_size* dedisp_get_dt_factors(const dedisp_plan plan) {
 	return &plan->scrunch_list[0];
 }
 #endif //ifdef NOTDEFINED
+
+#ifdef __cplusplus
+}
+#endif
 // ----------------
