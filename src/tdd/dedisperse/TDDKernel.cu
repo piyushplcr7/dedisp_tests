@@ -7,6 +7,7 @@
 #include "TDDKernel.hpp"
 #include "dedisperse_kernel.cuh"
 #include "common/cuda/CU.h"
+#include "common/dedisp_error.hpp"
 
 // Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256
