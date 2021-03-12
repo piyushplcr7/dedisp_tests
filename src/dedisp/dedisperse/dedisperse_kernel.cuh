@@ -12,6 +12,10 @@ template<int NBITS, typename T=unsigned int>
 struct max_value {
     static const T value = (((unsigned)1<<(NBITS-1))-1)*2+1;
 };
+// Summation type metafunction
+template<int IN_NBITS> struct SumType { typedef dedisp_word type; };
+// Note: For 32-bit input, we must accumulate using a larger data type
+template<> struct SumType<32> { typedef unsigned long long type; };
 
 template<int NBITS, typename T>
 inline __host__ __device__
