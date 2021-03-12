@@ -42,17 +42,8 @@ public:
                          const byte_type* in,
                          size_type        in_nbits,
                          byte_type*       out,
-                         size_type        out_nbits)
-    {
-        execute(nsamps, in, in_nbits, out, out_nbits, 0);
-    }
-
-    void execute(size_type        nsamps,
-                 const byte_type* in,
-                 size_type        in_nbits,
-                 byte_type*       out,
-                 size_type        out_nbits,
-                 unsigned         flags);
+                         size_type        out_nbits,
+                         unsigned         flags = 0) override;
 
     void execute_adv(size_type        nsamps,
                      const byte_type* in,

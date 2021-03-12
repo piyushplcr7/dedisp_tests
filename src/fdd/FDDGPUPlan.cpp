@@ -47,7 +47,8 @@ void FDDGPUPlan::execute(
     const byte_type* in,
     size_type        in_nbits,
     byte_type*       out,
-    size_type        out_nbits)
+    size_type        out_nbits,
+    unsigned         flags)
 {
     char* use_segmented_str = getenv("USE_SEGMENTED");
     bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);

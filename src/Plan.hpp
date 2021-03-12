@@ -80,7 +80,8 @@ public:
         const byte_type* in,
         size_type        in_nbits,
         byte_type*       out,
-        size_type        out_nbits) = 0;
+        size_type        out_nbits,
+        unsigned         flags = 0) = 0;
 
 private:
     // Helper methods

@@ -29,7 +29,8 @@ public:
         const byte_type* in,
         size_type        in_nbits,
         byte_type*       out,
-        size_type        out_nbits);
+        size_type        out_nbits,
+        unsigned         flags = 0) override;
 
 private:
     // Private interface for FDD on GPU
