@@ -69,6 +69,7 @@ public:
     float_type        get_f0()            const { return m_f0; }
 
     const float_type* get_dm_list()  const { return h_dm_list.data(); }
+    const float_type* get_delay_table() const { return h_delay_table.data(); }
     const bool_type*  get_killmask() const { return h_killmask.data(); }
 
     void sync();
