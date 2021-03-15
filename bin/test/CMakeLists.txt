@@ -9,7 +9,7 @@ target_include_directories(ctestdedisp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(ctestdedisp clib) #dedisp c-library
+target_link_libraries(ctestdedisp dedisp) #dedisp c-library
 target_link_libraries(ctestdedisp m) #c math library
 
 

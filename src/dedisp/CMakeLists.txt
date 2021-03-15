@@ -15,6 +15,7 @@ target_link_libraries(
     common
     external
     plan
+    clib
 )
 
 target_include_directories(
