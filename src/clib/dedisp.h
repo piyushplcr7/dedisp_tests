@@ -196,7 +196,6 @@ void         dedisp_destroy_plan(dedisp_plan plan);
  */
 dedisp_error dedisp_set_device(int device_idx);
 
-#ifdef NOTDEFINED
 /*! \p dedisp_set_gulp_size sets the internal gulp size used by the library
  *
  *  \param plan Plan object to set gulp size of
@@ -214,6 +213,7 @@ dedisp_error dedisp_set_gulp_size(dedisp_plan plan,
  *  \return The internal gulp size used by the library (arbitrary units, default: 131072)
  */
 dedisp_size  dedisp_get_gulp_size(dedisp_plan plan);
+
 /*! \p dedisp_set_killmask sets a list of channels to ignore when dedispersing
  *
  *  \param plan Plan object to apply killmask to
@@ -250,7 +250,7 @@ dedisp_error dedisp_set_killmask(dedisp_plan        plan,
 dedisp_error dedisp_set_dm_list(dedisp_plan         plan,
                                 const dedisp_float* dm_list,
                                 dedisp_size         count);
-#endif
+
 /*! \p dedisp_generate_dm_list generates a list of dispersion measures to be
  *       computed during dedispersion
  *
@@ -272,12 +272,14 @@ dedisp_error dedisp_generate_dm_list(dedisp_plan  plan,
                                      dedisp_float dm_end,
                                      dedisp_float pulse_width,
                                      dedisp_float tol);
-#ifdef NOTDEFINED
+
+/* Currently not implemented in C-interface:
 dedisp_float * dedisp_generate_dm_list_guru (dedisp_float dm_start, dedisp_float dm_end,
                                      double dt, double ti, double f0, double df,
                                      dedisp_size nchans, double tol, dedisp_size * dm_count);
 
-#endif
+*/
+
 // Getters
 // -------
 /*! \p dedisp_get_max_delay gets the maximum delay (in samples) applied during
@@ -502,7 +504,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
                                  dedisp_size        first_dm_idx,
                                  dedisp_size        dm_count,
                                  unsigned           flags);
-#ifdef NOTDEFINED
+
 // TODO: CHECK THE STATUS OF THIS FEATURE
 /*! \p dedisp_sync waits until all previous plan executions have completed
  *       before returning. This function can be used in conjunction with
@@ -514,6 +516,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 */
 dedisp_error dedisp_sync(void);
 
+/* Currently not implemented in C-interface:*/
 /*! \p dedisp_enable_adaptive_dt instructs \p plan to use an adaptive
  *       time-resolution scheme. The time resolution is varied as a function
  *       of DM, decreasing by factors of 2 when the increase in smearing is
@@ -525,18 +528,24 @@ dedisp_error dedisp_sync(void);
  *  \param tol The smearing tolerance at which the time resolution is reduced.
  *           A typical value is 1.15, meaning a tolerance of 15%.
  */
+/*
 dedisp_error dedisp_enable_adaptive_dt(dedisp_plan  plan,
                                        dedisp_float pulse_width,
                                        dedisp_float tol);
+*/
 /*! \p dedisp_disable_adaptive_dt disables adaptive time resolution for \p plan.
  *  \param plan The plan for which to disable adaptive time resolution.
  */
+/*
 dedisp_error dedisp_disable_adaptive_dt(dedisp_plan plan);
+*/
 /*! \p dedisp_using_adaptive_dt returns whether \p plan has adaptive time
  *       resolution enabled.
  *  \param plan The plan for which to query adaptive time resolution.
  */
+/*
 dedisp_bool  dedisp_using_adaptive_dt(const dedisp_plan plan);
+*/
 /*! \p dedisp_get_dt_factors returns an array of length
  *       \p dedisp_get_dm_count(\p plan) containing the integer factors by which
  *       the time resolution (1/dt) is decreased for each DM. Note that the
@@ -548,9 +557,9 @@ dedisp_bool  dedisp_using_adaptive_dt(const dedisp_plan plan);
  *          \p dedisp_enable_adaptive_dt has not been called; in such cases the
  *          returned list will consist entirely of ones.
  */
+/*
 const dedisp_size* dedisp_get_dt_factors(const dedisp_plan plan);
-
-#endif //ifdef NOTDEFINED
+*/
 
 #ifdef __cplusplus
 } // closing brace for extern "C"
