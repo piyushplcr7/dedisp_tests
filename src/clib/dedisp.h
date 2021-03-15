@@ -1,18 +1,9 @@
 /*
- *  Copyright 2012 Ben Barsdell
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *      distributed under the License is distributed on an "AS IS" BASIS,
- *      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* This file contains the C wrappers for the CPP library.
+* And was adapted from the original dedisp.cu (Copyright 2012 Ben Barsdell).
+*/
 
 /*
   dedisp.h
@@ -49,15 +40,12 @@
 extern "C" {
 #endif
 
-#include "common/dedisp_types.h"
-// Additional type(s)
-// -----
-/*
+#include "common/dedisp_types.h"   /* Includes:
 typedef float                      dedisp_float;
 typedef unsigned char              dedisp_byte;
 typedef unsigned long              dedisp_size;
-typedef int                        dedisp_bool;
-*/
+typedef int                        dedisp_bool; */
+// Additional type(s):
 typedef struct dedisp_plan_struct* dedisp_plan;
 
 /*! \typedef dedisp_float
@@ -74,7 +62,7 @@ typedef struct dedisp_plan_struct* dedisp_plan;
  * The plan type used by the library to reference a dedispersion plan.
      This is an opaque pointer type. */
 
-// Flags
+// Flags, included from "common/dedisp_types.h"
 // -----
 /*
 typedef enum {

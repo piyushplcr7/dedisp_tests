@@ -1,44 +1,26 @@
 /*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
 * This file contains the C wrappers for the CPP library.
-* And was adapted from the original dedisp.cu.
-* Original copyright notice:
-*  Copyright 2012 Ben Barsdell
-*
-*  Licensed under the Apache License, Version 2.0 (the "License");
-*  you may not use this file except in compliance with the License.
-*  You may obtain a copy of the License at
-*
-*  http://www.apache.org/licenses/LICENSE-2.0
-*
-*  Unless required by applicable law or agreed to in writing, software
-*      distributed under the License is distributed on an "AS IS" BASIS,
-*      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-*  See the License for the specific language governing permissions and
-*  limitations under the License.
+* And was adapted from the original dedisp.cu (Copyright 2012 Ben Barsdell).
 */
 
 //#define DEDISP_DEBUG
-//#define DEDISP_BENCHMARK
 
 #include "dedisp.h"
 #include <memory> //for shared pointers
 #include <iostream>
 #include <typeinfo>
 
-// Generic dedisp Plan interface
-//#include <Plan.hpp>
 // Implementation specific CPP Plan interfaces
 #include <dedisp/DedispPlan.hpp>
-#include <tdd/TDDPlan.hpp> //-> conflicting declarations of typedef enum dedisp_error
+#include <tdd/TDDPlan.hpp>
 #include <fdd/FDDGPUPlan.hpp>
 #include <fdd/FDDCPUPlan.hpp>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// #ifdef DEDISP_BENCHMARK
-// #if defined(DEDISP_DEBUG) && DEDISP_DEBUG
 
 // Define plan structure
 // with a C-compatible interface to a CPP dedisp::Plan
@@ -54,7 +36,7 @@ static int g_device_idx = 0;
 static dedisp_implementation g_implementation = DEDISP_DEDISP;
 
 // Internal abstraction for errors
-#if defined(DEDISP_DEBUG) && DEDISP_DEBUG
+#ifdef DEDISP_DEBUG
 #define throw_error(error) do {                                         \
 	printf("An error occurred within dedisp on line %d of %s: %s",      \
 	       __LINE__, __FILE__, dedisp_get_error_string(error));         \
@@ -127,7 +109,9 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
                                 dedisp_float f0,
                                 dedisp_float df)
 {
+#ifdef DEDISP_DEBUG
 	std::cout <<  "dedisp_create_plan()" << std::endl;
+#endif
 
 	// Initialise to NULL for safety
 	*plan = 0;
@@ -148,7 +132,6 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
   	bool use_cpu = !use_cpu_str ? false : atoi(use_cpu_str);
 
 	try {
-		//std::cout << "   g_implementation = " << g_implementation << std::endl;
 		// switch case based on optional implementation parameter
 		switch (g_implementation)
 		{
@@ -342,6 +325,7 @@ dedisp_size         dedisp_get_max_delay(const dedisp_plan plan) {
 	if( 0 == plan->ptr->get_dm_count()) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
 	return plan->ptr->get_max_delay();
 }
+
 dedisp_size         dedisp_get_dm_delay(const dedisp_plan plan, int dm_trial) {
   if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
   if( 0 == plan->ptr->get_dm_count() ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
@@ -350,36 +334,45 @@ dedisp_size         dedisp_get_dm_delay(const dedisp_plan plan, int dm_trial) {
   // changing this has impact on the interface of the function.
   return (plan->ptr->get_dm_list()[dm_trial] * plan->ptr->get_delay_table()[plan->ptr->get_channel_count()-1] + 0.5);
 }
+
 dedisp_size         dedisp_get_channel_count(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	return plan->ptr->get_channel_count();
 }
+
 dedisp_size         dedisp_get_dm_count(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	return plan->ptr->get_dm_count();
 }
+
 const dedisp_float* dedisp_get_dm_list(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	if( 0 == plan->ptr->get_dm_count() ) { throw_getter_error(DEDISP_NO_DM_LIST_SET,0); }
 	return &plan->ptr->get_dm_list()[0];
 }
+
 const dedisp_bool*  dedisp_get_killmask(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	return &plan->ptr->get_killmask()[0];
 }
+
 dedisp_float        dedisp_get_dt(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	return plan->ptr->get_dt();
 }
+
 dedisp_float        dedisp_get_f0(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	return plan->ptr->get_f0();
 }
+
 dedisp_float        dedisp_get_df(const dedisp_plan plan) {
 	if( !plan ) { throw_getter_error(DEDISP_INVALID_PLAN,0); }
 	return plan->ptr->get_df();
 }
 
+// Execution functions
+// -------
 dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
                                  dedisp_size        nsamps,
                                  const dedisp_byte* in,
@@ -405,7 +398,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		*  the TDD interface does not have flags.*/
 		if(typeid(*plan->ptr.get())==typeid(dedisp::DedispPlan))
 		{
+#ifdef DEDISP_DEBUG
 			std::cout << "dedisp_execute_guru() dedisp::DedispPlan with flags" << std::endl;
+#endif
 			static_cast<dedisp::DedispPlan*>(plan->ptr.get())->execute_guru(	nsamps,
 																			in,
 																			in_nbits,
@@ -419,7 +414,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		}
 		else if(typeid(*plan->ptr.get())==typeid(dedisp::TDDPlan))
 		{
+#ifdef DEDISP_DEBUG
 			std::cout << "dedisp_execute_guru() dedisp::TDDPlan without flags" << std::endl;
+#endif
 			static_cast<dedisp::TDDPlan*>(plan->ptr.get())->execute_guru(	nsamps,
 																			in,
 																			in_nbits,
@@ -465,7 +462,9 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
 		*  the TDD interface does not have flags.*/
 		if(typeid(*plan->ptr.get())==typeid(dedisp::DedispPlan))
 		{
+#ifdef DEDISP_DEBUG
 			std::cout << "dedisp_execute_adv() dedisp::DedispPlan with flags" << std::endl;
+#endif
 			static_cast<dedisp::DedispPlan*>(plan->ptr.get())->execute_adv(	nsamps,
 																			in,
 																			in_nbits,
@@ -477,7 +476,9 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
 		}
 		else if(typeid(*plan->ptr.get())==typeid(dedisp::TDDPlan))
 		{
+#ifdef DEDISP_DEBUG
 			std::cout << "dedisp_execute_adv() dedisp::TDDPlan without flags" << std::endl;
+#endif
 			static_cast<dedisp::TDDPlan*>(plan->ptr.get())->execute_adv(	nsamps,
 																			in,
 																			in_nbits,
