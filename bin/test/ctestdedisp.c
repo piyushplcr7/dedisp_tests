@@ -274,6 +274,10 @@ int main(int argc, char* argv[])
   printf("Quantized data StdDev (includes signal)  : %f\n",in_sigma);
   printf("\n");
 
+/* Use dedisp_select_implementation() with DEDISP_FDD or DEDISP_TDD
+*  to enable an alternative dedisp implementation.
+*  The default implementation is the original dedisp,
+*  the default setting might be changed in dedisp.cpp */
   //dedisp_select_implementation(DEDISP_FDD);
   //dedisp_select_implementation(DEDISP_TDD);
 
@@ -306,7 +310,6 @@ int main(int argc, char* argv[])
 
   // Find the parameters that determine the output size
   dm_count = dedisp_get_dm_count(plan);
-  printf("dedisp_get_dm_count: %lu \n", dm_count);
   max_delay = dedisp_get_max_delay(plan);
   nsamps_computed = nsamps - max_delay;
   dmlist = dedisp_get_dm_list(plan);
@@ -330,6 +333,7 @@ int main(int argc, char* argv[])
   printf("Compute on GPU\n");
   startclock = clock();
   // Compute the dedispersion transform on the GPU
+  // Default execution function
   error = dedisp_execute(plan, nsamps,
 			 input, in_nbits,
 			 (dedisp_byte *)output, out_nbits,
@@ -339,6 +343,51 @@ int main(int argc, char* argv[])
 	   dedisp_get_error_string(error));
     return -1;
   }
+
+  // Advanced and Guru execution parameters
+/*
+  const unsigned int BITS_PER_BYTE = 8;
+  dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
+  dedisp_size in_stride = dedisp_get_channel_count(plan) * in_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
+  dedisp_size out_stride = (nsamps - dedisp_get_max_delay(plan)) * out_bytes_per_sample;
+*/
+/*
+  // Advanced execution function
+  error = dedisp_execute_adv( plan,
+                              nsamps,
+			                        input,
+                              in_nbits,
+                              in_stride,
+			                        (dedisp_byte *)output,
+                              out_nbits,
+                              out_stride,
+			                        DEDISP_USE_DEFAULT);
+  if( error != DEDISP_NO_ERROR ) {
+    printf("\nERROR: Failed to execute dedispersion plan: %s\n",
+	   dedisp_get_error_string(error));
+    return -1;
+  }
+*/
+  // Guru execution function
+/*
+  error = dedisp_execute_guru(plan,
+                              nsamps,
+			                        input,
+                              in_nbits,
+                              in_stride,
+			                        (dedisp_byte *)output,
+                              out_nbits,
+                              out_stride,
+                              0,// first dm index
+                              dm_count,
+			                        DEDISP_USE_DEFAULT);
+  if( error != DEDISP_NO_ERROR ) {
+    printf("\nERROR: Failed to execute dedispersion plan: %s\n",
+	   dedisp_get_error_string(error));
+    return -1;
+  }
+  */
+
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
 
   // Look for significant peaks
