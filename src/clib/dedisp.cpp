@@ -5,8 +5,6 @@
 * And was adapted from the original dedisp.cu (Copyright 2012 Ben Barsdell).
 */
 
-//#define DEDISP_DEBUG
-
 #include "dedisp.h"
 #include <memory> //for shared pointers
 #include <iostream>

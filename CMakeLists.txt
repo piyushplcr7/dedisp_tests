@@ -37,6 +37,12 @@ if (ENABLE_BENCHMARK)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEDISP_BENCHMARK")
 endif()
 
+option(ENABLE_DEBUG off)
+
+if (ENABLE_DEBUG)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEDISP_DEBUG")
+endif()
+
 
 ################################################################################
 # cuda configuration
