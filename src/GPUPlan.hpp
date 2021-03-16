@@ -8,6 +8,8 @@
 
 #include "Plan.hpp"
 
+#include "common/cuda/CU.h"
+
 namespace dedisp
 {
 

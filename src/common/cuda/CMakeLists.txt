@@ -5,9 +5,7 @@ cuda_add_library(cu
 find_package(CUDAnvToolsExt REQUIRED)
 
 target_link_libraries(cu
+    ${CUDA_CUDART_LIBRARY}
     ${CUDA_nvToolsExt_LIBRARY}
-)
-
-set_property(TARGET cu
-    PROPERTY POSITION_INDEPENDENT_CODE on
+    ${CUDA_cufft_LIBRARY}
 )

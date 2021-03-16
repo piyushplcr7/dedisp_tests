@@ -3,19 +3,20 @@ cuda_add_library(
     TDDPlan.cpp
     dedisperse/TDDKernel.cu
     unpack/unpack.cu
+    $<TARGET_OBJECTS:common>
+    $<TARGET_OBJECTS:plan>
+    $<TARGET_OBJECTS:external>
 )
 
 target_link_libraries(
     tdd
-    ${CUDA_CUDART_LIBRARY}
-    common
-    external
-    plan
+    cu
 )
 
 target_include_directories(
     tdd
-   PRIVATE ${CMAKE_SOURCE_DIR}/src
+    PRIVATE ${CMAKE_SOURCE_DIR}/src
+    PUBLIC ${CUDA_TOOLKIT_INCLUDE}
 )
 
 set_target_properties(
