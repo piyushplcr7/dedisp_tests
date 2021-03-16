@@ -1,3 +1,5 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef H_CHUNK_INCLUDE_GUARD
 #define H_CHUNK_INCLUDE_GUARD
 

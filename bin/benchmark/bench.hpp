@@ -1,6 +1,8 @@
 /*
-  Simple test application for libdedisp
-  By Paul Ray (2013)
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* Methods for benchmarking with libdedisp, refer to README for more info.
+* Adapted from simple test application for libdedisp by Paul Ray (2013)
 */
 
 #include <stdlib.h>
@@ -29,10 +31,10 @@ dedisp_byte bytequant(dedisp_float f)
 {
   dedisp_float v = f + 127.5f;
   dedisp_byte r;
-  if (v>255.0) { 
-    r= (dedisp_byte)255; 
+  if (v>255.0) {
+    r= (dedisp_byte)255;
   } else if (v<0.0f) {
-    r= (dedisp_byte)0; 
+    r= (dedisp_byte)0;
   } else {
     r = (dedisp_byte)roundf(v);
   }
@@ -103,13 +105,13 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean, dedisp
 
 void usage(void)
 {
-  printf("Usage: benchfdd or benchdedisp with -n [nr of DM trials] -s [nr of samples] -c [nr of channels]\n\n");
+  printf("Usage: benchdedisp, benchtdd or benchfdd with -n [nr of DM trials] -s [nr of samples] -c [nr of channels]\n\n");
   printf("No arguments        Default settings\n");
-  printf("-n [ntrails]        Number of DM trails\n");
+  printf("-n [ntrials]        Number of DM trials\n");
   printf("-s [samples]        Number of samples to generate\n");
   printf("-c [samples]        Number of channels to generate\n");
-  printf("-r [DM start(,end)] Alternative Start (and optional end) values of DM range to dedisperse\n");
-  printf("-t [Tobs]           Alternative observation time to use, use instead of -s\n");
+  printf("-r [DM start(,end)] Alternative Start (and optional end) values of DM range to dedisperse (use end instead of -n)\n");
+  printf("-t [Tobs]           Alternative observation time to use [seconds] (use instead of -s)\n");
   printf("-i [niterations]    Number of iterations for the dedipsersion plan and execution\n");
   printf("-q                  Quiet; no verbose information to screen\n");
   printf("-h                  This help\n");
@@ -137,6 +139,8 @@ struct BenchParameters
   int           niterations     = 1;
 };
 
+// Parse input parameters, to be used with benchmarking run method
+// return -1 on error
 int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
 {
   int arg=0;
@@ -214,7 +218,7 @@ int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
   benchParameter.df = -1.0*benchParameter.bw/benchParameter.nchans; // changes with nchans
 
   // samples versus time
-  if (benchParameter.Tobs != 0) // it time was defined then define number of samples based on time
+  if (benchParameter.Tobs != 0) // if time was defined then define number of samples based on time
   {
     benchParameter.nsamps = benchParameter.Tobs / benchParameter.dt;
   }
@@ -226,6 +230,7 @@ int parseParameters(int argc,char *argv[], BenchParameters & benchParameter)
   return 0;
 }
 
+// run method for benchmarking function for a dedisp, tdd or fdd Plan
 template<typename PlanType>
 int run(BenchParameters & benchParameter)
 {
@@ -280,7 +285,8 @@ int run(BenchParameters & benchParameter)
   }
 
   /* Allocate a shared buffer for input and output, don't care about the contents.
-  This saves benchmarking initialization time but does not impact implementation benchmarking time */
+  This saves benchmarking initialization time but does not impact implementation benchmarking time,
+  because the implementation performance is not data dependent. */
 
   auto dummyData = (dedisp_float *) malloc(maxBufferSize);
   if (dummyData == NULL) {
@@ -288,7 +294,8 @@ int run(BenchParameters & benchParameter)
     return -1;
   }
 
-  // both input and output point to the same dummy memory location, but with different pointer types
+  /* Both input and output point to the same dummy memory location, but with different pointer types.
+  This saves us a lot of RAM utiliztion. Read and write at the same time should not be an issue. */
   dedisp_byte *input  = (dedisp_byte *) dummyData;
   dedisp_float *output = (dedisp_float *) dummyData;
 

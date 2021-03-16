@@ -1,4 +1,9 @@
 *.so
+*.so.*
 lib/
 include/
 example/testdedisp
+**/Makefile
+**/CMakeFiles
+*.cmake
+CmakeCached.txt

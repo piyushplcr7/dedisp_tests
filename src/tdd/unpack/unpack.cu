@@ -1,7 +1,13 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* Time Domain Dedispersion (TDD)
+* is an optimized version of the original dedisp implementation.
+* This kernel is a fused version of the original transpose and unpack kernels.
+* Thus requiring only a single pass over the data for the same operations.
+*/
 #include <algorithm>
-
 #include "dedisp_types.h"
-
 #include "unpack_kernel.cuh"
 
 template<typename U>

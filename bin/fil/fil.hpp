@@ -1,3 +1,13 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* Adapted from dedisp_fil:
+* https://github.com/cbassa/dedisp_fil/commit/9d72edebd95becc573a3be95ec7aab213b2e5b99
+* SPDX-License-Identifier: GPL-3.0
+* SPDX-FileCopyrightText: 2020, Cees Bassa
+* Extended to use different kinds of Dedispersion Plans.
+* Purpose: Dedisperse filterbank files with dedisp library.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +28,7 @@ static char *backend_name(int machine_id);
 static char *telescope_name(int telescope_id);
 void writeinf(struct header h, char *outstem, float dm,int numout);
 
-// Decimate the timeseries in time. Reuses input array                          
+// Decimate the timeseries in time. Reuses input array
 void decimate_timeseries(dedisp_byte *z,int nx,int ny,int mx)
 {
   int64_t i,j,k,l;
@@ -48,21 +58,22 @@ void usage(void)
 {
   printf("Usage: dedisp_fil -f <file> -D [GPU device] -r [DM start,end] -s [DM step]\n\n");
   printf("-f <FILE file>      SIGPROC filterbank file to read as input\n");
-  printf("-o <output prefix>  Output prefix [test]\n");
+  printf("-o <output prefix>  Output prefix\n");
   printf("-D [GPU device]     GPU device number to use (default: 0)\n");
   printf("-r [DM start(,end)] Start (and end) values of DM range to dedisperse (default: 0,50)\n");
-  printf("-s [DM step]        Linear DM step to use. If not provided, optimal DM trials are computed\n");
+  printf("-s [DM step]        Linear DM step to use. (default: optimal DM trials are computed)\n");
   printf("-n [ntrails]        Number of DM trails.\n");
   printf("-d [decimate]       Decimate timeseries by this factor (default: 1)\n");
   printf("-N [samples]        Number of samples to write (default: all)\n");
-  printf("-w [pulse width]    Expected intrinsic pulse width for optimal DM trials [default: 4.0us]\n");
-  printf("-t [tolerance]      Smearing tolerance factor between DM trials [default: 1.25]\n");
+  printf("-w [pulse width]    Expected intrinsic pulse width for optimal DM trials (default: 4.0us)\n");
+  printf("-t [tolerance]      Smearing tolerance factor between DM trials (default: 1.25)\n");
   printf("-q                  Quiet; no information to screen\n");
   printf("-h                  This help\n");
 
   return;
 }
 
+// run method for dedispersion with filterbank files
 template<typename PlanType>
 int run(int argc,char *argv[])
 {
@@ -84,51 +95,51 @@ int run(int argc,char *argv[])
   if (argc>1) {
     while ((arg=getopt(argc,argv,"f:D:hr:s:w:t:qo:d:n:N:g:"))!=-1) {
       switch(arg) {
-	
+
       case 'f':
 	filename=optarg;
 	break;
-	
+
       case 'o':
 	strcpy(prefix,optarg);
 	break;
-	
+
       case 'r':
 	if (strchr(optarg,',')!=NULL)
 	  sscanf(optarg,"%f,%f",&dm_start,&dm_end);
 	else
 	  dm_start=atof(optarg);
 	break;
-	
+
       case 's':
 	dm_step=atof(optarg);
 	break;
-	
+
       case 'd':
 	ndec=(dedisp_size) atoi(optarg);
 	break;
-	
+
       case 'n':
 	dm_count=(dedisp_size) atoi(optarg);
 	break;
-	
+
       case 'N':
 	numout=atoi(optarg);
 	break;
-	
+
       case 'D':
 	device_id=atoi(optarg);
 	break;
-	
+
       case 'q':
 	verbose=0;
 	break;
-	
+
       case 'h':
 	usage();
 	return 0;
 	break;
-	
+
       default:
 	usage();
 	return 0;
@@ -147,7 +158,7 @@ int run(int argc,char *argv[])
     return -1;
   }
 
-  // Open file 
+  // Open file
   file=fopen(filename,"r");
   if (file==NULL) {
     fprintf(stderr,"Error reading file %s\n",filename);
@@ -261,7 +272,7 @@ int run(int argc,char *argv[])
   // Output length
   if (numout==0 || numout>nsamp_computed)
     numout=nsamp_computed;
-  
+
   // Ensure numout divisible by 2
   if (numout%2!=0)
     numout--;
@@ -307,9 +318,9 @@ struct header read_header(FILE *file)
     // Read string size
     strcpy(string,"ERROR");
     fread(&nchar,sizeof(int),1,file);
-    
+
     // Skip wrong strings
-    if (!(nchar>1 && nchar<80)) 
+    if (!(nchar>1 && nchar<80))
       continue;
 
     // Increate byte counter
@@ -318,45 +329,45 @@ struct header read_header(FILE *file)
     // Read string
     fread(string,nchar,1,file);
     string[nchar]='\0';
-    
+
     // Exit at end of header
     if (strcmp(string,"HEADER_END")==0)
       break;
-    
+
     // Read parameters
-    if (strcmp(string, "tsamp")==0) 
+    if (strcmp(string, "tsamp")==0)
       fread(&h.tsamp,sizeof(double),1,file);
-    else if (strcmp(string,"tstart")==0) 
+    else if (strcmp(string,"tstart")==0)
       fread(&h.tstart,sizeof(double),1,file);
-    else if (strcmp(string,"fch1")==0) 
+    else if (strcmp(string,"fch1")==0)
       fread(&h.fch1,sizeof(double),1,file);
-    else if (strcmp(string,"foff")==0) 
+    else if (strcmp(string,"foff")==0)
       fread(&h.foff,sizeof(double),1,file);
-    else if (strcmp(string,"nchans")==0) 
+    else if (strcmp(string,"nchans")==0)
       fread(&h.nchan,sizeof(int),1,file);
-    else if (strcmp(string,"nifs")==0) 
+    else if (strcmp(string,"nifs")==0)
       fread(&h.nif,sizeof(int),1,file);
-    else if (strcmp(string,"nbits")==0) 
+    else if (strcmp(string,"nbits")==0)
       fread(&h.nbit,sizeof(int),1,file);
-    else if (strcmp(string,"nsamples")==0) 
+    else if (strcmp(string,"nsamples")==0)
       fread(&h.nsamp,sizeof(int),1,file);
-    else if (strcmp(string,"az_start")==0) 
+    else if (strcmp(string,"az_start")==0)
       fread(&h.az_start,sizeof(double),1,file);
-    else if (strcmp(string,"za_start")==0) 
+    else if (strcmp(string,"za_start")==0)
       fread(&h.za_start,sizeof(double),1,file);
-    else if (strcmp(string,"src_raj")==0) 
+    else if (strcmp(string,"src_raj")==0)
       fread(&h.src_raj,sizeof(double),1,file);
-    else if (strcmp(string,"src_dej")==0) 
+    else if (strcmp(string,"src_dej")==0)
       fread(&h.src_dej,sizeof(double),1,file);
-    else if (strcmp(string,"telescope_id")==0) 
+    else if (strcmp(string,"telescope_id")==0)
       fread(&h.telescope_id,sizeof(int),1,file);
-    else if (strcmp(string,"machine_id")==0) 
+    else if (strcmp(string,"machine_id")==0)
       fread(&h.machine_id,sizeof(int),1,file);
-    else if (strcmp(string,"nbeams")==0) 
+    else if (strcmp(string,"nbeams")==0)
       fread(&h.nbeam,sizeof(int),1,file);
-    else if (strcmp(string,"ibeam")==0) 
+    else if (strcmp(string,"ibeam")==0)
       fread(&h.ibeam,sizeof(int),1,file);
-    else if (strcmp(string,"source_name")==0) 
+    else if (strcmp(string,"source_name")==0)
       strcpy(h.source_name,string);
   }
 
@@ -487,10 +498,10 @@ void writeinf(struct header h, char *outstem, float dm,int numout)
 
   sprintf(outname, "%s_DM%.3f.inf", outstem, dm);
 
-  // first check if file already exists                                                                                                                                                
-  // if it does, then return                                                                                                                                                           
-  // struct stat info;                                                                                                                                                                 
-  // if (stat(outname, &info) == 0) return;                                                                                                                                            
+  // first check if file already exists
+  // if it does, then return
+  // struct stat info;
+  // if (stat(outname, &info) == 0) return;
 
   if ((infofile=fopen(outname, "w")) == NULL) {
     fprintf(stderr, "Error opening output inf-file!\n");

@@ -1,3 +1,6 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Helper functions for time segmentation feature with FDD (both CPU and GPU)
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -19,6 +22,7 @@ struct Chunk
     unsigned int nfreq_good;  // number of good samples
 };
 
+// Helper function for time segmentation feature with FDD (both CPU and GPU)
 void compute_chunks(
     unsigned int nsamp,
     unsigned int nsamp_good,
@@ -58,6 +62,7 @@ void compute_chunks(
     }
 }
 
+// Helper function for time segmentation feature with FDD (both CPU and GPU)
 void print_chunks(
     std::vector<Chunk>& chunks)
 {
@@ -71,6 +76,7 @@ void print_chunks(
     }
 }
 
+// Helper function for time segmentation feature with FDD (both CPU and GPU)
 void copy_chunk_output(
     float* src,
     float* dst,
@@ -103,6 +109,7 @@ void copy_chunk_output(
     }
 }
 
+// Helper function for time segmentation feature with FDD (both CPU and GPU)
 void generate_spin_frequency_table_chunks(
     std::vector<Chunk>& chunks,
     std::vector<float>& spin_frequencies,

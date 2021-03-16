@@ -1,3 +1,10 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* CU, a CUDA driver api C++ wrapper.
+* This code is copied from the IDG repository (https://git.astron.nl/RD/idg)
+* and changed to meet the needs for this library.
+*/
 #ifndef CU_WRAPPER_H
 #define CU_WRAPPER_H
 

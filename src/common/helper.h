@@ -1,3 +1,8 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* 2D Memory Copy helper function.
+*/
 #ifndef HELPER_H_INCLUDE_GUARD
 #define HELPER_H_INCLUDE_GUARD
 

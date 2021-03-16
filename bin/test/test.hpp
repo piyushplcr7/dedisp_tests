@@ -1,6 +1,8 @@
 /*
   Simple test application for libdedisp
   By Paul Ray (2013)
+  With extended run method to use multiple different implementations
+  (Dedisp PlanType) of dedispersion. (2020 ASTRON)
 */
 
 #include <stdlib.h>
@@ -23,10 +25,10 @@ dedisp_byte bytequant(dedisp_float f)
 {
   dedisp_float v = f + 127.5f;
   dedisp_byte r;
-  if (v>255.0) { 
-    r= (dedisp_byte)255; 
+  if (v>255.0) {
+    r= (dedisp_byte)255;
   } else if (v<0.0f) {
-    r= (dedisp_byte)0; 
+    r= (dedisp_byte)0;
   } else {
     r = (dedisp_byte)roundf(v);
   }
@@ -95,6 +97,7 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean, dedisp
   return;
 }
 
+// run method for dedispersion with original dedisp test implementation
 template<typename PlanType>
 int run()
 {
@@ -111,7 +114,7 @@ int run()
 
   dedisp_size  nsamps      = Tobs / dt;
   dedisp_float datarms     = 25.0;
-  dedisp_float sigDM = 41.159; 
+  dedisp_float sigDM = 41.159;
   dedisp_float sigT = 3.14159; // seconds into time series (at f0)
   dedisp_float sigamp = 25.0; // amplitude of signal
 
@@ -121,7 +124,7 @@ int run()
   dedisp_float dm_tol      = 1.25;
   dedisp_size  in_nbits    = 8;
   dedisp_size  out_nbits   = 32;  // DON'T CHANGE THIS FROM 32, since that signals it to use floats
-        
+
   dedisp_size  dm_count;
   dedisp_size  max_delay;
   dedisp_size  nsamps_computed;
@@ -176,17 +179,17 @@ int run()
     }
     rawdata[ns*nchans + nc] += sigamp;
   }
-        
+
   printf("----------------------------- INJECTED SIGNAL  ----------------------------\n");
   printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",sigT,(dedisp_size)(sigT/dt));
   printf("Pulse DM (pc/cm^3)                        : %f \n",sigDM);
   printf("Signal Delays : %f, %f, %f ... %f\n",delay_s[0],delay_s[1],delay_s[2],delay_s[nchans-1]);
-  /* 
+  /*
      input is a pointer to an array containing a time series of length
      nsamps for each frequency channel in plan. The data must be in
      time-major order, i.e., frequency is the fastest-changing
      dimension, time the slowest. There must be no padding between
-     consecutive frequency channels. 
+     consecutive frequency channels.
    */
 
   dedisp_float raw_mean, raw_sigma;
@@ -225,7 +228,7 @@ int run()
   printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
   plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
-        
+
   // Find the parameters that determine the output size
   dm_count = plan.get_dm_count();
   max_delay = plan.get_max_delay();
@@ -247,7 +250,7 @@ int run()
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
   }
-        
+
   printf("Compute on GPU\n");
   startclock = clock();
   // Compute the dedispersion transform on the GPU
@@ -255,8 +258,8 @@ int run()
 			 input, in_nbits,
 			 (dedisp_byte *)output, out_nbits);
   printf("Dedispersion took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
-        
-  // Look for significant peaks 
+
+  // Look for significant peaks
   dedisp_float out_mean, out_sigma;
   calc_stats_float(output, nsamps_computed*dm_count, &out_mean, &out_sigma);
 
@@ -290,7 +293,7 @@ int run()
   fwrite(output, 1, (size_t) nsamps_computed * dm_count * out_nbits/8, file_out);
   fclose(file_out);
   #endif
-        
+
   // Clean up
   free(output);
   free(input);

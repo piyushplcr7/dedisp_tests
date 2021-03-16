@@ -1,3 +1,5 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef H_FDD_GPU_PLAN_INCLUDE_GUARD
 #define H_FDD_GPU_PLAN_INCLUDE_GUARD
 
@@ -20,7 +22,7 @@ public:
     // Destructor
     ~FDDGPUPlan();
 
-    // Public interface
+    // Public interface for FDD on GPU
     virtual void execute(
         size_type        nsamps,
         const byte_type* in,
@@ -29,7 +31,7 @@ public:
         size_type        out_nbits);
 
 private:
-    // Private interface
+    // Private interface for FDD on GPU
     virtual void execute_gpu(
         size_type        nsamps,
         const byte_type* in,
@@ -37,6 +39,7 @@ private:
         byte_type*       out,
         size_type        out_nbits);
 
+    // Private interface for FDD on GPU with time segmentation of input data
     virtual void execute_gpu_segmented(
         size_type        nsamps,
         const byte_type* in,
@@ -44,7 +47,7 @@ private:
         byte_type*       out,
         size_type        out_nbits);
 
-    // Helper methods
+    // Helper method to generate a spin frequency table
     void generate_spin_frequency_table(
         dedisp_size nfreq,
         dedisp_size nsamp,

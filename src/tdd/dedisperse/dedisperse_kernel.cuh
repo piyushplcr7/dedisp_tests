@@ -1,3 +1,9 @@
+/*
+* Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+* SPDX-License-Identifier: GPL-3.0-or-later
+* Time Domain Dedispersion (TDD)
+* is an optimized version of the original dedisp implementation.
+*/
 // Texture reference for input data
 texture<dedisp_word, 1, cudaReadModeElementType> t_in;
 

@@ -1,3 +1,6 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CPU reference implementations for FDD
 #include <FDDCPUPlan.hpp>
 
 #include <complex>
@@ -35,6 +38,8 @@ FDDCPUPlan::~FDDCPUPlan()
 {}
 
 // Dedisperison kernels
+
+// Reference implementation for FDD on CPU
 template<typename InputType, typename OutputType>
 void dedisperse_reference(
     unsigned int ndm,
@@ -87,6 +92,7 @@ void dedisperse_reference(
     }
 }
 
+// Reference implementation for FDD on CPU with time segmentation feature
 template<typename InputType, typename OutputType>
 void dedisperse_segmented_reference(
     unsigned int ndm,
@@ -145,6 +151,8 @@ void dedisperse_segmented_reference(
     } // end for idm
 }
 
+// Reference implementation for FDD on CPU with time segmentation feature
+// Optimized to process batches of channels in parallel
 template<typename InputType, typename OutputType>
 void dedisperse_segmented_optimized(
     unsigned int ndm,
@@ -252,6 +260,17 @@ void dedisperse_segmented_optimized(
     }
 }
 
+/* Reference implementation for FDD on CPU, used by default for CPU execution
+* Optimized to process batches of channels in parallel
+* Optinally enable extrapolation of phasor computations
+* by setting the last templated argument to true.
+* With this feature enabled, extrapolation is used in the computation of the phasors
+* On CPU this feature provides a noticable improvement,
+* but on GPU this feature only provides a marginal improvement.
+* Boudary conditions should be further explored to determine
+* functional correctness at all times.
+* Leaving this feature in because it might be beneficial to use.
+*/
 template<typename InputType, typename OutputType, unsigned int nchan_batch, bool extrapolate>
 void dedisperse_optimized(
     unsigned int ndm,
@@ -329,12 +348,14 @@ void dedisperse_optimized(
                         phasor_imag = temp_real * phasor_delta_imag
                                     + temp_imag * phasor_delta_real;
                     }
-                } else {
+                }
+                else // No extrapolation
+                {
                     // Compute phases
                     float phases[nchan_batch];
                     for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
                     {
-                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]); // + ichan_inner?
+                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer + ichan_inner]);
                     }
 
                     // Compute phasors
@@ -378,7 +399,14 @@ void dedisperse_optimized(
     }
 }
 
-// Public interface
+/* Public interface for FDD CPU implementation
+*  By default runs the DM batched optimized implementation of FDD on CPU.
+*  Set environment variable USE_SEGMENTED to use alternative time segmentation feature.
+*  Set environment variable USE_REFERENCE to use the straight forward
+*  non-optimized implementation of FDD, might be combined with USE_SEGMENTED.
+*  Refer to the GPU implementation in GPU source files for more elaborate annotations.
+*  The CPU implementation uses FFTW for the forwards and backwards FFTs.
+*/
 void FDDCPUPlan::execute(
     size_type        nsamps,
     const byte_type* in,
@@ -392,14 +420,14 @@ void FDDCPUPlan::execute(
     {
         std::cout << ">> Running segmented CPU implementation" << std::endl;
         execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
-    } else {
+    } else { //Default
         std::cout << ">> Running CPU implementation" << std::endl;
         execute_cpu(nsamps, in, in_nbits, out, out_nbits);
     }
 }
 
 
-// Private interface
+// Private interface to CPU implementation of FDD
 void FDDCPUPlan::execute_cpu(
     size_type        nsamps,
     const byte_type* in,
@@ -500,7 +528,8 @@ void FDDCPUPlan::execute_cpu(
     {
         std::cout << ">> Running optimized implementation" << std::endl;
         dedispersion_timer->Start();
-        dedisperse_optimized<float, float, 32, true>(
+        // Set last templated parameter to true to enable extrapolation feature
+        dedisperse_optimized<float, float, 32, false>(
             ndm, nfreq, nchan,                      // data dimensions
             dt,                                     // sample time
             h_spin_frequencies.data(),              // spin frequencies
@@ -546,7 +575,7 @@ void FDDCPUPlan::execute_cpu(
     std::cout << std::endl;
 }
 
-
+// Private interface to CPU implementation of FDD using time segmentation feature
 void FDDCPUPlan::execute_cpu_segmented(
     size_type        nsamps,
     const byte_type* in,
@@ -735,7 +764,8 @@ void FDDCPUPlan::execute_cpu_segmented(
             );
         } else {
             std::cout << ">> Running optimized kernel" << std::endl;
-            dedisperse_optimized<float, float, 32, true>(
+            // Set last templated parameter to true to enable extrapolation feature
+            dedisperse_optimized<float, float, 32, false>(
                 ndm, nfreq, nchan,         // data dimensions
                 dt,                        // sample time
                 h_spin_frequencies.data(), // spin frequencies
@@ -814,6 +844,7 @@ void FDDCPUPlan::generate_spin_frequency_table(
     }
 }
 
+// Wrapper for FFTW R2C FFT (in -> out)
 void FDDCPUPlan::fft_r2c(
     unsigned int n,
     unsigned int batch,
@@ -834,6 +865,7 @@ void FDDCPUPlan::fft_r2c(
     fftwf_destroy_plan(plan);
 }
 
+// Wrapper for FFTW R2C FFT (inplace)
 void FDDCPUPlan::fft_r2c_inplace(
     unsigned int n,
     unsigned int batch,
@@ -843,6 +875,7 @@ void FDDCPUPlan::fft_r2c_inplace(
     fft_r2c(n, batch, stride, stride, data, data);
 }
 
+// Wrapper for FFTW C2R FFT (in -> out)
 void FDDCPUPlan::fft_c2r(
     unsigned int n,
     unsigned int batch,
@@ -870,6 +903,7 @@ void FDDCPUPlan::fft_c2r(
     fftwf_destroy_plan(plan);
 }
 
+// Wrapper for FFTW C2R FFT (inplace)
 void FDDCPUPlan::fft_c2r_inplace(
     unsigned int n,
     unsigned int batch,

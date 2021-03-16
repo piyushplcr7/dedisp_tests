@@ -1,7 +1,11 @@
+/*
+* Generic Plan class to be used with TDD and FDD implementations
+* Generic code from the original DedisPlan class was moved here,
+* with the intention that alternative dedispersion implementations
+* can be added without too much duplication.
+*/
 #include "Plan.hpp"
-
 #include <cmath>
-
 #include "common/dedisp_error.hpp"
 
 namespace dedisp

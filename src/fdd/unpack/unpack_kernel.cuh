@@ -1,3 +1,5 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
 #define TILE_DIM     32
 #define BLOCK_ROWS   8
 #define EXPANSION    4

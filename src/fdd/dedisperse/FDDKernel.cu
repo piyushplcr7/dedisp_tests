@@ -1,11 +1,9 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include <cuda.h>
-
 #include "FDDKernel.hpp"
-
 #include "fdd_kernel.cuh"
-
 #include "common/cuda/CU.h"
-
 
 /*
  * Helper functions
@@ -54,7 +52,15 @@ void FDDKernel::launch(
     dim3 grid(grid_x, grid_y);
     dim3 block(NFREQ_BATCH_BLOCK);
 
-    // Execute the kernel
+    /* Execute the kernel
+    *  The second kernel argument can be set to true
+    *  in order to enable an experimental optimization feature,
+    *  where extrapolation is used in the computation of the phasors.
+    *  Boudary conditions should be further explored to determine
+    *  functional correctness at all times.
+    *  Leaving this feature in because it might be beneficial
+    *  depending on the system configurations.
+    */
     #define CALL_KERNEL(NCHAN)        \
     dedisperse_kernel<NCHAN, false>    \
     <<<grid, block, 0, stream>>>(     \

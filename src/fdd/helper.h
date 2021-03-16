@@ -1,3 +1,6 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Helper functions for FDD specifically
 #ifndef FDD_HELPER_H_INCLUDE_GUARD
 #define FDD_HELPER_H_INCLUDE_GUARD
 
@@ -6,6 +9,7 @@
 namespace dedisp
 {
 
+// round up int a to a multiple of int b
 inline int round_up(int a, int b)
 {
     return ((a + b - 1) / b) * b;
