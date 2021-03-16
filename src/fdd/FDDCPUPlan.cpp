@@ -355,7 +355,7 @@ void dedisperse_optimized(
                     float phases[nchan_batch];
                     for (unsigned int ichan_inner = 0; ichan_inner < nchan_batch; ichan_inner++)
                     {
-                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer]);
+                        phases[ichan_inner] = (2.0 * M_PI * f[ifreq] * tdms[ichan_outer + ichan_inner]);
                     }
 
                     // Compute phasors
