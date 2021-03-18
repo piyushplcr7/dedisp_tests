@@ -18,6 +18,13 @@ void memcpy2D(
     const void *srcPtr, size_t srcWidth,
     size_t widthBytes, size_t height);
 
+// Return total system (host) memory in Mbits
+size_t get_total_memory();
+// Return used system (host) memory in Mbits
+size_t get_used_memory();
+// Return free system (host) memory in Mbits
+size_t get_free_memory();
+
 } // end namespace dedisp
 
 #endif // HELPER_H_INCLUDE_GUARD

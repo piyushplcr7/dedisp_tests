@@ -214,23 +214,42 @@ void FDDGPUPlan::execute_gpu(
     mPrepSpinf.end();
 
     // Determine the amount of memory to use
-    size_t memory_total = m_device->get_total_memory();
-    size_t memory_free = m_device->get_free_memory();
+    size_t d_memory_total = m_device->get_total_memory();
+    size_t d_memory_free = m_device->get_free_memory();
     size_t sizeof_data_t_nu = 1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
     size_t sizeof_data_t_dm = 1ULL * ndm * nsamp_padded * sizeof(float);
     size_t sizeof_data_x_nu = 1ULL * nchan_batch_max * nsamp_padded * sizeof(float);
     size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded * sizeof(float);
-    size_t memory_required  = sizeof_data_t_nu * nchan_buffers +
+    // For device side, initial value
+    size_t d_memory_required  = sizeof_data_t_nu * nchan_buffers +
                               sizeof_data_x_nu * 1 +
                               sizeof_data_x_dm * ndm_buffers;
-    size_t memory_reserved  = 0.05 * memory_total;
+    size_t d_memory_reserved  = 0.05 * d_memory_total;
+
+    // For host side
+    size_t h_memory_free = get_free_memory();// / std::pow(1024, 1); //current free host memory in MBytes -> Bytes
+    size_t h_memory_required = sizeof_data_t_nu * nchan_buffers +
+                                sizeof_data_t_dm; //in Bytes
+    size_t h_memory_reserved = h_memory_free * 0.05; //5% margin
+
+    if((h_memory_required + h_memory_reserved) / std::pow(1024, 3) > (h_memory_free / std::pow(1024, 1)))
+    {
+        //ToDo: might be fixed by introducing multiple buffering on the output copy
+#ifdef DEDISP_DEBUG
+        std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+        std::cout << "Host memory free     = " << h_memory_free  / std::pow(1024, 1) << " Gb" << std::endl;
+        std::cout << "Host Memory required = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+#endif
+        throw std::runtime_error("FDDGPUPlan runtime error: required host memory is too large");
+    }
 
     // Iteratively search for a maximum amount of ndm_buffers, with safety margin
+    // Make sure that it fits on device memory
     while ((ndm_buffers * ndm_batch_max) < ndm &&
-           (memory_required + memory_reserved + sizeof_data_x_dm) < memory_free)
+           (d_memory_required + d_memory_reserved + sizeof_data_x_dm) < d_memory_free)
     {
         ndm_buffers++;
-        memory_required = sizeof_data_t_nu * nchan_buffers +
+        d_memory_required = sizeof_data_t_nu * nchan_buffers +
                           sizeof_data_x_nu * 1 +
                           sizeof_data_x_dm * (ndm_buffers);
     };
@@ -240,9 +259,12 @@ void FDDGPUPlan::execute_gpu(
     std::cout << debug_str << std::endl;
     std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max << " DMs" << std::endl;
     std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max << " channels" << std::endl;
-    std::cout << "Memory total    = " << memory_total / std::pow(1024, 3) << " Gb" << std::endl;
-    std::cout << "Memory free     = " << memory_free  / std::pow(1024, 3) << " Gb" << std::endl;
-    std::cout << "Memory required = " << memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Device memory free     = " << d_memory_free  / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Device Memory required = " << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+    std::cout << "Host memory free     = " << h_memory_free  / std::pow(1024, 1) << " Gb" << std::endl;
+    std::cout << "Host Memory required = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
 #endif
 
     // Allocate memory
@@ -254,7 +276,7 @@ void FDDGPUPlan::execute_gpu(
         The buffers are used as follows:
         1) copy into page-locked buffer: in -> memcpyHtoH -> h_data_t_nu
         2) copy to device: h_data_t_nu -> memcopyHtoD -> d_data_t_nu
-        3) unpack and transpose: d_data_t_nu -> transpose_unpack -> d_data_tf_nu
+        3) unpack and transpose: d_data_t_nu -> transpose_unpack -> d_data_x_nu
         4) in-place Fourier transform: d_data_x_nu -> fft_r2c -> d_data_x_nu
         5) apply dedispersion: d_data_x_nu -> dedispserse -> d_data_x_dm
         6) in-place Fourier transform: d_data_x_dm -> fft_c2r -> d_data_x_dm
@@ -286,8 +308,10 @@ void FDDGPUPlan::execute_gpu(
     mAllocMem.end();
 
 #ifdef DEDISP_DEBUG
-    size_t memory_free_after_malloc = m_device->get_free_memory();
-    std::cout << "Memory free after memory allocations    = " << memory_free_after_malloc  / std::pow(1024, 3) << " Gb" << std::endl;
+    size_t d_memory_free_after_malloc = m_device->get_free_memory(); //bytes
+    size_t h_memory_free_after_malloc = get_free_memory(); //MB
+    std::cout << "Device memory free after memory allocations    = " << d_memory_free_after_malloc  / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Host memory free after memory allocations    = " << h_memory_free_after_malloc  / std::pow(1024, 1) << " Gb" << std::endl;
 #endif
 
     // Initialize FDDKernel
