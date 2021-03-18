@@ -14,7 +14,9 @@
 #include <omp.h>
 
 #include "common/dedisp_strings.h"
-#include "external/Stopwatch.h"
+#ifdef DEDISP_BENCHMARK
+    #include "external/Stopwatch.h"
+#endif
 
 #include "common/helper.h"
 #include "helper.h"
@@ -420,10 +422,14 @@ void FDDCPUPlan::execute(
     bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);
     if (use_segmented)
     {
+#ifdef DEDISP_DEBUG
         std::cout << ">> Running segmented CPU implementation" << std::endl;
+#endif
         execute_cpu_segmented(nsamps, in, in_nbits, out, out_nbits);
     } else { //Default
+#ifdef DEDISP_DEBUG
         std::cout << ">> Running CPU implementation" << std::endl;
+#endif
         execute_cpu(nsamps, in, in_nbits, out, out_nbits);
     }
 }
@@ -455,11 +461,14 @@ void FDDCPUPlan::execute_cpu(
                                 ? round_up(nsamp + 1, 16384)
                                 : nsamp;
     unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+#ifdef DEDISP_DEBUG
     std::cout << debug_str << std::endl;
     std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
     std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
+#endif
 
     // Timers
+#ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
@@ -468,9 +477,12 @@ void FDDCPUPlan::execute_cpu(
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
+#endif
 
     // Allocate memory
+#ifdef DEDISP_DEBUG
     std::cout << memory_alloc_str << std::endl;
+#endif
     std::vector<float> data_nu;
     std::vector<float> data_dm;
     data_nu.resize((size_t) nchan * nsamp_padded);
@@ -481,11 +493,17 @@ void FDDCPUPlan::execute_cpu(
     {
         generate_spin_frequency_table(nfreq, nsamp, dt);
     }
+#ifdef DEDISP_BENCHMARK
     init_timer->Pause();
+#endif
 
     // Transpose input and convert to floating point
+#ifdef DEDISP_DEBUG
     std::cout << prepare_input_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     preprocessing_timer->Start();
+#endif
     transpose_data<const byte_type, float>(
         nchan,           // height
         nsamp,           // width
@@ -497,23 +515,33 @@ void FDDCPUPlan::execute_cpu(
         data_nu.data()); // out
 
     // FFT data (real to complex) along time axis
+#ifdef DEDISP_DEBUG
     std::cout << fft_r2c_str << std::endl;
+#endif
     fft_r2c_inplace(
         nsamp_fft,       // n
         nchan,           // batch
         nsamp_padded,    // stride
         data_nu.data()); // data
+#ifdef DEDISP_BENCHMARK
     preprocessing_timer->Pause();
+#endif
 
     // Dedispersion in frequency domain
+#ifdef DEDISP_DEBUG
     std::cout << fdd_dedispersion_str << std::endl;
+#endif
 
     char* use_reference_str = getenv("USE_REFERENCE");
     bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
     if (use_reference)
     {
+#ifdef DEDISP_DEBUG
         std::cout << ">> Running reference implementation" << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
         dedispersion_timer->Start();
+#endif
         dedisperse_reference<float, float>(
             ndm, nfreq, nchan,                      // data dimensions
             dt,                                     // sample time
@@ -528,8 +556,12 @@ void FDDCPUPlan::execute_cpu(
     }
     else
     {
+#ifdef DEDISP_DEBUG
         std::cout << ">> Running optimized implementation" << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
         dedispersion_timer->Start();
+#endif
         // Set last templated parameter to true to enable extrapolation feature
         dedisperse_optimized<float, float, 32, false>(
             ndm, nfreq, nchan,                      // data dimensions
@@ -543,26 +575,39 @@ void FDDCPUPlan::execute_cpu(
             (std::complex<float> *) data_dm.data()  // output
         );
     }
+#ifdef DEDISP_BENCHMARK
     dedispersion_timer->Pause();
+#endif
 
     // Fourier transform results back to time domain
+#ifdef DEDISP_DEBUG
     std::cout << fft_c2r_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     postprocessing_timer->Start();
+#endif
     fft_c2r_inplace(
         nsamp_fft,    // n
         ndm,          // batch
         nsamp_padded, // stride
         data_dm.data());
+#ifdef DEDISP_BENCHMARK
     postprocessing_timer->Pause();
+#endif
 
     // Copy output
+#ifdef DEDISP_DEBUG
     std::cout << copy_output_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     output_timer->Start();
+#endif
     copy_data<float, float>(
         ndm, nsamp_computed,          // height, width
         nsamp_padded, nsamp_computed, // in stride, out stride
         data_dm.data(),               // input
         (float *) out);
+#ifdef DEDISP_BENCHMARK
     output_timer->Pause();
     total_timer->Pause();
 
@@ -575,6 +620,7 @@ void FDDCPUPlan::execute_cpu(
     std::cout << output_memcpy_time_str     << output_timer->ToString() << " sec." << std::endl;
     std::cout << total_time_str             << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
+#endif
 }
 
 // Private interface to CPU implementation of FDD using time segmentation feature
@@ -613,6 +659,7 @@ void FDDCPUPlan::execute_cpu_segmented(
     unsigned int nsamp_padded       = nchunk * (nfreq_chunk_padded * 2);
 
     // Debug
+#ifdef DEDISP_DEBUG
     std::cout << debug_str << std::endl;
     std::cout << "nfft               = " << nfft << std::endl;
     std::cout << "nsamp_dm           = " << nsamp_dm << std::endl;
@@ -621,8 +668,10 @@ void FDDCPUPlan::execute_cpu_segmented(
     std::cout << "nfreq_chunk        = " << nfreq_chunk << std::endl;
     std::cout << "nfreq_chunk_padded = " << nfreq_chunk_padded << std::endl;
     std::cout << "nsamp_padded       = " << nsamp_padded << std::endl;
+#endif
 
     // Timers
+#ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
@@ -631,9 +680,12 @@ void FDDCPUPlan::execute_cpu_segmented(
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
+#endif
 
     // Allocate memory
+#ifdef DEDISP_DEBUG
     std::cout << memory_alloc_str << std::endl;
+#endif
     std::vector<float> data_t_nu((size_t) nchan * nsamp_padded);
     std::vector<std::complex<float>> data_f_nu((size_t) nchan * nsamp_padded/2);
 
@@ -653,11 +705,17 @@ void FDDCPUPlan::execute_cpu_segmented(
             nfreq_chunk, nfreq_chunk_padded,
             nfft, dt);
     }
+#ifdef DEDISP_BENCHMARK
     init_timer->Pause();
+#endif
 
     // Transpose input and convert to floating point:
+#ifdef DEDISP_DEBUG
     std::cout << prepare_input_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     preprocessing_timer->Start();
+#endif
     transpose_data<const byte_type, float>(
         nchan,             // height
         nsamp,             // width
@@ -669,13 +727,17 @@ void FDDCPUPlan::execute_cpu_segmented(
         data_t_nu.data()); // out
 
     // Debug
+#ifdef DEDISP_DEBUG
     std::cout << debug_str << std::endl;
     print_chunks(chunks);
     std::cout << "nfreq_computed = " << nfreq_computed << std::endl;
     std::cout << "nsamp_computed = " << nsamp_computed << std::endl;
+#endif
 
     // FFT data (real to complex) along time axis
+#ifdef DEDISP_DEBUG
     std::cout << fft_r2c_str << std::endl;
+#endif
     const int n[] = {(int) nfft};
     int inembed_r2c[] = {(int) nsamp_good};
     int onembed_r2c[] = {(int) nfreq_chunk_padded};
@@ -695,30 +757,44 @@ void FDDCPUPlan::execute_cpu_segmented(
         fftwf_execute_dft_r2c(plan_r2c, in, out);
     }
     fftwf_destroy_plan(plan_r2c);
+#ifdef DEDISP_BENCHMARK
     preprocessing_timer->Pause();
+#endif
 
     // Free input buffer
     data_t_nu.resize(0);
 
     // Allocate buffers
+#ifdef DEDISP_DEBUG
     std::cout << memory_alloc_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     init_timer->Start();
+#endif
     std::vector<std::complex<float>> data_f_dm((size_t) ndm * nsamp_padded/2);
     std::vector<float> data_t_dm((size_t) ndm * nsamp_padded);
+#ifdef DEDISP_BENCHMARK
     init_timer->Pause();
+#endif
 
     // Perform dedispersion
+#ifdef DEDISP_DEBUG
     std::cout << fdd_dedispersion_str << std::endl;
+#endif
     char* use_reference_str = getenv("USE_REFERENCE");
     bool use_reference = !use_reference_str ? false : atoi(use_reference_str);
     char* use_segmented_kernel_str = getenv("USE_SEGMENTED_KERNEL");
     bool use_segmented_kernel = !use_segmented_kernel_str ? false : atoi(use_segmented_kernel_str);
     if (use_reference)
     {
+#ifdef DEDISP_BENCHMARK
         dedispersion_timer->Start();
+#endif
         if (use_segmented_kernel)
         {
+#ifdef DEDISP_DEBUG
             std::cout << ">> Running segmented reference kernel" << std::endl;
+#endif
             dedisperse_segmented_reference<float, float>(
                 ndm, nchan,                              // data dimensions
                 dt,                                      // sample time
@@ -732,7 +808,9 @@ void FDDCPUPlan::execute_cpu_segmented(
                 data_f_dm.data()                         // output
             );
         } else {
+#ifdef DEDISP_DEBUG
             std::cout << ">> Running reference kernel" << std::endl;
+#endif
             dedisperse_reference<float, float>(
                 ndm, nfreq, nchan,         // data dimensions
                 dt,                        // sample time
@@ -748,10 +826,14 @@ void FDDCPUPlan::execute_cpu_segmented(
     }
     else
     {
+#ifdef DEDISP_BENCHMARK
         dedispersion_timer->Start();
+#endif
         if (use_segmented_kernel)
         {
+#ifdef DEDISP_DEBUG
             std::cout << ">> Running segmented optimized kernel" << std::endl;
+#endif
             dedisperse_segmented_optimized<float, float>(
                 ndm, nchan,                              // data dimensions
                 dt,                                      // sample time
@@ -765,7 +847,9 @@ void FDDCPUPlan::execute_cpu_segmented(
                 data_f_dm.data()                         // output
             );
         } else {
+#ifdef DEDISP_DEBUG
             std::cout << ">> Running optimized kernel" << std::endl;
+#endif
             // Set last templated parameter to true to enable extrapolation feature
             dedisperse_optimized<float, float, 32, false>(
                 ndm, nfreq, nchan,         // data dimensions
@@ -780,11 +864,17 @@ void FDDCPUPlan::execute_cpu_segmented(
             );
         }
     }
+#ifdef DEDISP_BENCHMARK
     dedispersion_timer->Pause();
+#endif
 
     // Fourier transform results back to time domain
+#ifdef DEDISP_DEBUG
     std::cout << fft_c2r_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     postprocessing_timer->Start();
+#endif
     int inembed_c2r[] = {(int) nfreq_chunk_padded};
     int onembed_c2r[] = {(int) nfreq_chunk_padded*2};
     auto plan_c2r = fftwf_plan_many_dft_c2r(
@@ -808,17 +898,25 @@ void FDDCPUPlan::execute_cpu_segmented(
         }
     }
     fftwf_destroy_plan(plan_c2r);
+#ifdef DEDISP_BENCHMARK
     postprocessing_timer->Pause();
+#endif
 
     // Copy output
+#ifdef DEDISP_DEBUG
     std::cout << copy_output_str << std::endl;
+#endif
+#ifdef DEDISP_BENCHMARK
     output_timer->Start();
+#endif
     copy_chunk_output(
         data_t_dm.data(), (float *) out,
         ndm, nsamp, nsamp_computed,
         nsamp_padded, nsamp_good, chunks);
+#ifdef DEDISP_BENCHMARK
     output_timer->Pause();
     total_timer->Pause();
+
 
     // Print timings
     std::cout << timings_str << std::endl;
@@ -829,6 +927,7 @@ void FDDCPUPlan::execute_cpu_segmented(
     std::cout << output_memcpy_time_str     << output_timer->ToString() << " sec." << std::endl;
     std::cout << total_time_str             << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
+#endif
 }
 
 // Private helper functions

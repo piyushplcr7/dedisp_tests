@@ -16,10 +16,6 @@
                out_nbits must be one of: 8, 16, 32
 */
 
-/*
- * Adapted to use as C interface on top of renewed CPP implementation for dedisp
- * /
-
 /*! \file dedisp.h
  *  \brief Defines the C interface to the dedisp library
  *

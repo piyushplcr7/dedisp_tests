@@ -17,7 +17,9 @@
 #include "common/dedisp_strings.h"
 #include "unpack/unpack.h"
 #include "dedisperse/FDDKernel.hpp"
-#include "external/Stopwatch.h"
+#ifdef DEDISP_BENCHMARK
+    #include "external/Stopwatch.h"
+#endif
 
 #include "common/helper.h"
 #include "helper.h"
@@ -54,10 +56,14 @@ void FDDGPUPlan::execute(
     bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);
     if (use_segmented)
     {
+#ifdef DEDISP_DEBUG
         std::cout << ">> Running segmented GPU implementation" << std::endl;
+#endif
         execute_gpu_segmented(nsamps, in, in_nbits, out, out_nbits);
     } else { // Default
+#ifdef DEDISP_DEBUG
         std::cout << ">> Running GPU implementation" << std::endl;
+#endif
         execute_gpu(nsamps, in, in_nbits, out, out_nbits);
     }
 }
@@ -97,9 +103,11 @@ void FDDGPUPlan::execute_gpu(
                                 ? round_up(nsamp + 1, 16384)
                                 : nsamp;
     unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+#ifdef DEDISP_DEBUG
     std::cout << debug_str << std::endl;
     std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
     std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
+#endif
 
     // Maximum number of DMs computed in one gulp
     // Parameters might be tuned for efficiency depending on system architecture
@@ -116,7 +124,9 @@ void FDDGPUPlan::execute_gpu(
     unsigned int nchan_buffers   = 2;
 
     // Verbose iteration reporting
+#ifdef DEDISP_DEBUG
     bool enable_verbose_iteration_reporting = false;
+#endif
 
     // Compute derived counts
     dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) *
@@ -137,6 +147,7 @@ void FDDGPUPlan::execute_gpu(
     cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
     cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
     cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
+#ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
@@ -147,9 +158,12 @@ void FDDGPUPlan::execute_gpu(
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
+#endif
 
     // Prepare cuFFT plans
+#ifdef DEDISP_DEBUG
     std::cout << fft_plan_str << std::endl;
+#endif
     mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
     int n[] = {(int) nsamp_fft};
@@ -222,15 +236,19 @@ void FDDGPUPlan::execute_gpu(
     };
 
     // Debug
+#ifdef DEDISP_DEBUG
     std::cout << debug_str << std::endl;
     std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max << " DMs" << std::endl;
     std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max << " channels" << std::endl;
     std::cout << "Memory total    = " << memory_total / std::pow(1024, 3) << " Gb" << std::endl;
     std::cout << "Memory free     = " << memory_free  / std::pow(1024, 3) << " Gb" << std::endl;
     std::cout << "Memory required = " << memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+#endif
 
     // Allocate memory
+#ifdef DEDISP_DEBUG
     std::cout << memory_alloc_str << std::endl;
+#endif
     mAllocMem.start();
     /*
         The buffers are used as follows:
@@ -267,8 +285,10 @@ void FDDGPUPlan::execute_gpu(
     }
     mAllocMem.end();
 
+#ifdef DEDISP_DEBUG
     size_t memory_free_after_malloc = m_device->get_free_memory();
     std::cout << "Memory free after memory allocations    = " << memory_free_after_malloc  / std::pow(1024, 3) << " Gb" << std::endl;
+#endif
 
     // Initialize FDDKernel
     FDDKernel kernel;
@@ -278,7 +298,9 @@ void FDDGPUPlan::execute_gpu(
         m_nchans * sizeof(dedisp_float),
         0, *htodstream);
     mDelayTable.end();
+#ifdef DEDISP_BENCHMARK
     init_timer->Pause();
+#endif
 
     struct ChannelData
     {
@@ -348,10 +370,12 @@ void FDDGPUPlan::execute_gpu(
             dm_job.outputEnd.synchronize();
 
             // Info
+#ifdef DEDISP_DEBUG
             if (enable_verbose_iteration_reporting)
             {
                 std::cout << "Copy output " << dm_job.idm_start << " to " << dm_job.idm_end << " with " << dm_job.ndm_current << " ndms" << std::endl;
             }
+#endif
             // copy part from pinned h_data_t_dm to part of paged return buffer out
             // GPU Host mem pointers
             dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
@@ -372,8 +396,9 @@ void FDDGPUPlan::execute_gpu(
             mCopyMem.end();
         }
     });
-
+#ifdef DEDISP_DEBUG
     std::cout << fdd_dedispersion_str << std::endl;
+#endif
     htodstream->record(eStartGPU);
     mExeGPU.start();
 
@@ -384,13 +409,13 @@ void FDDGPUPlan::execute_gpu(
         for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size(); channel_job_id++)
         {
             auto& channel_job = channel_jobs[channel_job_id];
-
+#ifdef DEDISP_DEBUG
             // Info
             if (enable_verbose_iteration_reporting)
             {
                 std::cout << "Processing channel " << channel_job.ichan_start << " to " << channel_job.ichan_end << std::endl;
             }
-
+#endif
             // Channel input size
             dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
             dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
@@ -458,13 +483,13 @@ void FDDGPUPlan::execute_gpu(
                     break;
                 }
                 auto& dm_job = dm_jobs[dm_job_id];
-
+#ifdef DEDISP_DEBUG
                 // Info
                 if (enable_verbose_iteration_reporting)
                 {
                     std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
                 }
-
+#endif
                 // Initialize output to zero
                 if (channel_job_id == 0)
                 {
@@ -531,10 +556,13 @@ void FDDGPUPlan::execute_gpu(
             executestream->synchronize();
 
             // Add input and preprocessing time for the current channel job
+#ifdef DEDISP_BENCHMARK
             input_timer->Add(channel_job.inputEnd.elapsedTime(channel_job.inputStart));
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
+#endif
 
             // Add dedispersion time for current dm jobs
+#ifdef DEDISP_BENCHMARK
             for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
             {
                 unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
@@ -543,8 +571,10 @@ void FDDGPUPlan::execute_gpu(
                     break;
                 }
                 auto& dm_job = dm_jobs[dm_job_id];
+
                 dedispersion_timer->Add(dm_job.dedispersionEnd.elapsedTime(dm_job.dedispersionStart));
             }
+#endif
         } // end for ichan_start
 
         // Output DM batches
@@ -556,13 +586,13 @@ void FDDGPUPlan::execute_gpu(
                 break;
             }
             auto& dm_job = dm_jobs[dm_job_id];
-
+#ifdef DEDISP_DEBUG
             // Info
             if (enable_verbose_iteration_reporting)
             {
                 std::cout << "Post-processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << " with job_id " << dm_job_id << std::endl;
             }
-
+#endif
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = 1ULL * dm_job.idm_start * dm_stride;
@@ -608,6 +638,7 @@ void FDDGPUPlan::execute_gpu(
     if (output_thread.joinable()) { output_thread.join(); }
     dtohstream->record(eEndGPU);
     mExeGPU.end(eEndGPU);
+#ifdef DEDISP_BENCHMARK
     total_timer->Pause();
 
     gpuexec_timer->Add(eEndGPU.elapsedTime(eStartGPU));
@@ -637,6 +668,7 @@ void FDDGPUPlan::execute_gpu(
     std::cout << gpuexec_time_str        << gpuexec_timer->ToString() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
+#endif
 }
 
 /*    Refer to execute_gpu() above for additional comments on common constructs
@@ -711,6 +743,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     unsigned int nsamp_padded       = nchunk * (nfreq_chunk_padded * 2);
 
     // Debug
+#ifdef DEDISP_DEBUG
     std::cout << debug_str << std::endl;
     std::cout << "nfft               = " << nfft << std::endl;
     std::cout << "nsamp_dm           = " << nsamp_dm << std::endl;
@@ -719,6 +752,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     std::cout << "nfreq_chunk        = " << nfreq_chunk << std::endl;
     std::cout << "nfreq_chunk_padded = " << nfreq_chunk_padded << std::endl;
     std::cout << "nsamp_padded       = " << nsamp_padded << std::endl;
+#endif
 
     // Maximum number of DMs computed in one gulp
     unsigned int ndm_batch_max = 32;
@@ -730,7 +764,9 @@ void FDDGPUPlan::execute_gpu_segmented(
     unsigned int nchan_buffers   = 2;
 
     // Verbose iteration reporting
+#ifdef DEDISP_DEBUG
     bool enable_verbose_iteration_reporting = false;
+#endif
 
     // Compute derived counts
     dedisp_size out_bytes_per_sample = out_nbits / (sizeof(dedisp_byte) *
@@ -751,6 +787,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
     cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
     cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
+#ifdef DEDISP_BENCHMARK
     std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
     std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
@@ -760,12 +797,15 @@ void FDDGPUPlan::execute_gpu_segmented(
     std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
     total_timer->Start();
     init_timer->Start();
+#endif
 
     /* Allocate memory
     *  nchan_buffers and ndm_buffers might be made automatic tuning parameters.
     *  When used in production one should add error checking on overallocating memory.
     */
+#ifdef DEDISP_DEBUG
     std::cout << memory_alloc_str << std::endl;
+#endif
     mAllocMem.start();
     cu::HostMemory   h_data_t_dm(ndm * nsamp_padded * sizeof(float));
     cu::DeviceMemory d_data_t_nu(nchan_batch_max * nsamp_padded * sizeof(float));
@@ -787,7 +827,9 @@ void FDDGPUPlan::execute_gpu_segmented(
     mAllocMem.end();
 
     // Prepare cuFFT plans
+#ifdef DEDISP_DEBUG
     std::cout << fft_plan_str << std::endl;
+#endif
     mPrepFFT.start();
     cufftHandle plan_r2c, plan_c2r;
     int n[] = {(int) nfft};
@@ -863,7 +905,9 @@ void FDDGPUPlan::execute_gpu_segmented(
         m_nchans * sizeof(dedisp_float),
         0, *htodstream);
     mDelayTable.end();
+#ifdef DEDISP_BENCHMARK
     init_timer->Pause();
+#endif
 
     struct ChannelData
     {
@@ -922,8 +966,9 @@ void FDDGPUPlan::execute_gpu_segmented(
             dm_jobs.pop_back();
         }
     }
-
+#ifdef DEDISP_DEBUG
     std::cout << fdd_dedispersion_str << std::endl;
+#endif
     htodstream->record(eStartGPU);
     mExeGPU.start();
 
@@ -934,13 +979,13 @@ void FDDGPUPlan::execute_gpu_segmented(
         for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size(); channel_job_id++)
         {
             auto& channel_job = channel_jobs[channel_job_id];
-
+#ifdef DEDISP_DEBUG
             // Info
             if (enable_verbose_iteration_reporting)
             {
                 std::cout << "Processing channel " << channel_job.ichan_start << " to " << channel_job.ichan_end << std::endl;
             }
-
+#endif
             // Channel input size
             dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
             dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
@@ -1022,13 +1067,13 @@ void FDDGPUPlan::execute_gpu_segmented(
                     break;
                 }
                 auto& dm_job = dm_jobs[dm_job_id];
-
+#ifdef DEDISP_DEBUG
                 // Info
                 if (enable_verbose_iteration_reporting)
                 {
                     std::cout << "Processing DM " << dm_job.idm_start << " to " << dm_job.idm_end << std::endl;
                 }
-
+#endif
                 // Wait for temporary output from previous job to be copied
                 if (channel_job_id > (nchan_buffers-1))
                 {
@@ -1081,10 +1126,13 @@ void FDDGPUPlan::execute_gpu_segmented(
             executestream->synchronize();
 
             // Add input and preprocessing time for the current channel job
+#ifdef DEDISP_BENCHMARK
             input_timer->Add(channel_job.inputEnd.elapsedTime(channel_job.inputStart));
             preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(channel_job.preprocessingStart));
+#endif
 
             // Add dedispersion time for current dm jobs
+#ifdef DEDISP_BENCHMARK
             for (unsigned dm_job_id_inner = 0; dm_job_id_inner < ndm_buffers; dm_job_id_inner++)
             {
                 unsigned dm_job_id = dm_job_id_outer + dm_job_id_inner;
@@ -1095,6 +1143,7 @@ void FDDGPUPlan::execute_gpu_segmented(
                 auto& dm_job = dm_jobs[dm_job_id];
                 dedispersion_timer->Add(dm_job.dedispersionEnd.elapsedTime(dm_job.dedispersionStart));
             }
+#endif
         } // end for ichan_start
 
         // Output DM batches
@@ -1150,15 +1199,22 @@ void FDDGPUPlan::execute_gpu_segmented(
     dtohstream->synchronize();
 
     // Copy output
+#ifdef DEDISP_DEBUG
     std::cout << copy_output_str << std::endl;
+#endif
     mCopyMem.start();
+#ifdef DEDISP_BENCHMARK
     output_timer->Start();
+#endif
     copy_chunk_output(
         (float *) h_data_t_dm.data(), (float *) out,
         ndm, nsamp, nsamp_computed,
         nsamp_padded, nsamp_good, chunks);
+#ifdef DEDISP_BENCHMARK
     output_timer->Pause();
+#endif
     mCopyMem.end();
+#ifdef DEDISP_BENCHMARK
     total_timer->Pause();
 
     // Accumulate dedispersion and postprocessing time for all dm jobs
@@ -1184,6 +1240,7 @@ void FDDGPUPlan::execute_gpu_segmented(
     std::cout << runtime_time_str        << runtime_time_string.str() << " sec." << std::endl;
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
+#endif
 }
 
 // Private helper function

@@ -263,7 +263,9 @@ void TDDPlan::execute_guru(
     unsigned int nr_gulps = div_round_up(nsamps_computed, nsamps_computed_gulp_max);
 
     // Organise device memory pointers
+#ifdef DEDISP_DEBUG
     std::cout << memory_alloc_str << std::endl;
+#endif
     cu::DeviceMemory d_transposed(in_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_unpacked(unpacked_count_padded_gulp_max * sizeof(dedisp_word));
     cu::DeviceMemory d_out(out_count_gulp_max * sizeof(dedisp_word));
@@ -346,7 +348,9 @@ void TDDPlan::execute_guru(
 #endif
 
     // Gulp loop
+#ifdef DEDISP_DEBUG
     std::cout << ref_dedispersion_str << std::endl;
+#endif
     for (unsigned job_id = 0; job_id < jobs.size(); job_id++)
     {
         // Wait for previous job to finish to
@@ -468,6 +472,7 @@ void TDDPlan::execute_guru(
     auto dedispersion_performance = 1e-6 * dedispersion_ops / dedispersion_timer->Milliseconds();
     std::cout << preprocessing_perf_str << preprocessing_performance << " GOps/s" << std::endl;
     std::cout << dedispersion_perf_str << dedispersion_performance << " GOps/s" << std::endl;
+    std::cout << std::endl;
 
     // Append the timing results to a log file
     auto total_time = Stopwatch::ToString(gulpEnd.elapsedTime(gulpStart));

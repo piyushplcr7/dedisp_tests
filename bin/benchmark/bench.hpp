@@ -357,6 +357,9 @@ int run(BenchParameters & benchParameter)
 
     printf("\n");
     printf("--------------------------- PERFORM DEDISPERSION  -------------------------\n");
+#ifndef DEDISP_BENCHMARK
+    printf("\n>>> WARNING: not showing timing output because define DEDISP_BENCHMARK is not set\n\n");
+#endif
     // Compute the dedispersion transform on the GPU
     plan.execute(nsamps,
         input, in_nbits,
