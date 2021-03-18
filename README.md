@@ -15,9 +15,6 @@ Installation Instructions:
   4.  make and install
       * `$ make install`
 
-For usage of dedisp test implementations refer to:
-* functional test implementations with generated data [README](bin/test/README.md)
-* functional test implementations with a filterbank file as input [README](bin/fil/README.md)
-* performance test implementations with dummy input [README](bin/benchmark/README.md)
-
 This repository has been developed and tested with cmake 3.16.2, gcc 8.3.0 and CUDA 11.0.1
+
+Refer to the [Documentation](Documentation.md) page for more information on usage of this repository.

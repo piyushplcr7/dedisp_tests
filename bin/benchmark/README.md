@@ -15,6 +15,7 @@ The benchmarking applications run best on a system with at least 128 GB RAM.
 - For representative results one should run multiple iterations of the benchmarks and divide the accumulated reported times by the number of iterations
     - e.g. use argument `-i 10` for 10 iterations
 - On a multi-socket CPU system the application should be bound to the socket that is connected to the used GPU, use numactl for nodebinding, e.g. to node 0 with `numactl --cpunodebind=0`
+- In order to **enable benchmarking** one should compile the dedisp library with cmake setting `ENABLE_BENCHMARK` configured to `ON`
 - Environment variables for the configuration of implementation alternatives or experimental features for `fdd` might be set at the time of executing the application, refer to the [Documentation](../../Documentation.md) and `fdd` source files for more information on these features.
 
 ## Arguments
