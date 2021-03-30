@@ -360,7 +360,7 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_start;
         unsigned int idm_end;
         unsigned int ndm_current;
-        std::mutex output_lock;
+        std::mutex cpu_lock;
         cu::HostMemory* h_data_t_dm;
         cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
@@ -384,7 +384,7 @@ void FDDGPUPlan::execute_gpu(
         {
             dm_jobs.pop_back();
         }
-        job.output_lock.lock();
+        job.cpu_lock.lock();
     }
 
     // Launch thread to copy output data from device to host for each dm_job
@@ -393,7 +393,7 @@ void FDDGPUPlan::execute_gpu(
         for (auto& dm_job : dm_jobs)
         {
             // Wait for DtoH copy to finish for this job
-            dm_job.output_lock.lock();
+            dm_job.cpu_lock.lock();
             dm_job.outputEnd.synchronize();
 
             // Info
@@ -654,7 +654,7 @@ void FDDGPUPlan::execute_gpu(
                 d_out, // src
                 size); // size
             dtohstream->record(dm_job.outputEnd);
-            dm_job.output_lock.unlock();
+            dm_job.cpu_lock.unlock();
         } // end for dm_job_id_inner
     } // end for dm_job_id_outer
 
