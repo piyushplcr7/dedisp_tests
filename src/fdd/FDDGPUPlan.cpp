@@ -217,7 +217,6 @@ void FDDGPUPlan::execute_gpu(
     size_t d_memory_total = m_device->get_total_memory();
     size_t d_memory_free = m_device->get_free_memory();
     size_t sizeof_data_t_nu = 1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
-    size_t sizeof_data_t_dm = 1ULL * ndm * nsamp_padded * sizeof(float);
     size_t sizeof_data_x_nu = 1ULL * nchan_batch_max * nsamp_padded * sizeof(float);
     size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded * sizeof(float);
     // For device side, initial value
@@ -229,7 +228,7 @@ void FDDGPUPlan::execute_gpu(
     // For host side
     size_t h_memory_free = get_free_memory();// / std::pow(1024, 1); //current free host memory in MBytes -> Bytes
     size_t h_memory_required = sizeof_data_t_nu * nchan_buffers +
-                                sizeof_data_t_dm; //in Bytes
+                               sizeof_data_x_dm * ndm_buffers; //in Bytes
     size_t h_memory_reserved = h_memory_free * 0.05; //5% margin
 
     if((h_memory_required + h_memory_reserved) / std::pow(1024, 3) > (h_memory_free / std::pow(1024, 1)))
@@ -297,7 +296,7 @@ void FDDGPUPlan::execute_gpu(
     std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
                 cu::DeviceMemory  d_data_x_nu(sizeof_data_x_nu);
     std::vector<cu::DeviceMemory> d_data_x_dm_(ndm_buffers);
-                cu::HostMemory    h_data_t_dm(sizeof_data_t_dm);
+    std::vector<cu::HostMemory>   h_data_t_dm_(ndm_buffers);
     for (unsigned int i = 0; i < nchan_buffers; i++)
     {
         h_data_t_nu_[i].resize(sizeof_data_t_nu);
@@ -305,6 +304,7 @@ void FDDGPUPlan::execute_gpu(
     }
     for (unsigned int i = 0; i < ndm_buffers; i++)
     {
+        h_data_t_dm_[i].resize(sizeof_data_x_dm);
         d_data_x_dm_[i].resize(sizeof_data_x_dm);
     }
     mAllocMem.end();
@@ -378,7 +378,7 @@ void FDDGPUPlan::execute_gpu(
         job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
         job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
         job.idm_end     = job.idm_start + job.ndm_current;
-        job.h_data_t_dm = &h_data_t_dm;
+        job.h_data_t_dm = &h_data_t_dm_[job_id % ndm_buffers];
         job.d_data_x_dm = &d_data_x_dm_[job_id % ndm_buffers];
         if (job.ndm_current == 0)
         {
@@ -406,8 +406,7 @@ void FDDGPUPlan::execute_gpu(
             // copy part from pinned h_data_t_dm to part of paged return buffer out
             // GPU Host mem pointers
             dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
-            dedisp_size src_offset = 1ULL * dm_job.idm_start * src_stride;
-            auto* h_src = (void *) (((size_t) dm_job.h_data_t_dm->data()) + src_offset);
+            auto* h_src = dm_job.h_data_t_dm->data();
             // CPU mem pointers
             dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
             dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
@@ -622,8 +621,7 @@ void FDDGPUPlan::execute_gpu(
 #endif
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
-            dedisp_size dm_offset = 1ULL * dm_job.idm_start * dm_stride;
-            auto* h_out = (void *) (((size_t) dm_job.h_data_t_dm->data()) + dm_offset);
+            auto* h_out = dm_job.h_data_t_dm->data();
             auto *d_out = (float *) dm_job.d_data_x_dm->data();
 
             // Fourier transform results back to time domain
