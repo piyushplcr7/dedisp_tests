@@ -11,7 +11,6 @@
 #include <memory>
 
 #include "common/dedisp_types.h"
-#include "common/cuda/CU.h"
 
 namespace dedisp
 {

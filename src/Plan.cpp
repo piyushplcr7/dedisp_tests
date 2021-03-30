@@ -7,6 +7,7 @@
 #include "Plan.hpp"
 #include <cmath>
 #include "common/dedisp_error.hpp"
+#include "common/cuda/CU.h"
 
 namespace dedisp
 {

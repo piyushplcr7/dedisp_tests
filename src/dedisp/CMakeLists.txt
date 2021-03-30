@@ -7,20 +7,21 @@ cuda_add_library(
     dedisperse/dedisperse.cu
     unpack/unpack.cu
     transpose/transpose.cu
+    $<TARGET_OBJECTS:common>
+    $<TARGET_OBJECTS:plan>
+    $<TARGET_OBJECTS:external>
 )
 
 target_link_libraries(
     dedisp
-    ${CUDA_CUDART_LIBRARY}
-    common
-    external
-    plan
     clib
+    cu
 )
 
 target_include_directories(
    dedisp
    PRIVATE ${CMAKE_SOURCE_DIR}/src
+   PUBLIC ${CUDA_TOOLKIT_INCLUDE}
 )
 
 set_target_properties(
