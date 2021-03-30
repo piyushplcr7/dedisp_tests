@@ -361,6 +361,7 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_end;
         unsigned int ndm_current;
         std::mutex output_lock;
+        cu::HostMemory* h_data_t_dm;
         cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
         cu::Event dedispersionStart, dedispersionEnd;
@@ -377,6 +378,7 @@ void FDDGPUPlan::execute_gpu(
         job.idm_start   = job_id == 0 ? 0 : dm_jobs[job_id - 1].idm_end;
         job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
         job.idm_end     = job.idm_start + job.ndm_current;
+        job.h_data_t_dm = &h_data_t_dm;
         job.d_data_x_dm = &d_data_x_dm_[job_id % ndm_buffers];
         if (job.ndm_current == 0)
         {
@@ -405,7 +407,7 @@ void FDDGPUPlan::execute_gpu(
             // GPU Host mem pointers
             dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
             dedisp_size src_offset = 1ULL * dm_job.idm_start * src_stride;
-            auto* h_src = (void *) (((size_t) h_data_t_dm.data()) + src_offset);
+            auto* h_src = (void *) (((size_t) dm_job.h_data_t_dm->data()) + src_offset);
             // CPU mem pointers
             dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
             dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
@@ -621,7 +623,7 @@ void FDDGPUPlan::execute_gpu(
             // Get pointer to DM output data on host and on device
             dedisp_size dm_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
             dedisp_size dm_offset = 1ULL * dm_job.idm_start * dm_stride;
-            auto* h_out = (void *) (((size_t) h_data_t_dm.data()) + dm_offset);
+            auto* h_out = (void *) (((size_t) dm_job.h_data_t_dm->data()) + dm_offset);
             auto *d_out = (float *) dm_job.d_data_x_dm->data();
 
             // Fourier transform results back to time domain
