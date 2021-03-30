@@ -361,6 +361,7 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_end;
         unsigned int ndm_current;
         std::mutex cpu_lock;
+        std::mutex gpu_lock;
         cu::HostMemory* h_data_t_dm;
         cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
@@ -385,13 +386,19 @@ void FDDGPUPlan::execute_gpu(
             dm_jobs.pop_back();
         }
         job.cpu_lock.lock();
+        if (job_id > ndm_buffers)
+        {
+            job.gpu_lock.lock();
+        }
     }
 
     // Launch thread to copy output data from device to host for each dm_job
     std::thread output_thread = std::thread([&]()
     {
-        for (auto& dm_job : dm_jobs)
+        for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++)
         {
+            auto& dm_job = dm_jobs[job_id];
+
             // Wait for DtoH copy to finish for this job
             dm_job.cpu_lock.lock();
             dm_job.outputEnd.synchronize();
@@ -420,6 +427,12 @@ void FDDGPUPlan::execute_gpu(
                 dst_stride,             // width bytes
                 dm_job.ndm_current);    // height
             mCopyMem.end();
+
+            // Signal that the host buffer can be used again
+            if ((job_id + ndm_buffers) < ndm_jobs)
+            {
+                dm_jobs[job_id + ndm_buffers].gpu_lock.unlock();
+            }
         }
     });
 #ifdef DEDISP_DEBUG
@@ -646,6 +659,7 @@ void FDDGPUPlan::execute_gpu(
             // Copy output
             // Output is picked up by (already running) host side thread
             // and is there copied from CPU pinned to paged memory
+            dm_job.gpu_lock.lock();
             dtohstream->waitEvent(dm_job.postprocessingEnd);
             dtohstream->record(dm_job.outputStart);
             dedisp_size size = 1ULL * dm_job.ndm_current * dm_stride;
