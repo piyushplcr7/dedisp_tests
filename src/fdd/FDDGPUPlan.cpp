@@ -360,7 +360,6 @@ void FDDGPUPlan::execute_gpu(
         unsigned int idm_start;
         unsigned int idm_end;
         unsigned int ndm_current;
-        float* h_out_ptr;
         std::mutex output_lock;
         cu::DeviceMemory* d_data_x_dm;
         cu::Event inputStart, inputEnd;
