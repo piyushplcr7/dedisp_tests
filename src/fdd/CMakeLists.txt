@@ -4,22 +4,23 @@ cuda_add_library(fdd SHARED
     dedisperse/FDDKernel.cu
     unpack/unpack.cu
     chunk.cpp
+    $<TARGET_OBJECTS:common>
+    $<TARGET_OBJECTS:plan>
+    $<TARGET_OBJECTS:external>
 )
 
 find_package(FFTW3 REQUIRED true)
 
 target_link_libraries(fdd
-    ${CUDA_CUDART_LIBRARY}
-    ${CUDA_cufft_LIBRARY}
     ${FFTW3F_LIBRARY}
-    common
-    external
-    plan
+    cu
 )
 
 target_include_directories(fdd
    PRIVATE ${CMAKE_SOURCE_DIR}/src
    PRIVATE ${CMAKE_SOURCE_DIR}/src/fdd
+   PRIVATE ${FFTW3_INCLUDE_DIR}
+   PUBLIC ${CUDA_TOOLKIT_INCLUDE}
 )
 
 set_target_properties(fdd PROPERTIES
