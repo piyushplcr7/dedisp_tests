@@ -234,12 +234,14 @@ void FDDGPUPlan::execute_gpu(
 
     if((h_memory_required + h_memory_reserved) / std::pow(1024, 3) > (h_memory_free / std::pow(1024, 1)))
     {
-        //ToDo: might be fixed by introducing multiple buffering on the output copy
-#ifdef DEDISP_DEBUG
+        // ToDo: host memory requirement might be reduced by introducing multiple buffering on the output copy
+        /* Note: does not take uninitialized application memory in to account!
+        *  E.g. a malloc for the paged output buffer on the application side does not register the buffer as system memory in use
+        *  Over-using host memory for the application + plan is the responsibiltiy of the application,
+        *  here we can only check for the memory used by the plan itself.*/
         std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
         std::cout << "Host memory free     = " << h_memory_free  / std::pow(1024, 1) << " Gb" << std::endl;
-        std::cout << "Host Memory required = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
-#endif
+        std::cout << "Host Memory required by FDDGPUPlan = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
         throw std::runtime_error("FDDGPUPlan runtime error: required host memory is too large");
     }
 
@@ -264,7 +266,7 @@ void FDDGPUPlan::execute_gpu(
     std::cout << "Device Memory required = " << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
     std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
     std::cout << "Host memory free     = " << h_memory_free  / std::pow(1024, 1) << " Gb" << std::endl;
-    std::cout << "Host Memory required = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Host Memory required by FDDGPUPlan = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
 #endif
 
     // Allocate memory

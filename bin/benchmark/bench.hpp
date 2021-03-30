@@ -22,9 +22,30 @@
 #include <getopt.h>
 #include <string.h>
 
+#ifdef DEDISP_DEBUG
+#include <unistd.h> // get total memory
+#include <sys/resource.h> // get used memory
+#endif
+
 // Debug options
 #define WRITE_INPUT_DATA  0
 #define WRITE_OUTPUT_DATA 0
+
+#ifdef DEDISP_DEBUG
+size_t get_total_memory() {
+  auto pages = sysconf(_SC_PHYS_PAGES);
+  auto page_size = sysconf(_SC_PAGE_SIZE); // bits
+  return pages * page_size / (1024 * 1024);  // Mbits
+}
+
+size_t get_used_memory() {
+  struct rusage r_usage;
+  getrusage(RUSAGE_SELF, &r_usage);  // kbits
+  return r_usage.ru_maxrss / 1024;   // Mbits
+}
+
+size_t get_free_memory() { return get_total_memory() - get_used_memory(); }
+#endif
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f)
@@ -267,7 +288,15 @@ int run(BenchParameters & benchParameter)
 
   printf("Starting benchmark for %d iterations \n", benchParameter.niterations);
 
+  // Take maximum required shared buffer size for input and output, use FDD case as that implementation has the largest memory requirements
   auto maxBufferSize = std::max(nsamps * nchans * (in_nbits/8) * sizeof(dedisp_float), nsamps * dm_count * (out_nbits/8) * sizeof(dedisp_byte));
+  /* Host memory can become a critical resource, mainly for FDD
+  *  might add checking for other PlanTypes later as well.
+  *  But that requires a different computation of Required Host Memory.
+  *  These variables are only used to print verbose information.*/
+  auto planRequiredBufferSize = maxBufferSize; //approximation
+  auto totalRequiredHostMemory = maxBufferSize + planRequiredBufferSize;//Application + plan
+  totalRequiredHostMemory *= 1.10; //10% margin
 
   if(benchParameter.verbose)
   {
@@ -287,12 +316,27 @@ int run(BenchParameters & benchParameter)
   /* Allocate a shared buffer for input and output, don't care about the contents.
   This saves benchmarking initialization time but does not impact implementation benchmarking time,
   because the implementation performance is not data dependent. */
+#ifdef DEDISP_DEBUG
+  auto availableHostMemory = get_free_memory();
+  std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+  std::cout << "Host memory free    = " << availableHostMemory / std::pow(1024, 1) << " Gb" << std::endl;
+  std::cout << "Host memory required by application  = " <<  maxBufferSize / std::pow(1024, 3) << " Gb" << std::endl;
+  std::cout << "Host memory required by FDD plan (approximation) = " <<  planRequiredBufferSize / std::pow(1024, 3) << " Gb" << std::endl;
+  std::cout << "Total host memory required for FDD (including margin)  = " <<  totalRequiredHostMemory / std::pow(1024, 3) << " Gb" << std::endl;
+#endif
 
+  // Now allocate the memory
   auto dummyData = (dedisp_float *) malloc(maxBufferSize);
   if (dummyData == NULL) {
     printf("\nERROR: Failed to allocate shared input/output dummy buffer array\n");
     return -1;
   }
+  /* Alternatively also initialize the application memory such that the systems sees this as used memory
+  *  such that we can check for overallocating memory within FDDGPUPlan
+  *  However this takes time
+  *  std::cout << "Host memory free after malloc    = " << get_free_memory()  / std::pow(1024, 1) << " Gb" << std::endl;
+  *  memset(dummyData, 0, maxBufferSize); // Claim the system memory
+  *  std::cout << "Host memory free after memset    = " << get_free_memory()  / std::pow(1024, 1) << " Gb" << std::endl; */
 
   /* Both input and output point to the same dummy memory location, but with different pointer types.
   This saves us a lot of RAM utiliztion. Read and write at the same time should not be an issue. */

@@ -36,6 +36,39 @@ def prettyPrintDict(dictToPrint):
         print(printString)
     return
 
+# Get amount of free system memory, return amount in Gb
+def getFreeMem():
+    free_mem_in_kb = ""
+    inactive_mem_in_kb = ""
+    free_mem_in_Gb = 0
+    with open('/proc/meminfo') as file:
+        for line in file:
+            if 'MemFree' in line:
+                free_mem_in_kb = line.split()[1]
+            if 'Inactive' in line:
+                inactive_mem_in_kb = line.split()[1]
+    if(free_mem_in_kb is "") or (inactive_mem_in_kb is ""):
+        raise Exception("Could not retreive amount of free system memory")
+    free_mem_in_Gb = (int(free_mem_in_kb) + int(inactive_mem_in_kb)) / (2**20)
+    return free_mem_in_Gb
+
+# return required host memory for FDD in Gb
+def hostMemoryRequiredFDD(nsamps, nchans, dm_count):
+    # sizeof(dedisp_float)=4; sizeof(dedisp_byte) = 1
+    # input buffer: nsamps * nchans * sizeof(dedisp_float)
+    h_in_buffer = nsamps * nchans * 4
+    # output buffer: nsamps * dm_count * (out_nbits/8) * sizeof(dedisp_byte)
+    h_out_buffer = nsamps * dm_count * 4
+    h_implementation = h_in_buffer + h_out_buffer
+    # total required host memory = application host memory + implementation host memory
+    # bench.hpp uses a shared input/output dummy buffer
+    # we take the max for either the input or output buffer
+    h_application = max(h_in_buffer, h_out_buffer)
+    h_total = h_application + h_implementation
+    h_total_margin = h_total * 1.05 #include 5% margin
+    h_total_margin_Gb = h_total_margin / (2**30)
+    return h_total_margin_Gb
+
 # Run application and capture output
 if __name__ == "__main__":
     # Get parsed arguments
@@ -47,7 +80,7 @@ if __name__ == "__main__":
 
     executableDirectory = parsedArgs.executableDirectory
     if executableDirectory and not os.path.exists(parsedArgs.executableDirectory):
-        raise("Directory" + parsedArgs.executableDirectory + "does not exist")
+        raise Exception("Directory" + parsedArgs.executableDirectory + "does not exist")
 
     # if (parsedArgs.GPU):
     # fixme, should also include binding to the socket that connects to the GPU
@@ -77,6 +110,18 @@ if __name__ == "__main__":
     parameters_segmented = { False } # { True, False }
     parameters_ndm = { 128, 256, 512, 1024, 2048, 4096 }
 
+    # Get current free system memory in Gb
+    system_mem_free = getFreeMem()
+    print(f'Current system memory free: {system_mem_free:.2f}G')
+    # Check it there is at least 80 Gb of free memory,
+    # this is a sensible amount for the parameters that we use
+    if(system_mem_free < 80.0): raise Exception(f'There is not sufficient system memory available to run the benchmarks (free memory: {system_mem_free:.2f}G)')
+    # For FDD we add an aditional parameter specific check (below).
+    # FDD is most critical out of the three different implementations.
+    # Checking might be added for TDD and dedisp as well.
+    # However, those implementations have many more parameters to take in to account,
+    # maybe an approximation might suffice.
+
     # Create a dict with testnames and commands to execute the test
     for benchmark in parameters_benchmark:
         for device in parameters_device:
@@ -94,10 +139,12 @@ if __name__ == "__main__":
                                 if (segmented):
                                     continue
 
+                            # Check if there is sufficient memory available for FDD
                             if (benchmark is "fdd"):
                                 if (device is "GPU"):
-                                    # Skip ndm > 3000 (bug to be fixed)
-                                    if (int(ndm) > 3000):
+                                    system_mem_required = hostMemoryRequiredFDD(nsamp, nchan, ndm)
+                                    if(system_mem_required > system_mem_free):
+                                        print(f'Skipping {device}_{benchmark}_nchan{nchan}_nsamp{nsamp}_ndm{ndm} because there is not sufficient system memory available (free memory: {system_mem_free:.2f}G while required: {system_mem_required:.2f}G)')
                                         continue
 
                             # Set environment variables

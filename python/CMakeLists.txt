@@ -1,5 +1,5 @@
 install(
-    FILES
+    PROGRAMS
         run_benchmarks.py
         run_benchmarks_analysis.py
     DESTINATION bin/python
