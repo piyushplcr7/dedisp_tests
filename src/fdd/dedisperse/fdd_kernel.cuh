@@ -96,6 +96,8 @@ void dedisperse_kernel(
     unsigned int idm_current = blockIdx.x;
     // The DM offset is the number of DMs processed by all thread blocks
     unsigned int idm_offset = gridDim.x;
+    // The number of DMs to process
+    unsigned int ndm = idm_end - idm_start;
 
     // The first spin frequency that the current block processes
     unsigned int ifreq_start = blockIdx.y * blockDim.x;
@@ -108,7 +110,10 @@ void dedisperse_kernel(
     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
     {
         unsigned int idm_idx = idm_current + (i * idm_offset);
-        dms[i] = idm_idx < idm_end ? d_dm_list[idm_start + idm_idx] : 0.0f;
+        if (idm_idx < ndm)
+        {
+            dms[i] = idm_idx < idm_end ? d_dm_list[idm_start + idm_idx] : 0.0f;
+        }
     }
 
     // Two input samples (two subsequent spin frequencies, float2 values) are stored as a float4 value
@@ -124,8 +129,13 @@ void dedisperse_kernel(
         for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
         {
             unsigned int idm_idx = idm_current + (i * idm_offset);
-            size_t out_idx = idm_idx * out_stride + ifreq_current;
-            sums[i] = d_out[out_idx];
+            if (idm_idx < ndm)
+            {
+                size_t out_idx = idm_idx * out_stride + ifreq_current;
+                sums[i] = d_out[out_idx];
+            } else {
+                sums[i] = make_float2(0, 0);
+            }
         }
 
         // Load spin frequency
@@ -234,9 +244,12 @@ void dedisperse_kernel(
             #pragma unroll
             for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
             {
-                unsigned int idm = idm_current + i * idm_offset;
-                size_t out_idx = idm * out_stride + ifreq_current;
-                d_out[out_idx] = sums[i];
+                unsigned int idm_idx = idm_current + i * idm_offset;
+                if (idm_idx < ndm)
+                {
+                    size_t out_idx = idm_idx * out_stride + ifreq_current;
+                    d_out[out_idx] = sums[i];
+                }
             }
         } // end if ifreq_current < nfreq
     } // end for ifreq_current loop
