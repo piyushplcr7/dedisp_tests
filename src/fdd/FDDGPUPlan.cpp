@@ -225,6 +225,18 @@ void FDDGPUPlan::execute_gpu(
                               sizeof_data_x_dm * ndm_buffers;
     size_t d_memory_reserved  = 0.05 * d_memory_total;
 
+    // Subtract the memory usage of any pre-existing device buffers
+    size_t d_memory_in_use    = 0;
+    for (cu::DeviceMemory& d_memory : d_data_t_nu_)
+    {
+        d_memory_in_use += d_memory.size();
+    }
+    for (cu::DeviceMemory& d_memory : d_data_x_dm_)
+    {
+        d_memory_in_use += d_memory.size();
+    }
+    d_memory_free += d_memory_in_use;
+
     // For host side
     size_t h_memory_free = get_free_memory();// / std::pow(1024, 1); //current free host memory in MBytes -> Bytes
     size_t h_memory_required = sizeof_data_t_nu * nchan_buffers +
@@ -292,11 +304,11 @@ void FDDGPUPlan::execute_gpu(
 
         The vectors (with _ suffix) are used to implement multiple-buffering
     */
-    std::vector<cu::HostMemory>   h_data_t_nu_(nchan_buffers);
-    std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
-                cu::DeviceMemory  d_data_x_nu(sizeof_data_x_nu);
-    std::vector<cu::DeviceMemory> d_data_x_dm_(ndm_buffers);
-    std::vector<cu::HostMemory>   h_data_t_dm_(ndm_buffers);
+    h_data_t_nu_.resize(nchan_buffers);
+    h_data_t_dm_.resize(ndm_buffers);
+    d_data_t_nu_.resize(nchan_buffers);
+    d_data_x_dm_.resize(ndm_buffers);
+    cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
     for (unsigned int i = 0; i < nchan_buffers; i++)
     {
         h_data_t_nu_[i].resize(sizeof_data_t_nu);
