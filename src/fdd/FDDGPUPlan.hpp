@@ -57,6 +57,8 @@ private:
 
     // Host arrays
     std::vector<dedisp_float> h_spin_frequencies; // size = nfreq
+    std::vector<cu::HostMemory> h_data_t_nu_;
+    std::vector<cu::HostMemory> h_data_t_dm_;
 
     // Device arrays
     cu::DeviceMemory d_spin_frequencies; // type = dedisp_float

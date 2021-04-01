@@ -292,11 +292,11 @@ void FDDGPUPlan::execute_gpu(
 
         The vectors (with _ suffix) are used to implement multiple-buffering
     */
-    std::vector<cu::HostMemory>   h_data_t_nu_(nchan_buffers);
+    h_data_t_nu_.resize(nchan_buffers);
+    h_data_t_dm_.resize(ndm_buffers);
     std::vector<cu::DeviceMemory> d_data_t_nu_(nchan_buffers);
                 cu::DeviceMemory  d_data_x_nu(sizeof_data_x_nu);
     std::vector<cu::DeviceMemory> d_data_x_dm_(ndm_buffers);
-    std::vector<cu::HostMemory>   h_data_t_dm_(ndm_buffers);
     for (unsigned int i = 0; i < nchan_buffers; i++)
     {
         h_data_t_nu_[i].resize(sizeof_data_t_nu);
