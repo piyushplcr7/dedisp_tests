@@ -10,12 +10,14 @@ cuda_add_library(
     $<TARGET_OBJECTS:common>
     $<TARGET_OBJECTS:plan>
     $<TARGET_OBJECTS:external>
+    $<TARGET_OBJECTS:clib>
 )
 
 target_link_libraries(
     dedisp
-    clib
     cu
+    tdd
+    fdd
 )
 
 target_include_directories(
