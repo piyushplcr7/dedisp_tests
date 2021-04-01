@@ -288,12 +288,11 @@ int run(BenchParameters & benchParameter)
 
   printf("Starting benchmark for %d iterations \n", benchParameter.niterations);
 
-  // Take maximum required shared buffer size for input and output, use FDD case as that implementation has the largest memory requirements
+  // Take maximum required shared buffer size for input and output
   auto maxBufferSize = std::max(nsamps * nchans * (in_nbits/8) * sizeof(dedisp_float), nsamps * dm_count * (out_nbits/8) * sizeof(dedisp_byte));
-  /* Host memory can become a critical resource, mainly for FDD
-  *  might add checking for other PlanTypes later as well.
-  *  But that requires a different computation of Required Host Memory.
-  *  These variables are only used to print verbose information.*/
+  /* Host memory can become a critical resource,
+  *  might add checking later as well.
+  *  Now these variables are only used to print verbose information.*/
   auto planRequiredBufferSize = maxBufferSize; //approximation
   auto totalRequiredHostMemory = maxBufferSize + planRequiredBufferSize;//Application + plan
   totalRequiredHostMemory *= 1.10; //10% margin
@@ -320,9 +319,6 @@ int run(BenchParameters & benchParameter)
   auto availableHostMemory = get_free_memory();
   std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
   std::cout << "Host memory free    = " << availableHostMemory / std::pow(1024, 1) << " Gb" << std::endl;
-  std::cout << "Host memory required by application  = " <<  maxBufferSize / std::pow(1024, 3) << " Gb" << std::endl;
-  std::cout << "Host memory required by FDD plan (approximation) = " <<  planRequiredBufferSize / std::pow(1024, 3) << " Gb" << std::endl;
-  std::cout << "Total host memory required for FDD (including margin)  = " <<  totalRequiredHostMemory / std::pow(1024, 3) << " Gb" << std::endl;
 #endif
 
   // Now allocate the memory

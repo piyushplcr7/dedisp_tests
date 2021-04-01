@@ -52,23 +52,6 @@ def getFreeMem():
     free_mem_in_Gb = (int(free_mem_in_kb) + int(inactive_mem_in_kb)) / (2**20)
     return free_mem_in_Gb
 
-# return required host memory for FDD in Gb
-def hostMemoryRequiredFDD(nsamps, nchans, dm_count):
-    # sizeof(dedisp_float)=4; sizeof(dedisp_byte) = 1
-    # input buffer: nsamps * nchans * sizeof(dedisp_float)
-    h_in_buffer = nsamps * nchans * 4
-    # output buffer: nsamps * dm_count * (out_nbits/8) * sizeof(dedisp_byte)
-    h_out_buffer = nsamps * dm_count * 4
-    h_implementation = h_in_buffer + h_out_buffer
-    # total required host memory = application host memory + implementation host memory
-    # bench.hpp uses a shared input/output dummy buffer
-    # we take the max for either the input or output buffer
-    h_application = max(h_in_buffer, h_out_buffer)
-    h_total = h_application + h_implementation
-    h_total_margin = h_total * 1.05 #include 5% margin
-    h_total_margin_Gb = h_total_margin / (2**30)
-    return h_total_margin_Gb
-
 # Run application and capture output
 if __name__ == "__main__":
     # Get parsed arguments
@@ -138,14 +121,6 @@ if __name__ == "__main__":
                                 # Only run segmented benchmark for FDD
                                 if (segmented):
                                     continue
-
-                            # Check if there is sufficient memory available for FDD
-                            if (benchmark is "fdd"):
-                                if (device is "GPU"):
-                                    system_mem_required = hostMemoryRequiredFDD(nsamp, nchan, ndm)
-                                    if(system_mem_required > system_mem_free):
-                                        print(f'Skipping {device}_{benchmark}_nchan{nchan}_nsamp{nsamp}_ndm{ndm} because there is not sufficient system memory available (free memory: {system_mem_free:.2f}G while required: {system_mem_required:.2f}G)')
-                                        continue
 
                             # Set environment variables
                             if (device is "GPU"):
