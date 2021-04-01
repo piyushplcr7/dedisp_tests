@@ -720,6 +720,10 @@ void FDDGPUPlan::execute_gpu(
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 #endif
+
+    // Free FFT plans
+    cufftDestroy(plan_c2r);
+    cufftDestroy(plan_r2c);
 }
 
 /*    Refer to execute_gpu() above for additional comments on common constructs
@@ -1292,6 +1296,10 @@ void FDDGPUPlan::execute_gpu_segmented(
     std::cout << total_time_str          << total_timer->ToString() << " sec." << std::endl;
     std::cout << std::endl;
 #endif
+
+    // Free FFT plans
+    cufftDestroy(plan_c2r);
+    cufftDestroy(plan_r2c);
 }
 
 // Private helper function
