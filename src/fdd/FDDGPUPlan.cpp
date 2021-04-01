@@ -237,25 +237,6 @@ void FDDGPUPlan::execute_gpu(
     }
     d_memory_free += d_memory_in_use;
 
-    // For host side
-    size_t h_memory_free = get_free_memory();// / std::pow(1024, 1); //current free host memory in MBytes -> Bytes
-    size_t h_memory_required = sizeof_data_t_nu * nchan_buffers +
-                               sizeof_data_x_dm * ndm_buffers; //in Bytes
-    size_t h_memory_reserved = h_memory_free * 0.05; //5% margin
-
-    if((h_memory_required + h_memory_reserved) / std::pow(1024, 3) > (h_memory_free / std::pow(1024, 1)))
-    {
-        // ToDo: host memory requirement might be reduced by introducing multiple buffering on the output copy
-        /* Note: does not take uninitialized application memory in to account!
-        *  E.g. a malloc for the paged output buffer on the application side does not register the buffer as system memory in use
-        *  Over-using host memory for the application + plan is the responsibiltiy of the application,
-        *  here we can only check for the memory used by the plan itself.*/
-        std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-        std::cout << "Host memory free     = " << h_memory_free  / std::pow(1024, 1) << " Gb" << std::endl;
-        std::cout << "Host Memory required by FDDGPUPlan = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
-        throw std::runtime_error("FDDGPUPlan runtime error: required host memory is too large");
-    }
-
     // Iteratively search for a maximum amount of ndm_buffers, with safety margin
     // Make sure that it fits on device memory
     while ((ndm_buffers * ndm_batch_max) < ndm &&
@@ -276,8 +257,7 @@ void FDDGPUPlan::execute_gpu(
     std::cout << "Device memory free     = " << d_memory_free  / std::pow(1024, 3) << " Gb" << std::endl;
     std::cout << "Device Memory required = " << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
     std::cout << "Host memory total    = " << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-    std::cout << "Host memory free     = " << h_memory_free  / std::pow(1024, 1) << " Gb" << std::endl;
-    std::cout << "Host Memory required by FDDGPUPlan = " << h_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Host memory free     = " << get_free_memory()  / std::pow(1024, 1) << " Gb" << std::endl;
 #endif
 
     // Allocate memory
