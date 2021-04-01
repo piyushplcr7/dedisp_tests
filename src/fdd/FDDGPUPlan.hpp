@@ -62,6 +62,8 @@ private:
 
     // Device arrays
     cu::DeviceMemory d_spin_frequencies; // type = dedisp_float
+    std::vector<cu::DeviceMemory> d_data_t_nu_;
+    std::vector<cu::DeviceMemory> d_data_x_dm_;
 };
 
 } // end namespace dedisp
