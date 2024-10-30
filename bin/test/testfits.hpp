@@ -20,6 +20,54 @@
 #define WRITE_INPUT_DATA 0
 #define WRITE_OUTPUT_DATA 0
 
+void swapEndian(float *val) {
+    unsigned char *valPtr = (unsigned char*)val;
+    unsigned char temp;
+
+    // Swap bytes in place
+    temp = valPtr[0];
+    valPtr[0] = valPtr[3];
+    valPtr[3] = temp;
+
+    temp = valPtr[1];
+    valPtr[1] = valPtr[2];
+    valPtr[2] = temp;
+}
+
+void getDataFromRow(FILE* fptr, unsigned char* rawdata, float *data_scl, float *data_offs, float *data_wts, int subint) {
+  // Move to dat_wts col
+  fseek(fptr, 12364 ,SEEK_CUR);
+
+  // read dat_wts
+  fread(data_wts, 4, 3072, fptr);
+  // read data_offs
+  fread(data_offs, 4, 12288, fptr);
+  // read data_scl
+  fread(data_scl, 4, 12288, fptr);
+  // read data
+  fread(rawdata, 1, 122880000, fptr);
+
+  for (int i = 0; i < 12288; ++i) {
+    swapEndian(&data_offs[i]);
+    swapEndian(&data_scl[i]);
+  }
+
+  for (int i = 0; i < 3072; ++i) {
+    swapEndian(&data_wts[i]);
+  }
+}
+
+void reduceData(float* reduceddata, unsigned char* rawdata, float *data_scl, float *data_offs, float *data_wts, int poln, int subint) {
+  for (int spectra = 0 ; spectra < 10000 ; ++spectra) {
+    for (int chan = 0 ; chan < 3072 ; ++chan) {
+      // Hard coded for zero_off = 0
+      reduceddata[10000L * 3072L * subint + 3072L * spectra + chan] = 
+        ((float) rawdata[3072L * 4 * spectra + 3072L * poln + chan] * data_scl[3072L * poln + chan] 
+         + data_offs[3072L * poln + chan]) * data_wts[chan];
+    }
+  }
+}
+
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f) {
   dedisp_float v = f + 127.5f;
@@ -111,13 +159,9 @@ template <typename PlanType> int run() {
   dedisp_float df = -1.0 * bw / nchans; // MHz   (This must be negative!)
 
   dedisp_size nsamps = Tobs / dt;
-  dedisp_float datarms = 25.0;
-  dedisp_float sigDM = 41.159;
-  dedisp_float sigT = 3.14159; // seconds into time series (at f0)
-  dedisp_float sigamp = 25.0;  // amplitude of signal
 
   dedisp_float dm_start = 20.0;   // pc cm^-3
-  dedisp_float dm_end = 60.0;     // pc cm^-3
+  dedisp_float dm_end = 80.0;     // pc cm^-3
   dedisp_float pulse_width = 4.0; // ms
   dedisp_float dm_tol = 1.25;
   dedisp_size in_nbits = 8;
@@ -132,66 +176,55 @@ template <typename PlanType> int run() {
 
   unsigned int i, nc, ns, nd;
   const dedisp_float *dmlist;
-  // const dedisp_size *dt_factors;
-  dedisp_float *delay_s;
 
   clock_t startclock;
 
-  dedisp_float *rawdata;
 
-  printf("----------------------------- INPUT DATA "
-         "---------------------------------\n");
-  printf("Frequency of highest chanel (MHz)            : %.4f\n", f0);
-  printf("Bandwidth (MHz)                              : %.2f\n", bw);
-  printf("NCHANS (Channel Width [MHz])                 : %lu (%f)\n", nchans,
-         df);
-  printf("Sample time (after downsampling by %.0f)        : %f\n", downsamp,
-         dt);
-  printf("Observation duration (s)                     : %f (%lu samples)\n",
-         Tobs, nsamps);
-  printf("Data RMS (%2lu bit input data)                 : %f\n", in_nbits,
-         datarms);
-  printf("Input data array size                        : %lu MB\n",
-         (nsamps * nchans * sizeof(float)) / (1 << 20));
-  printf("\n");
+  /*
+    Reading the data from fits file without using the cfitsio lib
+    The way it is read is very hard coded
+  */
 
-  /* Initialize random number generator */
-  auto random =
-      std::bind(std::normal_distribution<float>(0, 1), std::mt19937(0));
+  const char *filename =
+      "/home/pp/G0057_1368033096_15:43:38.82_+09:29:16.30_ch109-132_0001.fits";
 
-  /* First build 2-D array of floats with our signal in it */
-  rawdata = (dedisp_float *)malloc(nsamps * nchans * sizeof(dedisp_float));
+    FILE *fptr;
 
-  for (ns = 0; ns < nsamps; ns++) {
-    for (nc = 0; nc < nchans; nc++) {
-      rawdata[ns * nchans + nc] = datarms * random();
+    if ((fptr = fopen(filename,"rb")) == NULL){
+       printf("Error! opening file");
+
+       // Program exits if the file pointer returns NULL.
+       exit(1);
+   }
+
+   char smallbuffer[80];
+
+    double zero_off = 0;
+
+   for (int i = 0 ; i < 5 ; ++i) {
+    printf("size 2880 block no. %d\n",i);
+    for (int j = 0 ; j < 36 ; ++j) {
+    fread(smallbuffer, 1, 80, fptr);
+    printf("%s\n",smallbuffer);
     }
-  }
+   }
 
-  /* Now embed a dispersed pulse signal in it */
-  delay_s = (dedisp_float *)malloc(nchans * sizeof(dedisp_float));
-  for (nc = 0; nc < nchans; nc++) {
-    dedisp_float a = 1.f / (f0 + nc * df);
-    dedisp_float b = 1.f / f0;
-    delay_s[nc] = sigDM * 4.15e3 * (a * a - b * b);
-  }
-  printf("Embedding signal\n");
-  for (nc = 0; nc < nchans; nc++) {
-    ns = (int)((sigT + delay_s[nc]) / dt);
-    if (ns > nsamps) {
-      printf("ns too big %u\n", ns);
-      exit(1);
+   unsigned char* rawdata_full = (unsigned char*)calloc(122880000, sizeof(unsigned char));
+   float *data_scl = (float*) calloc(12288, sizeof(float));
+   float *data_offs = (float*) calloc(12288, sizeof(float));
+   float *data_wts = (float*) calloc(3072, sizeof(float));
+
+    int poln_to_use = 0;
+
+    dedisp_float *rawdata;
+    rawdata = (float*) calloc(10000L * 200L * 3072L, sizeof(float));
+
+    for (int subint = 0 ; subint < 200 ; ++subint) {
+      getDataFromRow(fptr, rawdata_full, data_scl, data_offs, data_wts, subint);
+      reduceData(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint);
     }
-    rawdata[ns * nchans + nc] += sigamp;
-  }
 
-  printf("----------------------------- INJECTED SIGNAL  "
-         "----------------------------\n");
-  printf("Pulse time at f0 (s)                      : %.6f (sample %lu)\n",
-         sigT, (dedisp_size)(sigT / dt));
-  printf("Pulse DM (pc/cm^3)                        : %f \n", sigDM);
-  printf("Signal Delays : %f, %f, %f ... %f\n", delay_s[0], delay_s[1],
-         delay_s[2], delay_s[nchans - 1]);
+    fclose(fptr);
   /*
      input is a pointer to an array containing a time series of length
      nsamps for each frequency channel in plan. The data must be in
@@ -204,7 +237,6 @@ template <typename PlanType> int run() {
   calc_stats_float(rawdata, nsamps * nchans, &raw_mean, &raw_sigma);
   printf("Rawdata Mean (includes signal)    : %f\n", raw_mean);
   printf("Rawdata StdDev (includes signal)  : %f\n", raw_sigma);
-  printf("Pulse S/N (per frequency channel) : %f\n", sigamp / datarms);
 
   input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
 
@@ -306,6 +338,11 @@ template <typename PlanType> int run() {
   // Clean up
   free(output);
   free(input);
+  free(rawdata_full);
+   free(data_scl);
+   free(data_offs);
+   free(data_wts);
+   free(rawdata);
   printf("Dedispersion successful.\n");
   return 0;
 }

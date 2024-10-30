@@ -1,7 +1,7 @@
 # include directory for common header files
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
-cuda_add_library(
+add_library(
     dedisp SHARED
     DedispPlan.cpp
     dedisperse/dedisperse.cu
@@ -23,7 +23,7 @@ target_link_libraries(
 target_include_directories(
    dedisp
    PRIVATE ${CMAKE_SOURCE_DIR}/src
-   PUBLIC ${CUDA_TOOLKIT_INCLUDE}
+   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
 )
 
 set_target_properties(

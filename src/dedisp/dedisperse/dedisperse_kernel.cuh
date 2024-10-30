@@ -1,5 +1,9 @@
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+#include <texture_fetch_functions.h>
+
 // Texture reference for input data
-texture<dedisp_word, 1, cudaReadModeElementType> t_in;
+//texture<dedisp_word, 1, cudaReadModeElementType> t_in;
 
 // Constant reference for input data
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
@@ -114,7 +118,8 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                        dedisp_size         batch_in_stride,
                        dedisp_size         batch_dm_stride,
                        dedisp_size         batch_chan_stride,
-                       dedisp_size         batch_out_stride)
+                       dedisp_size         batch_out_stride,
+                       cudaTextureObject_t t_in)
 {
     // Compute compile-time constants
     enum {
@@ -177,7 +182,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                     #pragma unroll
                     for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
                         // Grab the word containing the sample from texture mem
-                        dedisp_word sample = tex1Dfetch(t_in, offset+s + delay);
+                        dedisp_word sample = tex1Dfetch<dedisp_word>(t_in, offset+s + delay);
 
                         // Extract the desired subword and accumulate
                         sum[s] +=

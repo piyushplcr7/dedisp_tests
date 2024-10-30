@@ -14,7 +14,9 @@ add_subdirectory(external)
 # plan library
 ################################################################################
 add_library(plan OBJECT Plan.cpp GPUPlan.cpp)
-target_include_directories(plan PUBLIC ${CUDA_TOOLKIT_INCLUDE})
+include(CMakePrintHelpers)
+cmake_print_variables(CUDAToolkit_INCLUDE_DIRS)
+target_include_directories(plan PUBLIC ${CUDAToolkit_INCLUDE_DIRS})
 
 
 ################################################################################

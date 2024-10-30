@@ -89,6 +89,10 @@ bool dedisperse(const dedisp_word*  d_in,
     // --------------------------------------
     // Determine whether we should use texture memory
     bool use_texture_mem = check_use_texture_mem();
+
+    // Create texture object
+    cudaTextureObject_t t_in = 0;
+
     if( use_texture_mem ) {
         dedisp_size chans_per_word = sizeof(dedisp_word)*BITS_PER_BYTE / in_nbits;
         dedisp_size nchan_words    = nchans / chans_per_word;
@@ -98,10 +102,43 @@ bool dedisperse(const dedisp_word*  d_in,
         if( input_words > MAX_CUDA_1D_TEXTURE_SIZE ) {
             return false;
         }
-        // Bind the texture memory
+        
+        // Still usable in later cuda versions
         cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc<dedisp_word>();
-        cudaBindTexture(0, t_in, d_in, channel_desc,
-                        input_words * sizeof(dedisp_word));
+        // Need to use cudaArray_t based on the example in Nvidia doc
+        cudaArray_t cuArray;
+        // Allocating memory for cuArray
+        cudaMallocArray(&cuArray, &channel_desc, input_words, 1);
+
+        // Copy data from d_in to CUDA array. Redundant, should be improved!
+        //cudaMemcpyToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), cudaMemcpyDeviceToDevice);
+        cudaMemcpy2DToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), input_words * sizeof(dedisp_word), 1, cudaMemcpyDeviceToDevice);
+
+        // Specify texture
+        struct cudaResourceDesc resDesc;
+        memset(&resDesc, 0, sizeof(resDesc));
+        resDesc.resType = cudaResourceTypeArray;
+        resDesc.res.array.array = cuArray;
+
+        // Specify texture object parameters
+        struct cudaTextureDesc texDesc;
+        memset(&texDesc, 0, sizeof(texDesc)); // Clear the structure
+        texDesc.addressMode[0] = cudaAddressModeClamp; // Specify address mode (clamp, wrap, etc.)
+        texDesc.addressMode[1] = cudaAddressModeClamp; // Only for 2D, set 1D to clamp
+        texDesc.filterMode = cudaFilterModePoint; // Set filter mode (linear, point, etc.)
+        texDesc.readMode = cudaReadModeElementType; // Set read mode (element type)
+        texDesc.normalizedCoords = 0; // Use unnormalized coordinates (1D texture)
+
+        // Create texture object
+        //cudaTextureObject_t t_in = 0;
+        cudaCreateTextureObject(&t_in, &resDesc, &texDesc, NULL);
+
+        // Bind the texture memory
+        /* cu::checkError(cudaBindTexture(
+            0, t_in, d_in, channel_desc,
+            input_words * sizeof(dedisp_word))
+        ); */
+
 #ifdef DEDISP_DEBUG
         cudaError_t cuda_error = cudaGetLastError();
         if( cuda_error != cudaSuccess ) {
@@ -159,7 +196,8 @@ bool dedisperse(const dedisp_word*  d_in,
                                      batch_in_stride,					\
                                      batch_dm_stride,					\
                                      batch_chan_stride,					\
-                                     batch_out_stride)
+                                     batch_out_stride,                  \
+                                     t_in)
     // Note: Here we dispatch dynamically on nbits for supported values
     if( use_texture_mem ) {
         switch( in_nbits ) {

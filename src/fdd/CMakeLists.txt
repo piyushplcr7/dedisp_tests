@@ -1,4 +1,4 @@
-cuda_add_library(fdd SHARED
+add_library(fdd SHARED
     FDDGPUPlan.cpp
     FDDCPUPlan.cpp
     dedisperse/FDDKernel.cu
@@ -20,7 +20,7 @@ target_include_directories(fdd
    PRIVATE ${CMAKE_SOURCE_DIR}/src
    PRIVATE ${CMAKE_SOURCE_DIR}/src/fdd
    PRIVATE ${FFTW3_INCLUDE_DIR}
-   PUBLIC ${CUDA_TOOLKIT_INCLUDE}
+   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
 )
 
 set_target_properties(fdd PROPERTIES

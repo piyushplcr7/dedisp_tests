@@ -1,4 +1,4 @@
-cuda_add_library(
+add_library(
     tdd SHARED
     TDDPlan.cpp
     dedisperse/TDDKernel.cu
@@ -16,7 +16,7 @@ target_link_libraries(
 target_include_directories(
     tdd
     PRIVATE ${CMAKE_SOURCE_DIR}/src
-    PUBLIC ${CUDA_TOOLKIT_INCLUDE}
+    PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
 )
 
 set_target_properties(

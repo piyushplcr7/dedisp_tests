@@ -6,4 +6,5 @@ add_library(
 target_include_directories(
    clib
    PRIVATE ${CMAKE_SOURCE_DIR}/src
+   PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
 )
