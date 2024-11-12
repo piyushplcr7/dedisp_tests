@@ -47,7 +47,7 @@ namespace cu {
         try {
             __assertCudaCall(result, func, file, line);
         } catch (Error<cudaError_t>& error) {
-            // pass
+            std::cout << error.what() << std::endl;
         }
     }
 
@@ -135,6 +135,7 @@ namespace cu {
         DeviceMemory
     */
     DeviceMemory::DeviceMemory(size_t size) {
+        std::cout << "Inside DeviceMemory size constructor, called with " << size << std::endl;
         m_capacity = size;
         m_size = size;
         if (size) {

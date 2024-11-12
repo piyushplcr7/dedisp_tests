@@ -5,8 +5,8 @@
 #include "fdd/FDDCPUPlan.hpp"
 #include "tdd/TDDPlan.hpp"
 
-//#include "testfits.hpp"
-#include "testtwochansin.hpp"
+#include "testfits.hpp"
+//#include "testtwochansin.hpp"
 
 template<typename PlanType>
 int run();

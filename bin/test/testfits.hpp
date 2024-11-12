@@ -201,6 +201,9 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean,
   return;
 }
 
+//#define READFROMFILE
+#define WRITEFILES
+
 // run method for dedispersion with original dedisp test implementation
 template <typename PlanType> int run() {
   int device_idx = 0;
@@ -208,11 +211,11 @@ template <typename PlanType> int run() {
   dedisp_float sampletime_base =
       100.0E-6; // Base is 250 microsecond time samples
   dedisp_float downsamp = 1.0;
-  dedisp_float Tobs = 200.0; // Observation duration in seconds
+  dedisp_float Tobs = 1.0; // Observation duration in seconds
   dedisp_float dt = downsamp * sampletime_base; // s (0.25 ms sampling)
   dedisp_float f0 = 169.589996337891;           // MHz (highest channel!)
-  dedisp_float bw = 30.7199914522957;           // MHz
-  dedisp_size nchans = 3072;
+  dedisp_size nchans = 500;//3072;
+  dedisp_float bw = 30.7199914522957/3072. * nchans;           // MHz
   dedisp_float df = -1.0 * bw / nchans; // MHz   (This must be negative!)
 
   dedisp_size nsamps = Tobs / dt;
@@ -235,6 +238,8 @@ template <typename PlanType> int run() {
   const dedisp_float *dmlist;
 
   clock_t startclock;
+  #ifdef READFROMFILE
+
 
   /*
     Reading the data from fits file without using the cfitsio lib
@@ -289,12 +294,7 @@ template <typename PlanType> int run() {
   std::cout << "Reading all the subints took " << (double)duration_us / 1e6
             << " seconds" << std::endl;
   std::cout << "Minimum value: " << minval_data
-            << ", maximum value: " << maxval_data << std::endl;
-  /* std::cout << "Reading all the subints took "
-            << std::chrono::duration_cast<std::chrono::seconds>(end_time -
-                                                                start_time)
-                   .count()
-            << std::endl; */
+            << ", maximum value: " << maxval_data << std::endl; 
 
   fclose(fptr);
   /*
@@ -310,17 +310,33 @@ template <typename PlanType> int run() {
   printf("Rawdata Mean (includes signal)    : %f\n", raw_mean);
   printf("Rawdata StdDev (includes signal)  : %f\n", raw_sigma);
 
+  #endif
+
   input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
 
+  #ifdef READFROMFILE
   printf("Quantizing array\n");
   /* Now fill array by quantizing rawdata */
   for (ns = 0; ns < nsamps; ns++) {
     for (nc = 0; nc < nchans; nc++) {
+      // identical data across all channels
       input[ns * nchans + nc] =
           bytequant(rawdata[ns * nchans + nc], minval_data, maxval_data);
     }
   }
 
+  #endif
+
+  /* for (nc = 0; nc < nchans; nc++) {
+    for (ns = 0; ns < 3; ns++) {
+      // identical data across all channels
+      std::cout << (int)input[(ns + 10000) * nchans + nc] << ", "; 
+    }
+    std::cout << std::endl;
+  } */
+
+  
+#ifdef READFROMFILE
   /**/
   // Writing the data to binary files
   FILE *fptr_out_float;
@@ -346,12 +362,37 @@ template <typename PlanType> int run() {
 
   fwrite(input, sizeof(unsigned char), 10000L * 200L * 3072L, fptr_out_byte);
   fclose(fptr_out_byte);
+#endif
   // exit(1);
   /**/
 
-  for (int i = 20000; i < 20020; ++i) {
-    printf("i=%5d %9.3f %9.3f \n", i, rawdata[i], (float)input[i]);
+#ifndef READFROMFILE
+  // Reading directly from input.bin
+  /* std::cout << "Reading from input.bin" << std::endl;
+  FILE *fptr_in_byte;
+  // Open the file for reading
+  if ((fptr_in_byte = fopen("input.bin", "rb")) == NULL) {
+      printf("Error! opening file for float input\n");
+      free(input);
+      return 1;
   }
+  fread(input, sizeof(unsigned char), nsamps * nchans, fptr_in_byte);
+  fclose(fptr_in_byte);
+  std::cout << "Finished reading from input.bin" << std::endl; */
+
+#endif
+
+  /* for (nc = 0; nc < nchans; nc++) {
+    for (ns = 0; ns < 3; ns++) {
+      // identical data across all channels
+      std::cout << (int)input[(ns + 10000) * nchans + nc] << ", "; 
+    }
+    std::cout << std::endl;
+  } */
+
+  /* for (int i = 20000; i < 20020; ++i) {
+    printf("i=%5d %9.3f %9.3f \n", i, rawdata[i], (float)input[i]);
+  } */
 
   dedisp_float in_mean, in_sigma;
   calc_stats_8bit(input, nsamps * nchans, &in_mean, &in_sigma);
@@ -450,11 +491,13 @@ template <typename PlanType> int run() {
   // Clean up
   free(output);
   free(input);
+  #ifdef READFROMFILE
   free(rawdata_full);
   free(data_scl);
   free(data_offs);
   free(data_wts);
   free(rawdata);
+  #endif
   printf("Dedispersion successful.\n");
   return 0;
 }

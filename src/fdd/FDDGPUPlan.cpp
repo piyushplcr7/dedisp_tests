@@ -85,6 +85,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   unsigned int nsamp_fft =
       use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
   unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+  //unsigned int nsamp_padded = 2 * (nsamp_fft/2 + 1);
+  std::cout << "nsamp        = " << nsamp << std::endl;
+  std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
+  std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 #ifdef DEDISP_DEBUG
   std::cout << debug_str << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
@@ -277,6 +281,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   h_data_t_dm_.resize(ndm_buffers);
   d_data_t_nu_.resize(nchan_buffers);
   d_data_x_dm_.resize(ndm_buffers);
+  std::cout << "calling constructor on d_data_x_nu with size " << sizeof_data_x_nu << std::endl; 
   cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
   for (unsigned int i = 0; i < nchan_buffers; i++) {
     h_data_t_nu_[i].resize(sizeof_data_t_nu);
@@ -478,11 +483,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                                        *executestream));
 
       // FFT data (real to complex) along time axis
+      std::cout << "nchan_batch_max = " << nchan_batch_max << ", nchan_fft_batch = " << nchan_fft_batch << std::endl;
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
         cufftReal *idata = (cufftReal *)d_data_x_nu.data() +
                            i * nsamp_padded * nchan_fft_batch;
         cufftComplex *odata = (cufftComplex *)idata;
-        cufftExecR2C(plan_r2c, idata, odata);
+        std::cout << "i =" << i << " R2C Code = " << cufftExecR2C(plan_r2c, idata, odata) << std::endl;
       }
       executestream->record(channel_job.preprocessingEnd);
 
@@ -610,7 +616,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         cufftReal *odata =
             (cufftReal *)d_out + i * nsamp_padded * ndm_fft_batch;
         cufftComplex *idata = (cufftComplex *)odata;
-        cufftExecC2R(plan_c2r, idata, odata);
+        std::cout << "i = " << i << " C2R Code = " << cufftExecC2R(plan_c2r, idata, odata) << std::endl;
       }
 
       // FFT scaling
