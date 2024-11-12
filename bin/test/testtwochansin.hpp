@@ -206,19 +206,21 @@ template <typename PlanType> int run() {
   int device_idx = 0;
 
   dedisp_float sampletime_base =
-      100.0E-6; // Base is 250 microsecond time samples
+      0.1; //100.0E-6; // Base is 250 microsecond time samples
   dedisp_float downsamp = 1.0;
-  dedisp_float Tobs = 200.0; // Observation duration in seconds
+  dedisp_float Tobs = 2.60001; //200; Observation duration in seconds
   dedisp_float dt = downsamp * sampletime_base; // s (0.25 ms sampling)
-  dedisp_float f0 = 169.589996337891;           // MHz (highest channel!)
-  dedisp_float bw = 30.7199914522957;           // MHz
-  dedisp_size nchans = 3072;
+  dedisp_float f0 = 1e6;//169.589996337891;           // MHz (highest channel!)
+  dedisp_float bw =  1e5;//30.7199914522957;           // MHz
+  dedisp_size nchans = 4; // 3072
   dedisp_float df = -1.0 * bw / nchans; // MHz   (This must be negative!)
 
   dedisp_size nsamps = Tobs / dt;
+  std::cout << "Tobs = " << Tobs << ", dt = " << dt << std::endl;
+  std::cout << "nsamps = " << nsamps << std::endl;
 
   dedisp_float dm_start = 0.0;    // pc cm^-3
-  dedisp_float dm_end = 10.0;     // pc cm^-3
+  dedisp_float dm_end = 200.0;     // pc cm^-3
   dedisp_float pulse_width = 4.0; // ms
   dedisp_float dm_tol = 1.25;
   dedisp_size in_nbits = 8;
@@ -240,7 +242,7 @@ template <typename PlanType> int run() {
     Reading the data from fits file without using the cfitsio lib
     The way it is read is very hard coded
   */
-
+#ifdef READFROMFILE
   const char *filename =
       "/home/pp/G0057_1368033096_15:43:38.82_+09:29:16.30_ch109-132_0001.fits";
 
@@ -297,6 +299,53 @@ template <typename PlanType> int run() {
             << std::endl; */
 
   fclose(fptr);
+#endif
+
+  // Synthetic data for testing
+  float *rawdata = (float*) calloc(nsamps * nchans,sizeof(float));
+  // Filling the synthetic data
+  for (int i = 0 ; i < nsamps ; ++i) {
+    for (int j = 0 ; j < nchans ; ++j) {
+      // channels is fastest changing
+      rawdata[i*nchans+j] = std::sin(M_PI * i * dt);
+      /* if (j == 0)
+        rawdata[i*nchans+j] = std::sin(M_PI * i * dt);
+      else
+        rawdata[i*nchans+j] = std::cos(M_PI * i * dt); */
+    }
+  }
+
+  std::cout << "Time series all channels:" << std::endl;
+  for (int i = 0 ; i < nchans ; ++i) {
+    for (int j = 0 ; j < nsamps ; ++j) {
+      std::cout << rawdata[j * nchans + i] << ", " ;
+    }
+    std::cout << std::endl << std::endl;
+  }
+
+  /* std::cout << "time series channel 0:" << std::endl;
+  for (int i = 0 ; i < nsamps ; ++i) {
+    for (int j = 0 ; j < nchans ; ++j) {
+      // channels is fastest changing
+      if (j == 0)
+        std::cout << rawdata[i*nchans+j]  << ", " ;
+    }
+  }
+  std::cout << std::endl;
+
+  std::cout << "time series channel 1:" << std::endl;
+  for (int i = 0 ; i < nsamps ; ++i) {
+    for (int j = 0 ; j < nchans ; ++j) {
+      // channels is fastest changing
+      if (j == 1)
+        std::cout << rawdata[i*nchans+j]  << ", " ;
+    }
+  }
+  std::cout << std::endl; */
+
+  maxval_data = 1;
+  minval_data = -1;
+
   /*
      input is a pointer to an array containing a time series of length
      nsamps for each frequency channel in plan. The data must be in
@@ -304,7 +353,6 @@ template <typename PlanType> int run() {
      dimension, time the slowest. There must be no padding between
      consecutive frequency channels.
    */
-
   dedisp_float raw_mean, raw_sigma;
   calc_stats_float(rawdata, nsamps * nchans, &raw_mean, &raw_sigma);
   printf("Rawdata Mean (includes signal)    : %f\n", raw_mean);
@@ -321,6 +369,14 @@ template <typename PlanType> int run() {
     }
   }
 
+  std::cout << "Quantized time series all channels:" << std::endl;
+  for (int i = 0 ; i < nchans ; ++i) {
+    for (int j = 0 ; j < nsamps ; ++j) {
+      std::cout << (int)input[j * nchans + i] << ", " ;
+    }
+    std::cout << std::endl << std::endl;
+  }
+
   /**/
   // Writing the data to binary files
   FILE *fptr_out_float;
@@ -332,7 +388,7 @@ template <typename PlanType> int run() {
     exit(1);
   }
 
-  fwrite(rawdata, sizeof(float), 10000L * 200L * 3072L, fptr_out_float);
+  fwrite(rawdata, sizeof(float), (size_t) nsamps * nchans, fptr_out_float);
   fclose(fptr_out_float);
 
   FILE *fptr_out_byte;
@@ -344,14 +400,14 @@ template <typename PlanType> int run() {
     exit(1);
   }
 
-  fwrite(input, sizeof(unsigned char), 10000L * 200L * 3072L, fptr_out_byte);
+  fwrite(input, sizeof(unsigned char), (size_t) nsamps * nchans, fptr_out_byte);
   fclose(fptr_out_byte);
   // exit(1);
   /**/
 
-  for (int i = 20000; i < 20020; ++i) {
+  /* for (int i = 20000; i < 20020; ++i) {
     printf("i=%5d %9.3f %9.3f \n", i, rawdata[i], (float)input[i]);
-  }
+  } */
 
   dedisp_float in_mean, in_sigma;
   calc_stats_8bit(input, nsamps * nchans, &in_mean, &in_sigma);
@@ -450,10 +506,10 @@ template <typename PlanType> int run() {
   // Clean up
   free(output);
   free(input);
-  free(rawdata_full);
+  /* free(rawdata_full);
   free(data_scl);
   free(data_offs);
-  free(data_wts);
+  free(data_wts); */
   free(rawdata);
   printf("Dedispersion successful.\n");
   return 0;

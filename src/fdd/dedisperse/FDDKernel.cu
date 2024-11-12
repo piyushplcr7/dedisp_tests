@@ -78,6 +78,7 @@ void FDDKernel::launch(
 
     switch (nchan)
     {
+        case  1: CALL_KERNEL(1); break;
         case  16: CALL_KERNEL(16); break;
         case  32: CALL_KERNEL(32); break;
         case  64: CALL_KERNEL(64); break;
