@@ -11,3 +11,4 @@ build/
 input.bin
 rawdata.bin
 output.bin
+*.py
