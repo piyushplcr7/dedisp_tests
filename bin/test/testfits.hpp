@@ -113,6 +113,16 @@ void reduceData(float *reduceddata, unsigned char *rawdata, float *data_scl,
 }
 
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
+dedisp_byte bytequant_optimized(dedisp_float f, dedisp_float m,
+                      dedisp_float nplus127pt5) {
+  // initial range: [minval , maxval] <-> [a, b]
+  // final range [-127.5 , 127.5] <-> [c, d]
+  // Bring the float value to the right range
+  dedisp_byte r = (dedisp_byte)roundf(m * f + nplus127pt5);
+  return r;
+}
+
+// Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant(dedisp_float f, dedisp_float minval,
                       dedisp_float maxval) {
   // initial range: [minval , maxval] <-> [a, b]
@@ -305,10 +315,10 @@ template <typename PlanType> int run() {
      consecutive frequency channels.
    */
 
-  dedisp_float raw_mean, raw_sigma;
+  /* dedisp_float raw_mean, raw_sigma;
   calc_stats_float(rawdata, nsamps * nchans, &raw_mean, &raw_sigma);
   printf("Rawdata Mean (includes signal)    : %f\n", raw_mean);
-  printf("Rawdata StdDev (includes signal)  : %f\n", raw_sigma);
+  printf("Rawdata StdDev (includes signal)  : %f\n", raw_sigma); */
 
   #endif
 
@@ -316,12 +326,15 @@ template <typename PlanType> int run() {
 
   #ifdef READFROMFILE
   printf("Quantizing array\n");
+  dedisp_float slope = 255.0f/(maxval_data-minval_data);
+  dedisp_float intercept = -slope * minval_data;
   /* Now fill array by quantizing rawdata */
   for (ns = 0; ns < nsamps; ns++) {
     for (nc = 0; nc < nchans; nc++) {
       // identical data across all channels
       input[ns * nchans + nc] =
-          bytequant(rawdata[ns * nchans + nc], minval_data, maxval_data);
+          bytequant_optimized(rawdata[ns * nchans + nc], slope, intercept);
+          //bytequant(rawdata[ns * nchans + nc], minval_data, maxval_data);
     }
   }
 
@@ -394,12 +407,12 @@ template <typename PlanType> int run() {
     printf("i=%5d %9.3f %9.3f \n", i, rawdata[i], (float)input[i]);
   } */
 
-  dedisp_float in_mean, in_sigma;
+  /* dedisp_float in_mean, in_sigma;
   calc_stats_8bit(input, nsamps * nchans, &in_mean, &in_sigma);
 
   printf("Quantized data Mean (includes signal)    : %f\n", in_mean);
   printf("Quantized data StdDev (includes signal)  : %f\n", in_sigma);
-  printf("\n");
+  printf("\n"); */
 
   printf("Create plan and init GPU\n");
   // Create a dedispersion plan
