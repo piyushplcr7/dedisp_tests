@@ -223,10 +223,10 @@ void dedisperse_kernel(
                     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
                     {
                         // Compute DM delay
-                        float tdm = dms[i] * c_delay_table[ichan_start + ichan] * dt;
+                        float tdm = dms[i] * c_delay_table[ichan_start + ichan];
 
                         // Compute phase
-                        float phase = 2.0f * ((float) M_PI) * f * tdm;
+                        float phase = 2.0f * ((float) M_PI) * f * dt * (int)tdm;
 
                         // Compute phasor
                         float2 phasor = make_float2(raw_cos(phase), raw_sin(phase));

@@ -70,7 +70,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   float dt = m_dt;                      // sample time
   unsigned int nchan = m_nchans;        // number of observering frequencies
   unsigned int nsamp = nsamps;          // number of time samples
-  unsigned int nfreq = (nsamp / 2 + 1); // number of spin frequencies
   unsigned int ndm = m_dm_count;        // number of DMs
 
   // Compute the number of output samples
@@ -84,8 +83,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // architecture
   unsigned int nsamp_fft =
       use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
+  unsigned int nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
   unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
-  //unsigned int nsamp_padded = 2 * (nsamp_fft/2 + 1);
   std::cout << "nsamp        = " << nsamp << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
   std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
@@ -156,7 +155,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   int n[] = {(int)nsamp_fft};
   int rnembed[] = {(int)nsamp_padded};     // width in real elements
   int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
-  std::thread thread_r2c = std::thread([&]() {
+  //std::thread thread_r2c = std::thread([&]() {
     cufftResult result =
         cufftPlanMany(&plan_r2c,              // plan
                       1, n,                   // rank, n
@@ -168,9 +167,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       throw std::runtime_error("Error creating real to complex FFT plan.");
     }
     cufftSetStream(plan_r2c, *executestream);
-  });
-  std::thread thread_c2r = std::thread([&]() {
-    cufftResult result =
+  //});
+  //std::thread thread_c2r = std::thread([&]() {
+    result =
         cufftPlanMany(&plan_c2r,              // plan
                       1, n,                   // rank, n
                       cnembed, 1, cnembed[0], // inembed, istride, idist
@@ -181,21 +180,21 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       throw std::runtime_error("Error creating complex to real FFT plan.");
     }
     cufftSetStream(plan_c2r, *executestream);
-  });
+  //});
 
   // Wait for cuFFT plans to be created
-  if (thread_r2c.joinable()) {
+  /* if (thread_r2c.joinable()) {
     thread_r2c.join();
-  }
-  if (thread_c2r.joinable()) {
+  } */
+  /* if (thread_c2r.joinable()) {
     thread_c2r.join();
-  }
+  } */
   mPrepFFT.end();
 
   // Generate spin frequency table
   mPrepSpinf.start();
   if (h_spin_frequencies.size() != nfreq) {
-    generate_spin_frequency_table(nfreq, nsamp, dt);
+    generate_spin_frequency_table(nfreq, nsamp_fft, dt);
   }
   mPrepSpinf.end();
 
@@ -281,7 +280,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   h_data_t_dm_.resize(ndm_buffers);
   d_data_t_nu_.resize(nchan_buffers);
   d_data_x_dm_.resize(ndm_buffers);
-  std::cout << "calling constructor on d_data_x_nu with size " << sizeof_data_x_nu << std::endl; 
   cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
   for (unsigned int i = 0; i < nchan_buffers; i++) {
     h_data_t_nu_[i].resize(sizeof_data_t_nu);
@@ -375,6 +373,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   // Launch thread to copy output data from device to host for each dm_job
   std::thread output_thread = std::thread([&]() {
+    cudaSetDevice(0);
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
       auto &dm_job = dm_jobs[job_id];
 
@@ -481,14 +480,16 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                                        nsamp_padding * sizeof(float), // width
                                        nchan_batch_max,               // height
                                        *executestream));
-
+      
       // FFT data (real to complex) along time axis
-      std::cout << "nchan_batch_max = " << nchan_batch_max << ", nchan_fft_batch = " << nchan_fft_batch << std::endl;
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
         cufftReal *idata = (cufftReal *)d_data_x_nu.data() +
                            i * nsamp_padded * nchan_fft_batch;
         cufftComplex *odata = (cufftComplex *)idata;
-        std::cout << "i =" << i << " R2C Code = " << cufftExecR2C(plan_r2c, idata, odata) << std::endl;
+        cufftResult result = cufftExecR2C(plan_r2c, idata, odata);
+        if (result != CUFFT_SUCCESS) {
+            throw std::runtime_error("Error creating real to complex FFT plan.");
+        }
       }
       executestream->record(channel_job.preprocessingEnd);
 
@@ -616,7 +617,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         cufftReal *odata =
             (cufftReal *)d_out + i * nsamp_padded * ndm_fft_batch;
         cufftComplex *idata = (cufftComplex *)odata;
-        std::cout << "i = " << i << " C2R Code = " << cufftExecC2R(plan_c2r, idata, odata) << std::endl;
+        cufftResult result = cufftExecC2R(plan_c2r, idata, odata);
+        if (result != CUFFT_SUCCESS) {
+            throw std::runtime_error("Error creating real to complex FFT plan.");
+        }
       }
 
       // FFT scaling

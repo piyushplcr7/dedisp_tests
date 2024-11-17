@@ -201,7 +201,7 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean,
   return;
 }
 
-//#define READFROMFILE
+#define READFROMFILE
 #define WRITEFILES
 
 // run method for dedispersion with original dedisp test implementation
@@ -211,10 +211,10 @@ template <typename PlanType> int run() {
   dedisp_float sampletime_base =
       100.0E-6; // Base is 250 microsecond time samples
   dedisp_float downsamp = 1.0;
-  dedisp_float Tobs = 1.0; // Observation duration in seconds
+  dedisp_float Tobs = 200.0; // Observation duration in seconds
   dedisp_float dt = downsamp * sampletime_base; // s (0.25 ms sampling)
   dedisp_float f0 = 169.589996337891;           // MHz (highest channel!)
-  dedisp_size nchans = 500;//3072;
+  dedisp_size nchans = 3072;
   dedisp_float bw = 30.7199914522957/3072. * nchans;           // MHz
   dedisp_float df = -1.0 * bw / nchans; // MHz   (This must be negative!)
 

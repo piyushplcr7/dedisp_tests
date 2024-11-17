@@ -135,7 +135,6 @@ namespace cu {
         DeviceMemory
     */
     DeviceMemory::DeviceMemory(size_t size) {
-        std::cout << "Inside DeviceMemory size constructor, called with " << size << std::endl;
         m_capacity = size;
         m_size = size;
         if (size) {
