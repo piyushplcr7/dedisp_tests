@@ -8,7 +8,5 @@ example/testdedisp
 *.cmake
 CmakeCached.txt
 build/
-input.bin
-rawdata.bin
-output.bin
+*.bin
 *.py
