@@ -211,7 +211,7 @@ void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean,
   return;
 }
 
-#define READFROMFILE
+//#define READFROMFILE
 #define WRITEFILES
 
 // run method for dedispersion with original dedisp test implementation
@@ -381,7 +381,7 @@ template <typename PlanType> int run() {
 
 #ifndef READFROMFILE
   // Reading directly from input.bin
-  /* std::cout << "Reading from input.bin" << std::endl;
+  std::cout << "Reading from input.bin" << std::endl;
   FILE *fptr_in_byte;
   // Open the file for reading
   if ((fptr_in_byte = fopen("input.bin", "rb")) == NULL) {
@@ -391,7 +391,7 @@ template <typename PlanType> int run() {
   }
   fread(input, sizeof(unsigned char), nsamps * nchans, fptr_in_byte);
   fclose(fptr_in_byte);
-  std::cout << "Finished reading from input.bin" << std::endl; */
+  std::cout << "Finished reading from input.bin" << std::endl;
 
 #endif
 
