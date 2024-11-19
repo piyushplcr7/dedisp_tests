@@ -20,6 +20,8 @@
 #include <Plan.hpp>
 #include <cuda_runtime.h>
 
+#include "fdd/helper.h"
+
 // Debug options
 #define WRITE_INPUT_DATA 0
 #define WRITE_OUTPUT_DATA 0
@@ -435,15 +437,28 @@ template <typename PlanType> int run() {
          dmlist[dm_count - 1]);
   printf("Max DM delay is %lu samples (%.f seconds)\n", max_delay,
          max_delay * dt);
+
+#ifdef EXPORT_DEDISP_TIME_SERIES
   printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
          nsamps_computed, nsamps,
          100.0 * (dedisp_float)nsamps_computed / nsamps);
   printf("Output data array size : %lu MB\n",
          (dm_count * nsamps_computed * (out_nbits / 8)) / (1 << 20));
+#else
+  unsigned int nsamp_fft = dedisp::round_up(nsamps + max_delay, 16384);
+  printf("Computing %lu Fourier Coefficients of dedispersed timeseries (adjusting for max delay)\n", nsamp_fft);
+  printf("Output data array size : %lu MB\n",
+         (dm_count * nsamp_fft * (out_nbits / 8)) / (1 << 20));
+#endif
+  
   printf("\n");
 
   // Allocate space for the output data
+#ifdef EXPORT_DEDISP_TIME_SERIES
   output = (dedisp_float *)malloc(nsamps_computed * dm_count * out_nbits / 8);
+#else
+  output = (dedisp_float *)malloc(nsamp_fft * dm_count * out_nbits / 8);
+#endif
   if (output == NULL) {
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
@@ -495,7 +510,11 @@ template <typename PlanType> int run() {
 #endif
 
   // #if WRITE_OUTPUT_DATA
+#ifdef EXPORT_DEDISP_TIME_SERIES
   FILE *file_out = fopen("output.bin", "wb");
+#else
+  FILE *file_out = fopen("output.fft", "wb");
+#endif  
   fwrite(output, 1, (size_t)nsamps_computed * dm_count * out_nbits / 8,
          file_out);
   fclose(file_out);

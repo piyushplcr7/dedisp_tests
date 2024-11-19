@@ -81,8 +81,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Compute padded number of samples (for r2c transformation)
   // the round_up value might be tuned for efficiency depending on system
   // architecture
+
+#ifdef EXPORT_DEDISP_TIME_SERIES
   unsigned int nsamp_fft =
       use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
+#else
+  unsigned int nsamp_fft = round_up(nsamp + m_max_delay, 16384);
+  std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
+#endif  
   unsigned int nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
   unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
   std::cout << "nsamp        = " << nsamp << std::endl;
@@ -155,40 +161,30 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   int n[] = {(int)nsamp_fft};
   int rnembed[] = {(int)nsamp_padded};     // width in real elements
   int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
-  //std::thread thread_r2c = std::thread([&]() {
-    cufftResult result =
-        cufftPlanMany(&plan_r2c,              // plan
-                      1, n,                   // rank, n
-                      rnembed, 1, rnembed[0], // inembed, istride, idist
-                      cnembed, 1, cnembed[0], // onembed, ostride, odist
-                      CUFFT_R2C,              // type
-                      nchan_fft_batch);       // batch
-    if (result != CUFFT_SUCCESS) {
-      throw std::runtime_error("Error creating real to complex FFT plan.");
-    }
-    cufftSetStream(plan_r2c, *executestream);
-  //});
-  //std::thread thread_c2r = std::thread([&]() {
-    result =
-        cufftPlanMany(&plan_c2r,              // plan
-                      1, n,                   // rank, n
-                      cnembed, 1, cnembed[0], // inembed, istride, idist
-                      rnembed, 1, rnembed[0], // onembed, ostride, odist
-                      CUFFT_C2R,              // type
-                      ndm_fft_batch);         // batch
-    if (result != CUFFT_SUCCESS) {
-      throw std::runtime_error("Error creating complex to real FFT plan.");
-    }
-    cufftSetStream(plan_c2r, *executestream);
-  //});
 
-  // Wait for cuFFT plans to be created
-  /* if (thread_r2c.joinable()) {
-    thread_r2c.join();
-  } */
-  /* if (thread_c2r.joinable()) {
-    thread_c2r.join();
-  } */
+  cufftResult result =
+      cufftPlanMany(&plan_r2c,              // plan
+                    1, n,                   // rank, n
+                    rnembed, 1, rnembed[0], // inembed, istride, idist
+                    cnembed, 1, cnembed[0], // onembed, ostride, odist
+                    CUFFT_R2C,              // type
+                    nchan_fft_batch);       // batch
+  if (result != CUFFT_SUCCESS) {
+    throw std::runtime_error("Error creating real to complex FFT plan.");
+  }
+  cufftSetStream(plan_r2c, *executestream);
+
+  result =
+      cufftPlanMany(&plan_c2r,              // plan
+                    1, n,                   // rank, n
+                    cnembed, 1, cnembed[0], // inembed, istride, idist
+                    rnembed, 1, rnembed[0], // onembed, ostride, odist
+                    CUFFT_C2R,              // type
+                    ndm_fft_batch);         // batch
+  if (result != CUFFT_SUCCESS) {
+    throw std::runtime_error("Error creating complex to real FFT plan.");
+  }
+  cufftSetStream(plan_c2r, *executestream);
   mPrepFFT.end();
 
   // Generate spin frequency table
@@ -394,7 +390,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
       auto *h_src = dm_job.h_data_t_dm->data();
       // CPU mem pointers
+
+#ifdef EXPORT_DEDISP_TIME_SERIES
       dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
+#else
+      dedisp_size dst_stride = 1ULL * nsamp_fft * out_bytes_per_sample;
+#endif
       dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
       auto *h_dst = (void *)(((size_t)out) + dst_offset);
       mCopyMem.start();
@@ -611,8 +612,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto *h_out = dm_job.h_data_t_dm->data();
       auto *d_out = (float *)dm_job.d_data_x_dm->data();
 
-      // Fourier transform results back to time domain
+      // Fourier transform results back to time domain if required
       executestream->record(dm_job.postprocessingStart);
+
+#ifdef EXPORT_DEDISP_TIME_SERIES
       for (unsigned int i = 0; i < ndm_batch_max / ndm_fft_batch; i++) {
         cufftReal *odata =
             (cufftReal *)d_out + i * nsamp_padded * ndm_fft_batch;
@@ -630,9 +633,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                    1.0f / nsamp_fft,   // scale
                    d_out,              // d_data
                    *executestream);    // stream
+#endif
       executestream->record(dm_job.postprocessingEnd);
 
-      // Copy output
+      // Copy output. If inverse FFT is not applied, the fourier coefficients are copied
       // Output is picked up by (already running) host side thread
       // and is there copied from CPU pinned to paged memory
       dm_job.gpu_lock.lock();

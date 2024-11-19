@@ -9,4 +9,5 @@ example/testdedisp
 CmakeCached.txt
 build/
 *.bin
+*.fft
 *.py
