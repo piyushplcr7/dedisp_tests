@@ -54,7 +54,7 @@ endif()
 
 set(CUDA_NVCC_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
 
-set(CMAKE_CUDA_ARCHITECTURES "89")
+set(CMAKE_CUDA_ARCHITECTURES "70;80;89;90")
 
 # compile for specified architecture (if any)
 #set(CUDA_ARCH "" CACHE STRING "CUDA architecture")
