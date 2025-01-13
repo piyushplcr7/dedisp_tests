@@ -17,6 +17,7 @@
 #include "common/dedisp_strings.h"
 #include "dedisperse/FDDKernel.hpp"
 #include "unpack/unpack.h"
+#define DEDISP_BENCHMARK
 #ifdef DEDISP_BENCHMARK
 #include "external/Stopwatch.h"
 #endif
@@ -62,6 +63,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     BITS_PER_BYTE = 8,
     BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
   };
+
+  aa_gpu_timer C2Rtimer;
+  double c2rtime = 0;
+
+  aa_gpu_timer R2Ctimer;
+  double r2ctime = 0;
 
   assert(in_nbits == 8);
   assert(out_nbits == 32);
@@ -487,7 +494,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         cufftReal *idata = (cufftReal *)d_data_x_nu.data() +
                            i * nsamp_padded * nchan_fft_batch;
         cufftComplex *odata = (cufftComplex *)idata;
+        R2Ctimer.Start();
         cufftResult result = cufftExecR2C(plan_r2c, idata, odata);
+        R2Ctimer.Stop();
+        r2ctime += R2Ctimer.Elapsed();
         if (result != CUFFT_SUCCESS) {
             throw std::runtime_error("Error creating real to complex FFT plan.");
         }
@@ -620,7 +630,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         cufftReal *odata =
             (cufftReal *)d_out + i * nsamp_padded * ndm_fft_batch;
         cufftComplex *idata = (cufftComplex *)odata;
+        C2Rtimer.Start();
         cufftResult result = cufftExecC2R(plan_c2r, idata, odata);
+        C2Rtimer.Stop();
+        c2rtime += C2Rtimer.Elapsed();
         if (result != CUFFT_SUCCESS) {
             throw std::runtime_error("Error creating real to complex FFT plan.");
         }
@@ -703,6 +716,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Free FFT plans
   cufftDestroy(plan_c2r);
   cufftDestroy(plan_r2c);
+  printf("R2C transforms took %.3f seconds \n", r2ctime);
+  printf("C2R transforms took %.3f seconds \n", c2rtime);
 }
 
 /*    Refer to execute_gpu() above for additional comments on common constructs
