@@ -38,6 +38,14 @@ static Cmdline cmd = {
   /* downsampP = */ 1,
   /* downsamp = */ 1,
   /* downsampC = */ 1,
+  /***** -numdms: Number of dm values */
+  /* numdmsP = */ 1,
+  /* numdms = */ 0,
+  /* numdmsC = */ 1,
+  /***** -dmstep: DM step size */
+  /* dmstepP = */ 1,
+  /* dmstep = */ 0,
+  /* dmstepC = */ 1,
   /***** uninterpreted rest of command line */
   /* argc = */ 0,
   /* argv = */ (char**)0,
@@ -737,7 +745,9 @@ void showOptionValues(void) {
   printf("showOptionValues()\n");
   printf("cmd->lodm = %f\n",cmd.lodm);
   printf("cmd->hidm = %f\n", cmd.hidm);
+  printf("cmd->dmstep = %f\n", cmd.dmstep);
   printf("cmd->downsamp = %d\n", cmd.downsamp);
+  printf("cmd->numdms = %d\n",cmd.numdms);
   printf("cmd->full_cmd_line = %s\n", cmd.full_cmd_line);
   printf("cmd argv = %s\n", *cmd.argv);
 }
@@ -815,6 +825,25 @@ parseCmdline(int argc, char **argv)
       cmd.downsampC = i-keep;
       checkIntLower("-downsamp", &cmd.downsamp, cmd.downsampC, 128);
       checkIntHigher("-downsamp", &cmd.downsamp, cmd.downsampC, 1);
+      continue;
+    }
+
+    if( 0==strcmp("-numdms", argv[i]) ) {
+      int keep = i;
+      cmd.numdmsP = 1;
+      i = getIntOpt(argc, argv, i, &cmd.numdms, 1);
+      cmd.numdmsC = i-keep;
+      checkIntLower("-numdms", &cmd.numdms, cmd.numdmsC, 50000);
+      checkIntHigher("-numdms", &cmd.numdms, cmd.numdmsC, 0);
+      continue;
+    }
+
+    if( 0==strcmp("-dmstep", argv[i]) ) {
+      int keep = i;
+      cmd.dmstepP = 1;
+      i = getDoubleOpt(argc, argv, i, &cmd.dmstep, 1);
+      cmd.dmstepC = i-keep;
+      checkDoubleHigher("-dmstep", &cmd.dmstep, cmd.dmstepC, 0);
       continue;
     }
 

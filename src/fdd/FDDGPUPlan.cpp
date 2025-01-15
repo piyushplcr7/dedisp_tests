@@ -104,6 +104,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   std::cout << "nsamp        = " << nsamp << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
   std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
+
+  std::cout << "m_max_delay = " << m_max_delay << std::endl;
+  std::cout << "nsamp_computed = " << nsamp_computed << std::endl;
 #ifdef DEDISP_DEBUG
   std::cout << debug_str << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
@@ -479,7 +482,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                  nchan_words_gulp,              // dst height
                  float_in + gulp_chan_byte_idx, // src
                  nchan,              // src height
-                 nchan_words_gulp,              // height bytes (represents how many rows copied)
+                 nchan_words_gulp,              // height (represents how many rows copied)
                  nsamp);                  // width
 
         htodstream->record(channel_job.inputStart);

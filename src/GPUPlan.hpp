@@ -56,11 +56,16 @@ protected:
 
 public:
     // Public interface
-    virtual void generate_dm_list(
+    void generate_dm_list(
         float_type dm_start,
         float_type dm_end,
         float_type ti,
-        float_type tol) override;
+        float_type tol);
+
+    void generate_dm_list_equispaced(
+        float_type dm_start,
+        float_type dm_step,
+        dedisp_size numdms);
 
     virtual void set_dm_list(
         const float_type* dm_list,

@@ -226,6 +226,13 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   const char *filename = *cmd->argv;
 
+  if (cmd->numdms >0) {
+    if (cmd->dmstep == 0) {
+      std::cerr << "ERROR: Non zero dmstep value required when specifying numdms!" << std::endl;
+      exit(1);
+    }
+  }
+
   // Extracting relevant parameters from the fits file
   fitsfile *ffptr;
   int status = 0;
@@ -415,75 +422,20 @@ template <typename PlanType> int run(int argc, char **argv) {
   // input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
   input = (dedisp_byte*) rawdata;
 
-/*#ifdef READFROMFILE
-  printf("Quantizing array\n");
-  start_time = std::chrono::high_resolution_clock::now();
-  dedisp_float slope = 255.0f/(maxval_data-minval_data);
-  dedisp_float intercept = -slope * minval_data;
-  // Now fill array by quantizing rawdata 
-  for (ns = 0; ns < nsamps; ns++) {
-    #pragma unroll
-    for (nc = 0; nc < nchans; nc++) {
-      // identical data across all channels
-      input[ns * nchans + nc] =
-          bytequant_optimized(rawdata[ns * nchans + nc], slope, intercept);
-    }
-  }
-  end_time = std::chrono::high_resolution_clock::now();
-  duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                         end_time - start_time)
-                         .count();
-  std::cout << "Quantizing the data took " << (double)duration_us / 1e6
-            << " seconds" << std::endl;
-
-  #endif
-  
-#ifdef READFROMFILE
-  // Writing the data to binary files
-  FILE *fptr_out_float;
-
-  if ((fptr_out_float = fopen("rawdata.bin", "wb")) == NULL) {
-    printf("Error! opening file for float output");
-    exit(1);
-  }
-
-  fwrite(rawdata, sizeof(float), (size_t)nsblk * naxis2 * nchans, fptr_out_float);
-  fclose(fptr_out_float);
-
-  FILE *fptr_out_byte;
-
-  if ((fptr_out_byte = fopen("input.bin", "wb")) == NULL) {
-    printf("Error! opening file for float output");
-    exit(1);
-  }
-
-  fwrite(input, sizeof(unsigned char), (size_t)nsblk * naxis2 * nchans, fptr_out_byte);
-  fclose(fptr_out_byte);
-#endif */
-
-#ifndef READFROMFILE
-  // Reading directly from input.bin
-  std::cout << "Reading from input.bin" << std::endl;
-  FILE *fptr_in_byte;
-  // Open the file for reading
-  if ((fptr_in_byte = fopen("input.bin", "rb")) == NULL) {
-      printf("Error! opening file for float input\n");
-      free(input);
-      return 1;
-  }
-  fread(input, sizeof(unsigned char), nsamps * nchans, fptr_in_byte);
-  fclose(fptr_in_byte);
-  std::cout << "Finished reading from input.bin" << std::endl;
-
-#endif
-
   printf("Create plan and init GPU\n");
   // Create a dedispersion plan
   PlanType plan(nchans, dt, f0, df, device_idx);
 
   printf("Gen DM list\n");
   // Generate a list of dispersion measures for the plan
-  plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
+  if (cmd->numdms == 0) {
+    std::cout << "Numdms not specified, generating DM list using the internal function" << std::endl;
+    plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
+  }
+  else {
+    std::cout << "Generating equispaced DM list using the provided step size" << std::endl;
+    plan.generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
+  }
 
   // Find the parameters that determine the output size
   dm_count = plan.get_dm_count();
@@ -496,8 +448,9 @@ template <typename PlanType> int run(int argc, char **argv) {
          "----------------------------\n");
   printf("Computing %lu DMs from %f to %f pc/cm^3\n", dm_count, dmlist[0],
          dmlist[dm_count - 1]);
-  printf("Max DM delay is %lu samples (%.f seconds)\n", max_delay,
+  printf("Max DM delay is %lu samples (%.3f seconds)\n", max_delay,
          max_delay * dt);
+  std::cout << "dt = " << dt << std::endl;
 
 #ifdef EXPORT_DEDISP_TIME_SERIES
   printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
