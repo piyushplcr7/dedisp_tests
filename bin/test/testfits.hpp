@@ -95,6 +95,29 @@ void reduceData(float *reduceddata, unsigned char *rawdata, float *data_scl,
   }
 }
 
+void reduceDataTransposed(float *reduceddata, unsigned char *rawdata, float *data_scl,
+                float *data_offs, float *data_wts, int poln, int subint,
+                size_t nsblk, size_t nchans, int npol, int naxis2) {
+  for (int spectra = 0; spectra < nsblk; ++spectra) {
+    for (int chan = 0; chan < nchans; ++chan) {
+      // Hard coded for zero_off = 0
+      //reduceddata[nsblk * nchans * subint + nchans * spectra + chan] =
+      reduceddata[chan * naxis2 * nsblk + subint * nsblk + spectra] =
+          ((float)rawdata[nchans * npol * spectra + nchans * poln + chan] *
+               data_scl[nchans * poln + chan] +
+           data_offs[nchans * poln + chan]) *
+          data_wts[chan];
+
+      minval_data = std::min(
+          reduceddata[nsblk * nchans * subint + nchans * spectra + chan],
+          minval_data);
+      maxval_data = std::max(
+          reduceddata[nsblk * nchans * subint + nchans * spectra + chan],
+          maxval_data);
+    }
+  }
+}
+
 // Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
 dedisp_byte bytequant_optimized(dedisp_float f, dedisp_float m,
                       dedisp_float nplus127pt5) {
@@ -363,8 +386,10 @@ template <typename PlanType> int run(int argc, char **argv) {
     getDataFromRow(fptr, rawdata_full, data_scl, 
                    data_offs, data_wts, subint, 
                    data_byte_width, scal_offs_width, nchans, initial_offset);
-    reduceData(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
-               nsblk, nchans, npol);
+    /* reduceData(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
+               nsblk, nchans, npol); */
+    reduceDataTransposed(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
+               nsblk, nchans, npol, naxis2);
   }
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -386,14 +411,16 @@ template <typename PlanType> int run(int argc, char **argv) {
      dimension, time the slowest. There must be no padding between
      consecutive frequency channels.
    */
-  input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
 
-  #ifdef READFROMFILE
+  // input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
+  input = (dedisp_byte*) rawdata;
+
+/*#ifdef READFROMFILE
   printf("Quantizing array\n");
   start_time = std::chrono::high_resolution_clock::now();
   dedisp_float slope = 255.0f/(maxval_data-minval_data);
   dedisp_float intercept = -slope * minval_data;
-  /* Now fill array by quantizing rawdata */
+  // Now fill array by quantizing rawdata 
   for (ns = 0; ns < nsamps; ns++) {
     #pragma unroll
     for (nc = 0; nc < nchans; nc++) {
@@ -432,7 +459,7 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   fwrite(input, sizeof(unsigned char), (size_t)nsblk * naxis2 * nchans, fptr_out_byte);
   fclose(fptr_out_byte);
-#endif
+#endif */
 
 #ifndef READFROMFILE
   // Reading directly from input.bin
@@ -535,7 +562,7 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   // Clean up
   free(output);
-  free(input);
+  //free(input);
   #ifdef READFROMFILE
   free(rawdata_full);
   free(data_scl);

@@ -125,6 +125,10 @@ namespace cu {
                 void *dstPtr, size_t dstWidth,
                 const void *srcPtr, size_t srcWidth,
                 size_t widthBytes, size_t height);
+            void memcpyDtoD2DAsync(
+                void *dstPtr, size_t dstWidth,
+                const void *srcPtr, size_t srcWidth,
+                size_t widthBytes, size_t height);
             void synchronize();
             void waitEvent(Event &event);
             void record(Event &event);

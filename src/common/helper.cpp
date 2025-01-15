@@ -10,6 +10,7 @@
 namespace dedisp
 {
 
+// Assumes same height of the source and destination memory layout in 2D
 void memcpy2D(
     void *dstPtr, size_t dstWidth,
     const void *srcPtr, size_t srcWidth,
@@ -25,6 +26,29 @@ void memcpy2D(
     for (size_t y = 0; y < height; y++)
     {
         for (size_t x = 0; x < widthBytes; x++)
+        {
+            (*dst)[y][x] = (*src)[y][x];
+        }
+    }
+}
+
+// Assumes same width of the source and destination memory layout in 2D./
+// Also assumes float type
+void memcpy2D_width(
+    void *dstPtr, size_t dstHeight,
+    const void *srcPtr, size_t srcHeight,
+    size_t heightBytes, size_t width)
+{
+    typedef float SrcType[srcHeight][width];
+    typedef float DstType[dstHeight][width];
+
+    auto src = (SrcType *) srcPtr;
+    auto dst = (DstType *) dstPtr;
+
+    #pragma omp parallel for
+    for (size_t y = 0; y < heightBytes; y++)
+    {
+        for (size_t x = 0; x < width; x++)
         {
             (*dst)[y][x] = (*src)[y][x];
         }

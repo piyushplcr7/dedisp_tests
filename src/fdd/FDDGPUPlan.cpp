@@ -64,13 +64,16 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
   };
 
+  float* float_in = (float*) in;
+
   aa_gpu_timer C2Rtimer;
   double c2rtime = 0;
 
   aa_gpu_timer R2Ctimer;
   double r2ctime = 0;
 
-  assert(in_nbits == 8);
+  // Original code. Commented out to allow working directly with floats
+  //assert(in_nbits == 8);
   assert(out_nbits == 32);
 
   // Parameters
@@ -130,7 +133,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Compute derived counts
   dedisp_size out_bytes_per_sample =
       out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
-  dedisp_size chans_per_word = sizeof(dedisp_word) * BITS_PER_BYTE / in_nbits;
+  
+  //dedisp_size chans_per_word = sizeof(dedisp_word) * BITS_PER_BYTE / in_nbits;
+  dedisp_size chans_per_word = 1;
 
   // The number of channel words in the input
   dedisp_size nchan_words = nchan / chans_per_word;
@@ -236,12 +241,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   };
 
   // Debug
-#ifdef DEDISP_DEBUG
+//#ifdef DEDISP_DEBUG
   std::cout << debug_str << std::endl;
   std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
             << " DMs" << std::endl;
-  std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
-            << " channels" << std::endl;
+  /* std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
+            << " channels" << std::endl; */
   std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3)
             << " Gb" << std::endl;
   std::cout << "Device memory free     = " << d_memory_free / std::pow(1024, 3)
@@ -252,7 +257,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
   std::cout << "Host memory free     = "
             << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-#endif
+//#endif
 
   // Allocate memory
 #ifdef DEDISP_DEBUG
@@ -446,30 +451,51 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
 #endif
       // Channel input size
-      dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
-      dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
+      //dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
+      //dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
+
+      // Commented out dst_stride was correct for data layout where nchan_words_gulp was the width
+      // of the 2D array. Now we make nsamp as the width. These width represents how many floats 
+      // wide the source and destinations are
+      dedisp_size dst_stride = nsamp;
+      dedisp_size src_stride = nsamp;
 
       // Copy the input data for the first job
       if (channel_job_id == 0) {
-        dedisp_size gulp_chan_byte_idx =
-            (channel_job.ichan_start / chans_per_word) * sizeof(dedisp_word);
-        memcpy2D(channel_job.h_in_ptr,    // dst
+        /* dedisp_size gulp_chan_byte_idx =
+            (channel_job.ichan_start / chans_per_word) * sizeof(dedisp_word); */
+        
+        // Starting position changes because data layout is transposed now
+        dedisp_size gulp_chan_byte_idx = channel_job.ichan_start * nsamp;
+
+        /* memcpy2D(channel_job.h_in_ptr,    // dst
                  dst_stride,              // dst width
                  in + gulp_chan_byte_idx, // src
                  src_stride,              // src width
-                 dst_stride,              // width bytes
-                 nsamp);                  // height
+                 dst_stride,              // width bytes (represents how many columns actually copied?)
+                 nsamp);                  // height */
+
+        memcpy2D_width(channel_job.h_in_ptr,    // dst
+                 nchan_words_gulp,              // dst height
+                 float_in + gulp_chan_byte_idx, // src
+                 nchan,              // src height
+                 nchan_words_gulp,              // height bytes (represents how many rows copied)
+                 nsamp);                  // width
+
         htodstream->record(channel_job.inputStart);
         htodstream->memcpyHtoDAsync(channel_job.d_in_ptr, // dst
                                     channel_job.h_in_ptr, // src
-                                    nsamp * dst_stride);  // size
+                                    nsamp * nchan_words_gulp * sizeof(dedisp_float));  // size
         htodstream->record(channel_job.inputEnd);
       }
       executestream->waitEvent(channel_job.inputEnd);
 
+      // The data layout is already transposed and in floats, no need to call the 
+      // transpose and unpack kernel
+
       // Transpose and upack the data
       executestream->record(channel_job.preprocessingStart);
-      transpose_unpack((dedisp_word *)channel_job.d_in_ptr, // d_in
+      /* transpose_unpack((dedisp_word *)channel_job.d_in_ptr, // d_in
                        nchan_words_gulp,                    // input width
                        nsamp,                               // input height
                        nchan_words_gulp,                    // in_stride
@@ -477,7 +503,17 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        d_data_x_nu,                         // d_out
                        in_nbits, 32,    // in_nbits, out_nbits
                        1.0 / nchan,     // scale
-                       *executestream); // stream
+                       *executestream); // stream */
+
+      // Populating the d_data_x_nu memory. This was being done by the transpose unpack kernel
+      // which is not called anymore
+      executestream->memcpyDtoD2DAsync(d_data_x_nu.data(), // destination pointer
+                                       nsamp_padded * sizeof(float), // destination pitch in bytes
+                                       channel_job.d_in_ptr,  // source pointer
+                                       nsamp * sizeof(float), // source pitch in bytes
+                                       nsamp * sizeof(float), // byte width of 2d mem copied
+                                       nchan_words_gulp       // height of 2d mem copied
+                                       );
 
       // Apply zero padding
       auto dst_ptr = ((float *)d_data_x_nu.data()) + nsamp;
@@ -559,19 +595,30 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       unsigned channel_job_id_next = channel_job_id + 1;
       if (channel_job_id_next < channel_jobs.size()) {
         auto &channel_job_next = channel_jobs[channel_job_id_next];
-        dedisp_size gulp_chan_byte_idx =
+        /* dedisp_size gulp_chan_byte_idx =
             (channel_job_next.ichan_start / chans_per_word) *
-            sizeof(dedisp_word);
-        memcpy2D(channel_job_next.h_in_ptr, // dst
+            sizeof(dedisp_word); */
+        // Starting position changes because data layout is transposed now
+        dedisp_size gulp_chan_byte_idx = channel_job_next.ichan_start * nsamp;
+
+        /* memcpy2D(channel_job_next.h_in_ptr, // dst
                  dst_stride,                // dst width
                  in + gulp_chan_byte_idx,   // src
                  src_stride,                // src width
                  dst_stride,                // width bytes
-                 nsamp);                    // height
+                 nsamp);                    // height */
+
+        memcpy2D_width(channel_job_next.h_in_ptr,    // dst
+                 nchan_words_gulp,              // dst height
+                 float_in + gulp_chan_byte_idx, // src
+                 nchan,              // src height
+                 nchan_words_gulp,              // height bytes (represents how many rows copied)
+                 nsamp);                  // width
+
         htodstream->record(channel_job_next.inputStart);
         htodstream->memcpyHtoDAsync(channel_job_next.d_in_ptr, // dst
                                     channel_job_next.h_in_ptr, // src
-                                    nsamp * dst_stride);       // size
+                                    nsamp * nchan_words_gulp * sizeof(dedisp_float));       // size
         htodstream->record(channel_job_next.inputEnd);
       }
 
