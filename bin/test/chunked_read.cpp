@@ -97,11 +97,11 @@ void reduceBinaryTable(unsigned char *full_binary_table, float *data, int poln,
 
       size_t nsblk_nchans_subint = nsblk * nchans * subint;
 
-      /* for (int chan = 0; chan < nchans; ++chan) {
+      for (int chan = 0; chan < nchans; ++chan) {
         // Byte swapping for 3 floats directly. Done once for a subint!
         swap_endian_3floats(data_scl[nchans_poln + chan],
                             data_offs[nchans_poln + chan], data_wts[chan]);
-      } */
+      }
 
       for (size_t spectra = 0; spectra < nsblk; ++spectra) {
         // size_t nchans_spectra = nchans * spectra;
@@ -118,18 +118,18 @@ void reduceBinaryTable(unsigned char *full_binary_table, float *data, int poln,
               *data_wts[chan]; */
 
           // No byteswapping
-          /* data[nsblk_nchans_subint_nchans_spectra + chan] =
+          data[nsblk_nchans_subint_nchans_spectra + chan] =
               ((float)rawdata[nchans_npol_spectra_nchans_poln + chan] *
                    data_scl[nchans_poln + chan] +
                data_offs[nchans_poln + chan]) *
-              data_wts[chan]; */
+              data_wts[chan];
 
           // float swap_endian_float(float)
-          data[nsblk_nchans_subint_nchans_spectra + chan] =
+          /* data[nsblk_nchans_subint_nchans_spectra + chan] =
               ((float)rawdata[nchans_npol_spectra_nchans_poln + chan] *
                    swap_endian_float(data_scl[nchans_poln + chan]) +
                swap_endian_float(data_offs[nchans_poln + chan])) *
-              swap_endian_float(data_wts[chan]);
+              swap_endian_float(data_wts[chan]); */
 
           /* data[nsblk_nchans_subint + nchans_spectra + chan] =
             ((float)rawdata[nchans_npol_spectra + nchans_poln+chan]*
@@ -334,7 +334,7 @@ int main(int argc, char **argv) {
   free(table_full);
   free(rawdata);
 
-  std::cout << "##############################" << std::endl;
+  /* std::cout << "##############################" << std::endl;
   std::cout << "Using mmap" << std::endl;
 
   int fd1 = open(filename, O_RDONLY);
@@ -371,7 +371,7 @@ int main(int argc, char **argv) {
                     .count();
 
   std::cout << "MMAP+reduction finished, time: " << (double)duration_us / 1e6
-            << std::endl;
+            << std::endl; */
   /* std::cout << "Comparing two tables" << std::endl;
   size_t reducedDataSize = (size_t)nsblk * naxis2 * nchans;
   for (size_t i = 0; i < reducedDataSize; ++i) {
@@ -380,7 +380,7 @@ int main(int argc, char **argv) {
     }
   }
   std::cout << "Perfect Match!!" << std::endl; */
-  free(rawdata1);
+  //free(rawdata1);
 
   return 0;
 }
