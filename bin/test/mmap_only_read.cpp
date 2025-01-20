@@ -279,64 +279,12 @@ int main(int argc, char **argv) {
   size_t initial_offset =
       (size_t)naxis1 - 4 * nchans - 2 * 4 * scal_offs_width - data_byte_width;
 
-  // Longest chunksize 2147479552 (linux read documentation)
-  long chunksize = 2147479552;
-
-  int fd = open(filename, O_RDONLY | O_DIRECT);
-  int fd_nodirect = open(filename, O_RDONLY);
-
-  if (fd == -1) {
-    perror("open");
-    return -1;
-  }
-
-  unsigned char *table_full;
-  if (posix_memalign((void **)&table_full, 4096, file_size_aligned) != 0) {
-    perror("posix_memalign");
-    close(fd);
-    return -1;
-  }
-
-  auto start_time = std::chrono::high_resolution_clock::now();
-
-  long chunks =
-      getDataFromRows(fd, table_full, chunksize, file_size, fd_nodirect);
-
-  auto end_time = std::chrono::high_resolution_clock::now();
-  auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                         end_time - start_time)
-                         .count();
-  // long megabytes_read = (double) (chunks * chunksize )/1e6;
-  long megabytes_read = (double)(file_size) / 1e6;
-  std::cout << "read " << chunks << " chunks with chunksize = " << chunksize
-            << ", time: " << (double)duration_us / 1e6 << " seconds"
-            << ", Read speed (MB/s): "
-            << megabytes_read / (double)duration_us * 1e6 << std::endl;
-
-  close(fd);
-
-  float *rawdata;
-  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans, sizeof(float));
   int poln = 0;
-
-  start_time = std::chrono::high_resolution_clock::now();
-  reduceBinaryTable(table_full, rawdata, poln, naxis1, naxis2, nsblk, nchans,
-                    npol, offset_for_data, initial_offset, scal_offs_width);
-
-  end_time = std::chrono::high_resolution_clock::now();
-  duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                    end_time - start_time)
-                    .count();
-
-  std::cout << "reduction finished, time: " << (double)duration_us / 1e6
-            << std::endl;
-
-  free(table_full);
-  free(rawdata);
 
   std::cout << "##############################" << std::endl;
   std::cout << "Using mmap" << std::endl;
 
+  auto start_time = std::chrono::high_resolution_clock::now();
   int fd1 = open(filename, O_RDONLY);
   if (fd1 == -1) {
     perror("Error opening file");
@@ -362,13 +310,12 @@ int main(int argc, char **argv) {
   rawdata1 = (float *)calloc((size_t)nsblk * naxis2 * nchans, sizeof(float));
   unsigned char *table_full1 = (unsigned char *)mapped;
 
-  start_time = std::chrono::high_resolution_clock::now();
   reduceBinaryTable(table_full1, rawdata1, poln, naxis1, naxis2, nsblk, nchans,
                     npol, offset_for_data, initial_offset, scal_offs_width);
-  end_time = std::chrono::high_resolution_clock::now();
-  duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                    end_time - start_time)
-                    .count();
+  auto end_time = std::chrono::high_resolution_clock::now();
+  auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         end_time - start_time)
+                         .count();
 
   std::cout << "MMAP+reduction finished, time: " << (double)duration_us / 1e6
             << std::endl;

@@ -84,6 +84,16 @@ target_include_directories(chunked_read PRIVATE
 
 target_link_libraries(chunked_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
 
+add_executable(mmap_only_read
+    mmap_only_read.cpp
+)
+
+target_include_directories(mmap_only_read PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(mmap_only_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
+
 
 ################################################################################
 # test for tdd library

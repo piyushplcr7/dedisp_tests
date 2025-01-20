@@ -67,7 +67,7 @@ set(CMAKE_CUDA_ARCHITECTURES "70;80;89;90")
 ################################################################################
 # OpenMP configuration
 ################################################################################
-find_package(OpenMP)
+find_package(OpenMP REQUIRED)
 
 if(OPENMP_FOUND)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
