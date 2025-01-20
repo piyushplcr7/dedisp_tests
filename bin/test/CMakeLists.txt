@@ -82,7 +82,7 @@ target_include_directories(chunked_read PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(chunked_read fdd_gpu_clig dedisp)
+target_link_libraries(chunked_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
 
 
 ################################################################################
