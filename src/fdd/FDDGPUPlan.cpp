@@ -618,6 +618,18 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                  nchan_words_gulp,              // height bytes (represents how many rows copied)
                  nsamp);                  // width
 
+        if (channel_job_id_next == 3) {
+          float* tempptr = (float*) channel_job_next.h_in_ptr;
+          int firstrow = 0;
+          int firstcol = 0;
+          for (int row = firstrow ; row < 5+firstrow ; ++row) {
+            for (int col = firstcol ; col < 5+firstcol ; ++col) {
+              std::cout << tempptr[row * nsamp + col] << ", " ;
+            }
+            std::cout << std::endl;
+          }
+        }
+
         htodstream->record(channel_job_next.inputStart);
         htodstream->memcpyHtoDAsync(channel_job_next.d_in_ptr, // dst
                                     channel_job_next.h_in_ptr, // src
