@@ -509,6 +509,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        1.0 / nchan,     // scale
                        *executestream); // stream */
       if (channel_job_id == 3) {
+        std::cout << "noquant output" << std::endl;
           float* tempptr = (float*) channel_job.h_in_ptr;
           float* float_in_ptr = float_in + channel_job.ichan_start * nsamp;
           int firstrow = 1000;
