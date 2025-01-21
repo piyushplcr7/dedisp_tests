@@ -393,10 +393,10 @@ template <typename PlanType> int run(int argc, char **argv) {
     getDataFromRow(fptr, rawdata_full, data_scl, 
                    data_offs, data_wts, subint, 
                    data_byte_width, scal_offs_width, nchans, initial_offset);
-    /* reduceData(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
-               nsblk, nchans, npol); */
-    reduceDataTransposed(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
-               nsblk, nchans, npol, naxis2);
+    reduceData(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
+               nsblk, nchans, npol);
+    /* reduceDataTransposed(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
+               nsblk, nchans, npol, naxis2); */
   }
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(

@@ -7,9 +7,13 @@
 
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
+#include <fftw3.h>
 
 namespace dedisp
 {
+
+
+fftwf_plan plan_transpose(int rows, int cols, float *in, float *out);
 
 class FDDGPUPlan : public GPUPlan {
 
