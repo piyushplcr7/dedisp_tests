@@ -5,6 +5,7 @@
   (Dedisp PlanType) of dedispersion. (2020 ASTRON)
 */
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,13 +15,49 @@
 
 #include <chrono>
 #include <ctime>
+#include <fcntl.h>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <random>
+#include <byteswap.h>
+
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 #include "fdd_gpu.h"
 #include "fitsio.h"
+#include <byteswap.h>
+#include <cstring>
+
+#include <Plan.hpp>
+#include <cuda_runtime.h>
+
+#include "fdd/helper.h"
+
+#include <limits.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include <chrono>
+#include <ctime>
+#include <fcntl.h>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <random>
+#include <unistd.h>
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+
+#include "fdd_gpu.h"
+#include "fitsio.h"
+#include <byteswap.h>
+#include <cstring>
 
 #include <Plan.hpp>
 #include <cuda_runtime.h>
@@ -118,109 +155,145 @@ void reduceDataTransposed(float *reduceddata, unsigned char *rawdata, float *dat
   }
 }
 
-// Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
-dedisp_byte bytequant_optimized(dedisp_float f, dedisp_float m,
-                      dedisp_float nplus127pt5) {
-  // initial range: [minval , maxval] <-> [a, b]
-  // final range [-127.5 , 127.5] <-> [c, d]
-  // Bring the float value to the right range
-  dedisp_byte r = (dedisp_byte)roundf(m * f + nplus127pt5);
-  return r;
+inline void swap_endian_3floats(float &f1, float &f2, float &f3) {
+  uint32_t *p1 = reinterpret_cast<uint32_t *>(&f1);
+  uint32_t *p2 = reinterpret_cast<uint32_t *>(&f2);
+  uint32_t *p3 = reinterpret_cast<uint32_t *>(&f3);
+
+  *p1 = bswap_32(*p1);
+  *p2 = bswap_32(*p2);
+  *p3 = bswap_32(*p3);
 }
 
-// Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
-dedisp_byte bytequant(dedisp_float f, dedisp_float minval,
-                      dedisp_float maxval) {
-  // initial range: [minval , maxval] <-> [a, b]
-  // final range [-127.5 , 127.5] <-> [c, d]
-  dedisp_float m = 255.0f / (maxval - minval);
-  dedisp_float n = -127.5f * (maxval + minval) / (maxval - minval);
-  // Bring the float value to the right range
-  dedisp_float v = m * f + n + 127.5f;
-  dedisp_byte r = (dedisp_byte)roundf(v);
-  return r;
+void reduceBinaryTable(unsigned char *full_binary_table, float *data, int poln,
+                       int naxis1, int naxis2, int nsblk, int nchans, int npol,
+                       size_t data_offset_from_start, size_t data_cols_offset,
+                       size_t scal_offs_width) {
+  // Skipping the header
+  unsigned char *bin_table_start = full_binary_table + data_offset_from_start;
+  size_t nchans_poln = nchans * poln;
+
+// Going over all the rows (subints) of the binary table
+#pragma omp parallel
+  {
+    int num_threads = omp_get_num_threads();
+    // std::cout << "omp_num_threads = " << num_threads << std::endl;
+    int thread_id = omp_get_thread_num();
+
+#pragma omp for
+    for (size_t subint = 0; subint < naxis2; ++subint) {
+
+      // Position for data_wts for a subint
+      float *data_wts =
+          (float *)(bin_table_start + subint * naxis1 + data_cols_offset);
+      // data wts has nchans floats, after which data_offs starts
+      float *data_offs = data_wts + nchans;
+      // data_offs has scal_offs_width floats, after which data_scl starts
+      float *data_scl = data_offs + scal_offs_width;
+      // data_scl has scal_offs_width floats, after which rawdata starts
+      unsigned char *rawdata = (unsigned char *)(data_scl + scal_offs_width);
+
+      size_t nsblk_nchans_subint = nsblk * nchans * subint;
+
+      for (int chan = 0; chan < nchans; ++chan) {
+        // Byte swapping for 3 floats directly. Done once for a subint!
+        swap_endian_3floats(data_scl[nchans_poln + chan],
+                            data_offs[nchans_poln + chan], data_wts[chan]);
+      }
+
+      for (size_t spectra = 0; spectra < nsblk; ++spectra) {
+        // size_t nchans_spectra = nchans * spectra;
+        size_t nsblk_nchans_subint_nchans_spectra =
+            nsblk_nchans_subint + nchans * spectra;
+        // size_t nchans_npol_spectra = nchans * npol * spectra;
+        size_t nchans_npol_spectra_nchans_poln =
+            nchans * npol * spectra + nchans_poln;
+        for (size_t chan = 0; chan < nchans; ++chan) {
+          /* data[nsblk * nchans * subint + nchans * spectra + chan] =
+            ((float)rawdata[nchans*npol*spectra + nchans*poln+chan]*
+              data_scl[nchans*poln+chan]
+              +data_offs[nchans*poln+chan])
+              *data_wts[chan]; */
+
+          // No byteswapping
+          data[nsblk_nchans_subint_nchans_spectra + chan] =
+              ((float)rawdata[nchans_npol_spectra_nchans_poln + chan] *
+                   data_scl[nchans_poln + chan] +
+               data_offs[nchans_poln + chan]) *
+              data_wts[chan];
+
+          // float swap_endian_float(float)
+          /* data[nsblk_nchans_subint_nchans_spectra + chan] =
+              ((float)rawdata[nchans_npol_spectra_nchans_poln + chan] *
+                   swap_endian_float(data_scl[nchans_poln + chan]) +
+               swap_endian_float(data_offs[nchans_poln + chan])) *
+              swap_endian_float(data_wts[chan]); */
+
+          /* data[nsblk_nchans_subint + nchans_spectra + chan] =
+            ((float)rawdata[nchans_npol_spectra + nchans_poln+chan]*
+              data_scl[nchans_poln+chan]
+              +data_offs[nchans_poln+chan])
+              *data_wts[chan]; */
+        }
+      }
+    }
+  }
 }
 
-// Assume input is a 0 mean float and quantize to an unsigned 8-bit quantity
-dedisp_byte bytequant_old(dedisp_float f) {
-  dedisp_float v = f + 127.5f;
-  dedisp_byte r;
-  if (v > 255.0) {
-    r = (dedisp_byte)255;
-  } else if (v < 0.0f) {
-    r = (dedisp_byte)0;
-  } else {
-    r = (dedisp_byte)roundf(v);
+long getDataFromRows(int fd, unsigned char *table_data, long chunksize,
+                     long bytes_to_read, int fd_nodirect) {
+  unsigned char *curr_pos;
+  long chunk = 0;
+  for (; chunk < bytes_to_read / chunksize; ++chunk) {
+    curr_pos = table_data + chunksize * chunk;
+    ssize_t bytes_read = read(fd, curr_pos, chunksize);
+    if (bytes_read == -1) {
+      perror("read");
+      close(fd);
+      exit(-1);
+    }
+
+    if (bytes_read == 0) {
+      std::cerr << "Reached end of file prematurely" << std::endl;
+      break;
+    }
+
+    if (bytes_read != chunksize) {
+      std::cout << "read less than the chunksize: " << bytes_read << std::endl;
+      // break;
+    }
   }
-  // printf("ROUND %f, %u\n",f,r);
-  return r;
-}
 
-// Compute mean and standard deviation of an unsigned 8-bit array
-void calc_stats_8bit(dedisp_byte *a, dedisp_size n, dedisp_float *mean,
-                     dedisp_float *sigma) {
-  // Use doubles to prevent rounding error
-  double sum = 0.0, sum2 = 0.0;
-  double mtmp = 0.0, vartmp;
-  double v;
-  dedisp_size i;
+  // Read last part of data using the alternative file descriptor if needed
+  if (chunksize * chunk < bytes_to_read) {
+    curr_pos = table_data + chunksize * chunk;
+    ssize_t bytes_read =
+        pread(fd_nodirect, curr_pos, bytes_to_read - chunksize * chunk,
+              chunksize * chunk);
 
-  // Use corrected 2-pass algorithm from Numerical Recipes
-  sum = 0.0;
-  for (i = 0; i < n; i++) {
-    v = (double)a[i];
-    sum += v;
+    if (bytes_read == -1) {
+      perror("pread");
+      close(fd);
+      close(fd_nodirect);
+      exit(-1);
+    }
+
+    if (bytes_read == 0) {
+      std::cerr << "Reached end of file prematurely while reading last part"
+                << std::endl;
+    }
   }
-  mtmp = sum / n;
-
-  sum = 0.0;
-  sum2 = 0.0;
-  for (i = 0; i < n; i++) {
-    v = (double)a[i];
-    sum2 += (v - mtmp) * (v - mtmp);
-    sum += v - mtmp;
-  }
-  vartmp = (sum2 - (sum * sum) / n) / (n - 1);
-  *mean = mtmp;
-  *sigma = sqrt(vartmp);
-
-  return;
-}
-
-// Compute mean and standard deviation of a float array
-void calc_stats_float(dedisp_float *a, dedisp_size n, dedisp_float *mean,
-                      dedisp_float *sigma) {
-  // Use doubles to prevent rounding error
-  double sum = 0.0, sum2 = 0.0;
-  double mtmp = 0.0, vartmp;
-  double v;
-  dedisp_size i;
-
-  // Use corrected 2-pass algorithm from Numerical Recipes
-  sum = 0.0;
-  for (i = 0; i < n; i++) {
-    sum += a[i];
-  }
-  mtmp = sum / n;
-
-  sum = 0.0;
-  sum2 = 0.0;
-  for (i = 0; i < n; i++) {
-    v = a[i];
-    sum2 += (v - mtmp) * (v - mtmp);
-    sum += v - mtmp;
-  }
-  vartmp = (sum2 - (sum * sum) / n) / (n - 1);
-  *mean = mtmp;
-  *sigma = sqrt(vartmp);
-
-  return;
+  return chunk;
 }
 
 #define READFROMFILE
 #define WRITEFILES
 
 template <typename PlanType> int run(int argc, char **argv) {
+  /////////////////////////////////////////////////////////////
+  /////////// Parsing the command line arguments //////////////
+  /////////////////////////////////////////////////////////////
+
   Cmdline *cmd = parseCmdline(argc, argv);
   showOptionValues();
 
@@ -233,7 +306,10 @@ template <typename PlanType> int run(int argc, char **argv) {
     }
   }
 
-  // Extracting relevant parameters from the fits file
+  ////////////////////////////////////////////////////////////
+  //// Extracting relevant parameters from the fits file /////
+  ////////////////////////////////////////////////////////////
+
   fitsfile *ffptr;
   int status = 0;
   fits_open_file(&ffptr, filename, READONLY, &status);
@@ -301,6 +377,10 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   fits_close_file(ffptr, &status);
 
+  ///////////////////////////////////////////////////////////////////
+  //////////////// Initializing more parameters /////////////////////
+  ///////////////////////////////////////////////////////////////////
+
   dedisp_float dm_start = cmd->lodm;    // pc cm^-3
   dedisp_float dm_end = cmd->hidm;     // pc cm^-3
   dedisp_float pulse_width = cmd->pwidth; // ms
@@ -341,11 +421,13 @@ template <typename PlanType> int run(int argc, char **argv) {
   dedisp_byte *input = 0;
   dedisp_float *output = 0;
 
-  unsigned int i, nc, ns, nd;
   const dedisp_float *dmlist;
 
   clock_t startclock;
-  #ifdef READFROMFILE
+
+  /////////////////////////////////////////////////////////////
+  //////////////// Finding byte size of HDUs //////////////////
+  /////////////////////////////////////////////////////////////
 
   FILE *fptr;
 
@@ -354,62 +436,94 @@ template <typename PlanType> int run(int argc, char **argv) {
     exit(1);
   }
 
+  int i = 0;
+
   char smallbuffer[80];
-
-  double zero_off = 0;
-
-  for (int i = 0; i < 1000; ++i) {
+  for (; i < 1000; ++i) {
     if (num_hdus == 0) {
       break;
     }
     for (int j = 0; j < 36; ++j) {
       fread(smallbuffer, 1, 80, fptr);
-      // Find END 
-      char* tempptr = strstr(smallbuffer, "END     ");
+      // Find END
+      char *tempptr = strstr(smallbuffer, "END     ");
       if (tempptr != NULL) {
         num_hdus--;
       }
     }
   }
+  fclose(fptr);
 
-  // size of data in 1 row (8 bit data)
-  unsigned char *rawdata_full =
-      (unsigned char *)calloc(data_byte_width, sizeof(unsigned char));
-  float *data_scl = (float *)calloc(scal_offs_width, sizeof(float));
-  float *data_offs = (float *)calloc(scal_offs_width, sizeof(float));
-  float *data_wts = (float *)calloc(nchans, sizeof(float));
+  ////////////////////////////////////////////////////////////
+  ///////////// Finding important sizes and offsets //////////
+  ////////////////////////////////////////////////////////////
 
-  int poln_to_use = 0;
+  size_t offset_for_data = i * 2880;
+  size_t data_size = (size_t)naxis1 * naxis2;
+  size_t file_size = offset_for_data + data_size;
+  size_t file_size_aligned = ((file_size + 4095) / 4096) * 4096;
+  size_t initial_offset =
+      (size_t)naxis1 - 4 * nchans - 2 * 4 * scal_offs_width - data_byte_width;
 
-  dedisp_float *rawdata;
-  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans, sizeof(float));
+  ////////////////////////////////////////////////////////////
+  ///////////// Reading the whole file ///////////////////////
+  ////////////////////////////////////////////////////////////
 
-  // Initial offset 
-  size_t initial_offset = (size_t)naxis1 - 4*nchans - 2 * 4 * scal_offs_width - data_byte_width;
-  printf("initial offset = %ld\n", initial_offset);
+  // Longest chunksize 2147479552 for direct read (linux read documentation)
+  long chunksize = 2147479552;
 
-  auto start_time = std::chrono::high_resolution_clock::now();
-  for (int subint = 0; subint < naxis2; ++subint) {
-    getDataFromRow(fptr, rawdata_full, data_scl, 
-                   data_offs, data_wts, subint, 
-                   data_byte_width, scal_offs_width, nchans, initial_offset);
-    reduceData(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
-               nsblk, nchans, npol);
-    /* reduceDataTransposed(rawdata, rawdata_full, data_scl, data_offs, data_wts, 0, subint,
-               nsblk, nchans, npol, naxis2); */
+  // Opening file DIRECT and no DIRECT
+  int fd = open(filename, O_RDONLY | O_DIRECT);
+  int fd_nodirect = open(filename, O_RDONLY);
+
+  if (fd == -1) {
+    perror("open");
+    return -1;
   }
+
+  // Creating buffer to hold all file contents
+  unsigned char *table_full;
+  if (posix_memalign((void **)&table_full, 4096, file_size_aligned) != 0) {
+    perror("posix_memalign");
+    close(fd);
+    return -1;
+  }
+
+  // Reading the whole file and timing the read
+  auto start_time = std::chrono::high_resolution_clock::now();
+  long chunks =
+      getDataFromRows(fd, table_full, chunksize, file_size, fd_nodirect);
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
                          end_time - start_time)
                          .count();
-  std::cout << "Reading all the subints took " << (double)duration_us / 1e6
-            << " seconds" << std::endl;
-  std::cout << "Minimum value: " << minval_data
-            << ", maximum value: " << maxval_data << std::endl; 
 
-  fclose(fptr);
+  long megabytes_read = (double)(file_size) / 1e6;
+  std::cout << "read " << chunks << " chunks with chunksize = " << chunksize
+            << ", time: " << (double)duration_us / 1e6 << " seconds"
+            << ", Read speed (MB/s): "
+            << megabytes_read / (double)duration_us * 1e6 << std::endl;
 
-  #endif
+  close(fd);
+  close(fd_nodirect);
+
+  float *rawdata;
+  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans, sizeof(float));
+  int poln = 0;
+
+  start_time = std::chrono::high_resolution_clock::now();
+  reduceBinaryTable(table_full, rawdata, poln, naxis1, naxis2, nsblk, nchans,
+                    npol, offset_for_data, initial_offset, scal_offs_width);
+
+  end_time = std::chrono::high_resolution_clock::now();
+  duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                    end_time - start_time)
+                    .count();
+
+  std::cout << "reduction finished, time: " << (double)duration_us / 1e6
+            << std::endl;
+
+  free(table_full);
   
   /*
      input is a pointer to an array containing a time series of length
@@ -479,15 +593,15 @@ template <typename PlanType> int run(int argc, char **argv) {
   }
 
   printf("Compute on GPU\n");
-  startclock = clock();
+  //startclock = clock();
   aa_gpu_timer timer;
   timer.Start();
   // Compute the dedispersion transform on the GPU
   plan.execute(nsamps, input, in_nbits, (dedisp_byte *)output, out_nbits);
   timer.Stop();
   printf("plan.execute() took %.2f seconds\n", timer.Elapsed());
-  printf("Dedispersion took %.2f seconds\n",
-         (double)(clock() - startclock) / CLOCKS_PER_SEC);
+  /* printf("Dedispersion took %.2f seconds\n",
+         (double)(clock() - startclock) / CLOCKS_PER_SEC); */
 
 #if WRITE_INPUT_DATA
   FILE *file_in = fopen("input.bin", "wb");
@@ -517,10 +631,6 @@ template <typename PlanType> int run(int argc, char **argv) {
   free(output);
   //free(input);
   #ifdef READFROMFILE
-  free(rawdata_full);
-  free(data_scl);
-  free(data_offs);
-  free(data_wts);
   free(rawdata);
   #endif
   printf("Dedispersion successful.\n");
