@@ -482,7 +482,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // Transpose and upack the data
       executestream->record(channel_job.preprocessingStart);
 
-      transpose_unpack((dedisp_word *)channel_job.d_in_ptr, // d_in
+      transpose_unpack((float *)channel_job.d_in_ptr, // d_in
                        nchan_words_gulp,                    // input width
                        nsamp,                               // input height
                        nchan_words_gulp,                    // in_stride
@@ -1089,7 +1089,7 @@ void FDDGPUPlan::execute_gpu_segmented(size_type nsamps, const byte_type *in,
 
       // Transpose and upack the data
       executestream->record(channel_job.preprocessingStart);
-      transpose_unpack((dedisp_word *)channel_job.d_in_ptr, // d_in
+      transpose_unpack((float *)channel_job.d_in_ptr, // d_in
                        nchan_words_gulp,                    // input width
                        nsamp,                               // input height
                        nchan_words_gulp,                    // in_stride

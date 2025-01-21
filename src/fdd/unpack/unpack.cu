@@ -19,10 +19,10 @@ inline U round_down_pow2(const U& a) {
 }
 
 void transpose_unpack(
-    const dedisp_word* d_in,
+    const float* d_in,
     size_t width, size_t height,
     size_t in_stride, size_t out_stride,
-    dedisp_word* d_out,
+    float* d_out,
     dedisp_size in_nbits, dedisp_size out_nbits,
     float scale,
     cudaStream_t stream)
@@ -66,7 +66,7 @@ void transpose_unpack(
                       round_up_pow2(block_count.y));
 
             // Run the CUDA kernel
-            transpose_unpack_kernel<dedisp_word><<<grid, block, 0, stream>>> \
+            transpose_unpack_kernel<float><<<grid, block, 0, stream>>> \
                 (d_in + in_offset,      \
                  w, h,                  \
                  in_stride, out_stride, \

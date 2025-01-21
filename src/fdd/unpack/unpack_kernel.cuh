@@ -19,7 +19,6 @@ void transpose_unpack_kernel(
     size_t in_nbits,
     float scale)
 {
-    float* float_in = (float*)in;
     // Cull excess blocks
     if (blockIdx.x >= block_count_x ||
         blockIdx.y >= block_count_y)
@@ -64,7 +63,7 @@ void transpose_unpack_kernel(
                 // Store result in shared memory
                 s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = result; */
 
-                s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = float_in[index_in];
+                s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = in[index_in];
             }
         }
 
@@ -89,8 +88,9 @@ void transpose_unpack_kernel(
                 size_t index_out   = index_out_x + index_out_y*out_stride;
 
                 // Store result in device memory
-                float *dst_ptr = (float *) &out[index_out];
-                *dst_ptr = s_temp[y][x];
+                /* float *dst_ptr = (float *) &out[index_out];
+                *dst_ptr = s_temp[y][x]; */
+                out[index_out] = s_temp[y][x];
             }
         }
     }
