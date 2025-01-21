@@ -27,27 +27,6 @@
 #include "helper.h"
 
 namespace dedisp {
-
-
-fftwf_plan plan_transpose(int rows, int cols, float *in, float *out)
-{
-// FFTW can be tricked into doing *very* fast transposes
-// (initial testing showed 6-7x faster than TOMs!)
-// http://agentzlerich.blogspot.com/2010/01/using-fftw-for-in-place-matrix.html
-// http://www.fftw.org/faq/section3.html#transpose
-    const unsigned flags = FFTW_MEASURE;        /* other flags are possible */
-    fftwf_iodim howmany_dims[2];
-    howmany_dims[0].n = rows;
-    howmany_dims[0].is = cols;
-    howmany_dims[0].os = 1;
-    howmany_dims[1].n = cols;
-    howmany_dims[1].is = 1;
-    howmany_dims[1].os = rows;
-    return fftwf_plan_guru_r2r( /*rank= */ 0, /*dims= */ NULL,
-                               /*howmany_rank= */ 2, howmany_dims,
-                               in, out, /*kind= */ NULL, flags);
-}
-
 // Constructor
 FDDGPUPlan::FDDGPUPlan(size_type nchans, float_type dt, float_type f0,
                        float_type df, int device_idx)
@@ -460,8 +439,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   std::cout << "Finished mExeGPU.start()" << std::endl;
 #endif
 
-  float* pre_transpose_buffer = (float*) malloc(nsamp * nchan_batch_max * sizeof(float));
-
   // Process all dm batches (outer dm jobs)
   for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size();
        dm_job_id_outer += ndm_buffers) {
@@ -480,36 +457,17 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
       dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
 
-      // Commented out dst_stride was correct for data layout where nchan_words_gulp was the width
-      // of the 2D array. Now we make nsamp as the width. These width represents how many floats 
-      // wide the source and destinations are
-      //dedisp_size dst_stride = nsamp;
-      //dedisp_size src_stride = nsamp;
-
       // Copy the input data for the first job
       if (channel_job_id == 0) {
         dedisp_size gulp_chan_byte_idx =
             (channel_job.ichan_start / chans_per_word) * sizeof(dedisp_word);
 
-        //memcpy2D(channel_job.h_in_ptr,    // dst
-        memcpy2D(pre_transpose_buffer,    // dst
+        memcpy2D(channel_job.h_in_ptr,    // dst
                  dst_stride,              // dst width
                  in + gulp_chan_byte_idx, // src
                  src_stride,              // src width
                  dst_stride,              // width bytes (represents how many columns actually copied?)
                  nsamp);                  // height
-
-        fftwf_plan plan_transpoze = plan_transpose(nsamp, nchan_words_gulp, pre_transpose_buffer, (float*)channel_job.h_in_ptr);
-        fftwf_execute(plan_transpoze);
-        // Starting position changes because data layout is transposed now
-        /* dedisp_size gulp_chan_byte_idx = channel_job.ichan_start * nsamp;
-
-        memcpy2D_width(channel_job.h_in_ptr,    // dst
-                 nchan_words_gulp,              // dst height
-                 float_in + gulp_chan_byte_idx, // src
-                 nchan,              // src height
-                 nchan_words_gulp,              // height (represents how many rows copied)
-                 nsamp);                  // width */
 
         htodstream->record(channel_job.inputStart);
         htodstream->memcpyHtoDAsync(channel_job.d_in_ptr, // dst
@@ -519,12 +477,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       }
       executestream->waitEvent(channel_job.inputEnd);
 
-      // The data layout is already transposed and in floats, no need to call the 
-      // transpose and unpack kernel
+      // Modified transpose_unpack kernel to just transpose floats
 
       // Transpose and upack the data
       executestream->record(channel_job.preprocessingStart);
-      /* transpose_unpack((dedisp_word *)channel_job.d_in_ptr, // d_in
+
+      transpose_unpack((dedisp_word *)channel_job.d_in_ptr, // d_in
                        nchan_words_gulp,                    // input width
                        nsamp,                               // input height
                        nchan_words_gulp,                    // in_stride
@@ -532,7 +490,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        d_data_x_nu,                         // d_out
                        in_nbits, 32,    // in_nbits, out_nbits
                        1.0 / nchan,     // scale
-                       *executestream); // stream */
+                       *executestream); // stream
+
       if (channel_job_id == 3) {
         std::cout << "noquant_fftw_transpose debug" << std::endl;
           float* tempptr = (float*) channel_job.h_in_ptr;
@@ -556,16 +515,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           }
           
       }
-
-      // Populating the d_data_x_nu memory. This was being done by the transpose unpack kernel
-      // which is not called anymore
-      executestream->memcpyDtoD2DAsync(d_data_x_nu.data(), // destination pointer
-                                       nsamp_padded * sizeof(float), // destination pitch in bytes
-                                       channel_job.d_in_ptr,  // source pointer
-                                       nsamp * sizeof(float), // source pitch in bytes
-                                       nsamp * sizeof(float), // byte width of 2d mem copied
-                                       nchan_words_gulp       // height of 2d mem copied
-                                       );
 
       // Apply zero padding
       auto dst_ptr = ((float *)d_data_x_nu.data()) + nsamp;
@@ -651,26 +600,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             (channel_job_next.ichan_start / chans_per_word) *
             sizeof(dedisp_word);
 
-        //memcpy2D(channel_job_next.h_in_ptr, // dst
-        memcpy2D(pre_transpose_buffer, // dst
+        memcpy2D(channel_job_next.h_in_ptr, // dst
                  dst_stride,                // dst width
                  in + gulp_chan_byte_idx,   // src
                  src_stride,                // src width
                  dst_stride,                // width bytes
                  nsamp);                    // height
-
-        fftwf_plan plan_transpose_next = plan_transpose(nsamp, nchan_words_gulp, pre_transpose_buffer, (float*)channel_job_next.h_in_ptr);
-        fftwf_execute(plan_transpose_next);
-
-        // Starting position changes because data layout is transposed now
-        /* dedisp_size gulp_chan_byte_idx = channel_job_next.ichan_start * nsamp;
-
-        memcpy2D_width(channel_job_next.h_in_ptr,    // dst
-                 nchan_words_gulp,              // dst height
-                 float_in + gulp_chan_byte_idx, // src
-                 nchan,              // src height
-                 nchan_words_gulp,              // height bytes (represents how many rows copied)
-                 nsamp);                  // width */
 
         htodstream->record(channel_job_next.inputStart);
         htodstream->memcpyHtoDAsync(channel_job_next.d_in_ptr, // dst

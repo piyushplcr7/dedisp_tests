@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #define TILE_DIM     32
 #define BLOCK_ROWS   8
-#define EXPANSION    4
+#define EXPANSION    1
+//#define EXPANSION    4
 
 template<typename WordType>
 __global__
@@ -18,6 +19,7 @@ void transpose_unpack_kernel(
     size_t in_nbits,
     float scale)
 {
+    float* float_in = (float*)in;
     // Cull excess blocks
     if (blockIdx.x >= block_count_x ||
         blockIdx.y >= block_count_y)
@@ -49,7 +51,7 @@ void transpose_unpack_kernel(
             for (unsigned int j = 0; j < EXPANSION; j++)
             {
                 // Load input word
-                WordType word = in[index_in];
+                /* WordType word = in[index_in];
 
                 // Extract value from word
                 WordType in_mask = (1<<in_nbits)-1;
@@ -60,7 +62,9 @@ void transpose_unpack_kernel(
                 float result = (((float) val) - 127.5f) * scale;
 
                 // Store result in shared memory
-                s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = result;
+                s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = result; */
+
+                s_temp[threadIdx.y][threadIdx.x*EXPANSION + j] = float_in[index_in];
             }
         }
 
