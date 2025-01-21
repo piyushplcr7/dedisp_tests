@@ -533,9 +533,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        in_nbits, 32,    // in_nbits, out_nbits
                        1.0 / nchan,     // scale
                        *executestream); // stream */
-      /* if (channel_job_id == 3) {
+      if (channel_job_id == 3) {
+        std::cout << "noquant_fftw_transpose debug" << std::endl;
           float* tempptr = (float*) channel_job.h_in_ptr;
-          float* float_in_ptr = float_in + channel_job.ichan_start * nsamp;
+          float* float_in_ptr = float_in + channel_job.ichan_start;
           int firstrow = 1000;
         int firstcol = 0;
         std::cout << "access via h_in_ptr" << std::endl;
@@ -547,14 +548,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           }
 
         std::cout << "access via float_in_ptr" << std::endl;
-          for (int row = firstcol ; row < 5+firstcol ; ++row) {
-            for (int col = firstrow ; col < 5+firstrow ; ++col) {
-              std::cout << float_in_ptr[row * nsamp + col] << ", " ;
+          for (int row = firstrow ; row < 5+firstrow ; ++row) {
+            for (int col = firstcol ; col < 5+firstcol ; ++col) {
+              std::cout << float_in_ptr[row * nchan + col] << ", " ;
             }
             std::cout << std::endl;
           }
           
-      } */
+      }
 
       // Populating the d_data_x_nu memory. This was being done by the transpose unpack kernel
       // which is not called anymore
