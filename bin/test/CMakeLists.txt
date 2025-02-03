@@ -79,7 +79,7 @@ add_executable(chunked_read
 )
 
 target_include_directories(chunked_read PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR}
 )
 
 target_link_libraries(chunked_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
@@ -89,7 +89,7 @@ add_executable(mmap_only_read
 )
 
 target_include_directories(mmap_only_read PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR}
 )
 
 target_link_libraries(mmap_only_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
