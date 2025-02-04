@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
  * This file contains the implementation of transpose_kernel
  */

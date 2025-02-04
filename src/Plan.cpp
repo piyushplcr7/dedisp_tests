@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
 * Generic Plan class to be used with TDD and FDD implementations
 * Generic code from the original DedisPlan class was moved here,
@@ -102,7 +103,7 @@ void Plan::set_killmask(
 
 void Plan::sync()
 {
-    cu::checkError(cudaDeviceSynchronize());
+    cu::checkError(hipDeviceSynchronize());
 }
 
 // Private helper functions

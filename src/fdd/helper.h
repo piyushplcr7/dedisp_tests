@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 // Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Helper functions for FDD specifically
@@ -5,30 +6,30 @@
 #define FDD_HELPER_H_INCLUDE_GUARD
 
 #include "common/helper.h"
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 struct aa_gpu_timer {
-  cudaEvent_t start;
-  cudaEvent_t stop;
+  hipEvent_t start;
+  hipEvent_t stop;
 
   aa_gpu_timer() {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    hipEventCreate(&start);
+    hipEventCreate(&stop);
   }
 
   ~aa_gpu_timer() {
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    hipEventDestroy(start);
+    hipEventDestroy(stop);
   }
 
-  void Start() { cudaEventRecord(start, 0); }
+  void Start() { hipEventRecord(start, 0); }
 
-  void Stop() { cudaEventRecord(stop, 0); }
+  void Stop() { hipEventRecord(stop, 0); }
 
   float Elapsed() {
     float elapsed = 0.0;
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsed, start, stop);
+    hipEventSynchronize(stop);
+    hipEventElapsedTime(&elapsed, start, stop);
     return elapsed / 1000.0f;
   }
 };

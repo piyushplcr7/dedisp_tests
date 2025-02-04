@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
   Simple test application for libdedisp
   By Paul Ray (2013)
@@ -18,7 +19,7 @@
 #include <random>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 // Debug options
 #define WRITE_INPUT_DATA 0
@@ -28,27 +29,27 @@ dedisp_float maxval_data = std::numeric_limits<float>::lowest();
 dedisp_float minval_data = std::numeric_limits<float>::max();
 
 struct aa_gpu_timer {
-  cudaEvent_t start;
-  cudaEvent_t stop;
+  hipEvent_t start;
+  hipEvent_t stop;
 
   aa_gpu_timer() {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    hipEventCreate(&start);
+    hipEventCreate(&stop);
   }
 
   ~aa_gpu_timer() {
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    hipEventDestroy(start);
+    hipEventDestroy(stop);
   }
 
-  void Start() { cudaEventRecord(start, 0); }
+  void Start() { hipEventRecord(start, 0); }
 
-  void Stop() { cudaEventRecord(stop, 0); }
+  void Stop() { hipEventRecord(stop, 0); }
 
   float Elapsed() {
     float elapsed = 0.0;
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsed, start, stop);
+    hipEventSynchronize(stop);
+    hipEventElapsedTime(&elapsed, start, stop);
     return elapsed / 1000.0f;
   }
 };

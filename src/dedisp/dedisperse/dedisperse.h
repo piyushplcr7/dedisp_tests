@@ -15,13 +15,13 @@ void copy_delay_table(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream);
+    hipStream_t stream);
 
 void copy_killmask(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream);
+    hipStream_t stream);
 
 bool dedisperse(const dedisp_word*  d_in,
                 dedisp_size         in_stride,

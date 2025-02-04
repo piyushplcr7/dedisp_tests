@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
   Simple test application for libdedisp
   By Paul Ray (2013)

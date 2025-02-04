@@ -23,7 +23,7 @@ target_link_libraries(
 target_include_directories(
    dedisp
    PRIVATE ${CMAKE_SOURCE_DIR}/src
-   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+   PUBLIC ${HIP_INCLUDE_DIRS}
 )
 
 set_target_properties(

@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
 * Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 * SPDX-License-Identifier: GPL-3.0-or-later
@@ -20,13 +21,13 @@ void DedispKernel::copy_delay_table(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream)
+    hipStream_t stream)
 {
-    cu::checkError(cudaMemcpyToSymbolAsync(
-        c_delay_table,
+    cu::checkError(hipMemcpyToSymbolAsync(HIP_SYMBOL(
+        c_delay_table),
         src,
         count, offset,
-        cudaMemcpyDeviceToDevice, stream)
+        hipMemcpyDeviceToDevice, stream)
     );
 }
 
@@ -34,13 +35,13 @@ void DedispKernel::copy_killmask(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream)
+    hipStream_t stream)
 {
-    cu::checkError(cudaMemcpyToSymbolAsync(
-        c_killmask,
+    cu::checkError(hipMemcpyToSymbolAsync(HIP_SYMBOL(
+        c_killmask),
         src,
         count, offset,
-        cudaMemcpyDeviceToDevice, stream)
+        hipMemcpyDeviceToDevice, stream)
     );
 }
 
@@ -65,7 +66,7 @@ void DedispKernel::launch(
     dedisp_byte*        d_out,
     dedisp_size         out_stride,
     dedisp_size         out_nbits,
-    cudaStream_t        stream)
+    hipStream_t        stream)
 {
     enum {
         BITS_PER_BYTE            = 8,
@@ -78,7 +79,7 @@ void DedispKernel::launch(
     };
 
     // Create texture object
-    cudaTextureObject_t t_in = 0;
+    hipTextureObject_t t_in = 0;
 
     // Initialise texture memory if necessary
     // --------------------------------------
@@ -96,37 +97,37 @@ void DedispKernel::launch(
         }
 
         // Still usable in later cuda versions
-        cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc<dedisp_word>();
-        // Need to use cudaArray_t based on the example in Nvidia doc
-        cudaArray_t cuArray;
+        hipChannelFormatDesc channel_desc = hipCreateChannelDesc<dedisp_word>();
+        // Need to use hipArray_t based on the example in Nvidia doc
+        hipArray_t cuArray;
         // Allocating memory for cuArray
-        cudaMallocArray(&cuArray, &channel_desc, input_words, 1);
+        hipMallocArray(&cuArray, &channel_desc, input_words, 1);
 
         // Copy data from d_in to CUDA array. Redundant, should be improved!
-        //cudaMemcpyToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), cudaMemcpyDeviceToDevice);
-        cudaMemcpy2DToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), input_words * sizeof(dedisp_word), 1, cudaMemcpyDeviceToDevice);
+        //hipMemcpyToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), hipMemcpyDeviceToDevice);
+        hipMemcpy2DToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), input_words * sizeof(dedisp_word), 1, hipMemcpyDeviceToDevice);
 
         // Specify texture
-        struct cudaResourceDesc resDesc;
+        struct hipResourceDesc resDesc;
         memset(&resDesc, 0, sizeof(resDesc));
-        resDesc.resType = cudaResourceTypeArray;
+        resDesc.resType = hipResourceTypeArray;
         resDesc.res.array.array = cuArray;
 
         // Specify texture object parameters
-        struct cudaTextureDesc texDesc;
+        struct hipTextureDesc texDesc;
         memset(&texDesc, 0, sizeof(texDesc)); // Clear the structure
-        texDesc.addressMode[0] = cudaAddressModeClamp; // Specify address mode (clamp, wrap, etc.)
-        texDesc.addressMode[1] = cudaAddressModeClamp; // Only for 2D, set 1D to clamp
-        texDesc.filterMode = cudaFilterModePoint; // Set filter mode (linear, point, etc.)
-        texDesc.readMode = cudaReadModeElementType; // Set read mode (element type)
+        texDesc.addressMode[0] = hipAddressModeClamp; // Specify address mode (clamp, wrap, etc.)
+        texDesc.addressMode[1] = hipAddressModeClamp; // Only for 2D, set 1D to clamp
+        texDesc.filterMode = hipFilterModePoint; // Set filter mode (linear, point, etc.)
+        texDesc.readMode = hipReadModeElementType; // Set read mode (element type)
         texDesc.normalizedCoords = 0; // Use unnormalized coordinates (1D texture)
 
         // Create texture object
-        //cudaTextureObject_t t_in = 0;
-        cudaCreateTextureObject(&t_in, &resDesc, &texDesc, NULL);
+        //hipTextureObject_t t_in = 0;
+        hipCreateTextureObject(&t_in, &resDesc, &texDesc, NULL);
 
         // Bind the texture memory
-        /* cu::checkError(cudaBindTexture(
+        /* cu::checkError(hipBindTexture(
             0, t_in, d_in, channel_desc,
             input_words * sizeof(dedisp_word))
         ); */

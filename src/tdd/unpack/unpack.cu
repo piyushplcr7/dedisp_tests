@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
 * Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 * SPDX-License-Identifier: GPL-3.0-or-later
@@ -28,7 +29,7 @@ void transpose_unpack(
     size_t in_stride, size_t out_stride,
     dedisp_word* d_out,
     dedisp_size in_nbits, dedisp_size out_nbits,
-    cudaStream_t stream)
+    hipStream_t stream)
 {
     // Specify thread decomposition (uses up-rounded divisions)
     dim3 tot_block_count((width-1)  / TILE_DIM + 1,

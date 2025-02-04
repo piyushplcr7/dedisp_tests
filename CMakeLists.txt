@@ -4,7 +4,7 @@
 # cmake configuration
 cmake_minimum_required(VERSION 3.10)
 
-project(dedisp LANGUAGES C CXX CUDA)
+project(dedisp LANGUAGES C CXX HIP)
 
 # version number
 set(DEDISP_VERSION_MAJOR 1)
@@ -16,7 +16,9 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # dependencies
 #find_package(CUDA)
-find_package(CUDAToolkit REQUIRED)
+find_package(HIP REQUIRED)
+find_package(rocFFT REQUIRED)
+#find_package(rocTracer REQUIRED)
 
 # set Release as default build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -52,9 +54,12 @@ endif()
 # cuda configuration
 ################################################################################
 
-set(CUDA_NVCC_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
+set(HIP_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
 
-set(CMAKE_CUDA_ARCHITECTURES "70;80;89;90")
+set(CMAKE_HIP_ARCHITECTURES "70;80;89;90")
+
+#add_definitions(-D__HIP_PLATFORM_NVIDIA__)
+add_definitions(-D__HIP_PLATFORM_AMD__)
 
 # compile for specified architecture (if any)
 #set(CUDA_ARCH "" CACHE STRING "CUDA architecture")

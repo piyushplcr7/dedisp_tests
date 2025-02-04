@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -26,7 +27,7 @@
 #include "fdd_gpu.h"
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include "fdd/helper.h"
 

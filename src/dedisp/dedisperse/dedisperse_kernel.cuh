@@ -1,9 +1,10 @@
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <texture_fetch_functions.h>
+#include "hip/hip_runtime.h"
+#include <hip/hip_runtime.h>
+#include <>
+#include <>
 
 // Texture reference for input data
-//texture<dedisp_word, 1, cudaReadModeElementType> t_in;
+//texture<dedisp_word, 1, hipReadModeElementType> t_in;
 
 // Constant reference for input data
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
@@ -119,7 +120,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                        dedisp_size         batch_dm_stride,
                        dedisp_size         batch_chan_stride,
                        dedisp_size         batch_out_stride,
-                       cudaTextureObject_t t_in)
+                       hipTextureObject_t t_in)
 {
     // Compute compile-time constants
     enum {

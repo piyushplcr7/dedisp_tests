@@ -57,7 +57,7 @@ dedisp_error throw_error(dedisp_error error) {
 
 /* Currently not implemented in C-interface:
 dedisp_error update_scrunch_list(dedisp_plan plan) {
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 	if( !plan->scrunching_enabled || 0 == plan->dm_count ) {
@@ -114,7 +114,7 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
 	// Initialise to NULL for safety
 	*plan = 0;
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -164,7 +164,7 @@ dedisp_error dedisp_set_gulp_size(dedisp_plan plan,
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -195,7 +195,7 @@ dedisp_size dedisp_get_gulp_size(dedisp_plan plan)
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -227,7 +227,7 @@ dedisp_error dedisp_set_dm_list(dedisp_plan plan,
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -249,7 +249,7 @@ dedisp_error dedisp_generate_dm_list(dedisp_plan plan,
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -299,7 +299,7 @@ dedisp_error dedisp_set_killmask(dedisp_plan plan, const dedisp_bool* killmask)
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -385,7 +385,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -449,7 +449,7 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
 {
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -509,7 +509,7 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
 
 	if( !plan ) { throw_error(DEDISP_INVALID_PLAN); }
 
-	if( cudaGetLastError() != cudaSuccess ) {
+	if( hipGetLastError() != hipSuccess ) {
 		throw_error(DEDISP_PRIOR_GPU_ERROR);
 	}
 
@@ -531,7 +531,7 @@ dedisp_error dedisp_sync(void)
 {
 	try
 	{
-		cu::checkError(cudaDeviceSynchronize());
+		cu::checkError(hipDeviceSynchronize());
 	}
 	catch(...)
 	{

@@ -20,7 +20,7 @@ target_include_directories(fdd
    PRIVATE ${CMAKE_SOURCE_DIR}/src
    PRIVATE ${CMAKE_SOURCE_DIR}/src/fdd
    PRIVATE ${FFTW3_INCLUDE_DIR}
-   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+   PUBLIC ${HIP_INCLUDE_DIRS}
 )
 
 set_target_properties(fdd PROPERTIES

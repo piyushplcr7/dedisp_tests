@@ -6,7 +6,9 @@ add_library(cu
 #find_package(CUDAToolkit REQUIRED)
 
 target_link_libraries(cu
-    CUDA::cudart
-    CUDA::nvToolsExt
-    CUDA::cufft
+    hip::host
+    /opt/rocm/lib/libhipfft.so #hip::hipfft  # Replace roc::rocfft with hip::hipfft
+    /opt/rocm/lib/libroctracer64.so.4.1.60302
+    # roc::roctracer # Uncomment if needed
 )
+

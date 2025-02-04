@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
   Simple test application for libdedisp
   By Paul Ray (2013)
@@ -30,7 +31,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include "fdd/helper.h"
 
@@ -59,7 +60,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include "fdd/helper.h"
 

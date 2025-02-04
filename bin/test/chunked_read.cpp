@@ -24,7 +24,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include "fdd/helper.h"
 

@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 #include <cmath>
 
 #include "DedispPlan.hpp"
@@ -261,7 +262,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
             nsamps_gulp);                         // height
         htodstream->synchronize();
 #ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
         input_timer->Pause();
         preprocessing_timer->Start();
 #endif
@@ -271,7 +272,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                   in_buf_stride_words, nsamps_padded_gulp,
                   (dedisp_word *) d_transposed);
 #ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
 #endif
 
         // Unpack the transposed data
@@ -280,7 +281,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
                in_nbits, unpacked_in_nbits);
 
 #ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
         preprocessing_timer->Pause();
         dedispersion_timer->Start();
 #endif
@@ -304,7 +305,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
         }
 
 #ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
         dedispersion_timer->Pause();
 #endif
         // Copy output back to host memory
@@ -322,7 +323,7 @@ void DedispPlan::execute_guru(size_type        nsamps,
             dm_count);                 // height
         dtohstream->synchronize();
 #ifdef DEDISP_BENCHMARK
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
         output_timer->Pause();
 #endif
 

@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 /*
  * This file contains a CUDA implementation of the array transpose operation.
  *
@@ -22,11 +23,11 @@ struct Transpose {
                    size_t width, size_t height,
                    size_t in_stride, size_t out_stride,
                    T* out,
-                   cudaStream_t stream=0);
+                   hipStream_t stream=0);
     void transpose(const T* in,
                    size_t width, size_t height,
                    T* out,
-                   cudaStream_t stream=0) {
+                   hipStream_t stream=0) {
         transpose(in, width, height, width, height, out, stream);
     }
 private:
@@ -73,7 +74,7 @@ void Transpose<T>::transpose(const T* in,
                              size_t width, size_t height,
                              size_t in_stride, size_t out_stride,
                              T* out,
-                             cudaStream_t stream)
+                             hipStream_t stream)
 {
     // Parameter checks
     // TODO: Implement some sort of error returning!
@@ -154,13 +155,13 @@ void Transpose<T>::transpose(const T* in,
             }
 
 #ifndef NDEBUG
-            cudaStreamSynchronize(stream);
-            cudaError_t error = cudaGetLastError();
-            if( error != cudaSuccess ) {
+            hipStreamSynchronize(stream);
+            hipError_t error = hipGetLastError();
+            if( error != hipSuccess ) {
                 /*
                 throw std::runtime_error(
                     std::string("Transpose: CUDA error in kernel: ") +
-                    cudaGetErrorString(error));
+                    hipGetErrorString(error));
                 */
             }
 #endif

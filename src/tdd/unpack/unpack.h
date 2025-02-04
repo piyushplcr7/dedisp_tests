@@ -5,7 +5,7 @@
 * is an optimized version of the original dedisp implementation.
 */
 #include "dedisp_types.h"
-#include "cuda_runtime.h"
+#include "hip/hip_runtime.h"
 
 void transpose_unpack(
     const dedisp_word* d_in,
@@ -13,4 +13,4 @@ void transpose_unpack(
     size_t in_stride, size_t out_stride,
     dedisp_word* d_out,
     dedisp_size in_nbits, dedisp_size out_nbits,
-    cudaStream_t stream);
+    hipStream_t stream);

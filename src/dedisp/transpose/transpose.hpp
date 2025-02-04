@@ -10,4 +10,4 @@ void transpose(
     size_t width, size_t height,
     size_t in_stride, size_t out_stride,
     T* out,
-    cudaStream_t stream=0);
+    hipStream_t stream=0);

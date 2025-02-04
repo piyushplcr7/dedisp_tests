@@ -10,8 +10,10 @@
 
 #include <stdexcept>
 
-#include <cuda_runtime.h>
-#include <nvToolsExt.h>
+#include <hip/hip_runtime.h>
+#include <roctracer/roctracer.h>
+#include <roctracer/roctracer_ext.h>
+#include <roctracer/roctracer_hsa.h>
 
 namespace cu {
 
@@ -30,7 +32,7 @@ namespace cu {
     };
 
     void checkError();
-    void checkError(cudaError_t error);
+    void checkError(hipError_t error);
 
 
     class Device {
@@ -63,7 +65,7 @@ namespace cu {
 
     class HostMemory : public virtual Memory {
         public:
-            HostMemory(size_t size = 0, int flags = cudaHostAllocPortable);
+            HostMemory(size_t size = 0, int flags = hipHostMallocPortable);
             virtual ~HostMemory();
 
             void resize(size_t size) override;
@@ -81,7 +83,7 @@ namespace cu {
             ~DeviceMemory();
 
             void resize(size_t size);
-            void zero(cudaStream_t stream = NULL);
+            void zero(hipStream_t stream = NULL);
 
             template <typename T> operator T () {
                 return static_cast<T>(m_ptr);
@@ -93,21 +95,21 @@ namespace cu {
 
     class Event {
         public:
-            Event(int flags = cudaEventDefault);
+            Event(int flags = hipEventDefault);
             ~Event();
 
             void synchronize();
             float elapsedTime(Event &second);
 
-            operator cudaEvent_t();
+            operator hipEvent_t();
 
         private:
-            cudaEvent_t m_event;
+            hipEvent_t m_event;
     };
 
     class Stream {
         public:
-            Stream(int flags = cudaStreamDefault);
+            Stream(int flags = hipStreamDefault);
             ~Stream();
 
             void memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size);
@@ -134,10 +136,10 @@ namespace cu {
             void record(Event &event);
             void zero(void *ptr, size_t size);
 
-            operator cudaStream_t();
+            operator hipStream_t();
 
         private:
-            cudaStream_t m_stream;
+            hipStream_t m_stream;
     };
 
     class Marker {
@@ -161,8 +163,8 @@ namespace cu {
           unsigned int convert(Color color);
 
         protected:
-          nvtxEventAttributes_t _attributes;
-          nvtxRangeId_t _id;
+          roctracer_domain_t _attributes;
+          uint32_t _id;
     };
 
     class ScopedMarker : public Marker {

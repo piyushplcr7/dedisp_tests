@@ -1,6 +1,7 @@
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <texture_fetch_functions.h>
+#include "hip/hip_runtime.h"
+#include <hip/hip_runtime.h>
+#include <>
+#include <>
 
 /*
 * Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
@@ -9,7 +10,7 @@
 * is an optimized version of the original dedisp implementation.
 */
 // Texture reference for input data
-//texture<dedisp_word, 1, cudaReadModeElementType> t_in;
+//texture<dedisp_word, 1, hipReadModeElementType> t_in;
 
 // This value is set according to the constant memory size
 // for all NVIDIA GPUs to date, which is 64 KB and
@@ -113,7 +114,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                        dedisp_size         out_nbits,
                        dedisp_size         out_stride,
                        const dedisp_float* d_dm_list,
-                       cudaTextureObject_t t_in)
+                       hipTextureObject_t t_in)
 {
     // Compute compile-time constants
     enum {

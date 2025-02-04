@@ -1,0 +1,14 @@
+// Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "dedisp_types.h"
+
+#include "cuda_runtime.h"
+
+void transpose_unpack(
+    const float* d_in,
+    size_t width, size_t height,
+    size_t in_stride, size_t out_stride,
+    float* d_out,
+    dedisp_size in_nbits, dedisp_size out_nbits,
+    float scale,
+    cudaStream_t stream);
