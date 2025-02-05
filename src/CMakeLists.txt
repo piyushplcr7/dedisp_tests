@@ -16,6 +16,7 @@ add_subdirectory(external)
 add_library(plan OBJECT Plan.cpp GPUPlan.cpp)
 include(CMakePrintHelpers)
 cmake_print_variables(HIP_INCLUDE_DIRS)
+cmake_print_variables(HIP_LIB_INSTALL_DIR)
 target_include_directories(plan PUBLIC ${HIP_INCLUDE_DIRS})
 
 
