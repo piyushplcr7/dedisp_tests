@@ -9,8 +9,11 @@ target_include_directories(ctestdedisp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(ctestdedisp dedisp) #dedisp c-library
-target_link_libraries(ctestdedisp m) #c math library
+target_link_libraries(ctestdedisp PRIVATE m dedisp tdd dedisp fdd)
+
+#target_link_libraries(ctestdedisp dedisp) #dedisp c-library
+#target_link_libraries(ctestdedisp m) #c math library
+#target_link_libraries(tdd)
 
 ##############################
 # CLIG INTERFACE

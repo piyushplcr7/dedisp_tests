@@ -1,3 +1,9 @@
+set_source_files_properties(
+    dedisperse/TDDKernel.cu
+    unpack/unpack.cu
+    PROPERTIES LANGUAGE HIP
+)
+
 add_library(
     tdd SHARED
     TDDPlan.cpp
@@ -9,7 +15,7 @@ add_library(
 )
 
 target_link_libraries(
-    tdd
+    tdd PRIVATE
     cu
 )
 

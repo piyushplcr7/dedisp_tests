@@ -1,3 +1,9 @@
+set_source_files_properties(
+    dedisperse/FDDKernel.cu
+    unpack/unpack.cu
+    PROPERTIES LANGUAGE HIP
+)
+
 add_library(fdd SHARED
     FDDGPUPlan.cpp
     FDDCPUPlan.cpp

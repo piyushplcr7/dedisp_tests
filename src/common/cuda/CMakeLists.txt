@@ -1,4 +1,4 @@
-add_library(cu
+add_library(cu SHARED
     CU.cpp
 )
 

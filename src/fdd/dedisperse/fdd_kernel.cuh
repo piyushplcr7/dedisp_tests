@@ -16,7 +16,7 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
 
 // The spin frequencies are processed in batches of NFREQ_BATCH_GRID thread blocks at once,
 // where each thread block processes NFREQ_BATCH_BLOCK spin frequencies per iteration.
-#define NFREQ_BATCH_GRID  128
+#define NFREQ_BATCH_GRID 128
 #define NFREQ_BATCH_BLOCK 256
 
 // Option to enable/disable caching input samples in shared memory
@@ -26,24 +26,31 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
  * Helper functions
  */
 
- // Multiply two float2 operands
-inline __device__ float2 operator*(float2 a, float2 b) {
+// Multiply two float2 operands
+inline __device__ float2 operator*(float2 a, float2 b)
+{
     float2 c;
-    asm ("mul.f32 %0,%1,%2;" : "=f"(c.x) : "f"(a.x), "f"(b.x));
-    asm ("mul.f32 %0,%1,%2;" : "=f"(c.y) : "f"(a.x), "f"(b.y));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.x) : "f"(-a.y), "f"(b.y), "f"(c.x));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.y) : "f"( a.y), "f"(b.x), "f"(c.y));
+    // asm ("mul.f32 %0,%1,%2;" : "=f"(c.x) : "f"(a.x), "f"(b.x));
+    c.x = __fmul_rn(a.x, b.x);
+    // asm("mul.f32 %0,%1,%2;" : "=f"(c.y) : "f"(a.x), "f"(b.y));
+    c.y = __fmul_rn(a.x, b.y);
+    // asm("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.x) : "f"(-a.y), "f"(b.y), "f"(c.x));
+    c.x = __fmaf_rn(-a.y, b.y, c.x);
+    // asm("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.y) : "f"(a.y), "f"(b.x), "f"(c.y));
+    c.y = __fmaf_rn(a.y, b.x, c.y);
     return c;
 }
 
 // Add and assign two float2 operands
-inline __device__ void operator+=(float2 &a, float2 b) {
+inline __device__ void operator+=(float2 &a, float2 b)
+{
     a.x += b.x;
     a.y += b.y;
 }
 
 // Multiply and assign two float2 operands
-inline __device__ void operator*=(float2 &a, float2 b) {
+inline __device__ void operator*=(float2 &a, float2 b)
+{
     float2 c = a * b;
     a.x = c.x;
     a.y = c.y;
@@ -52,17 +59,22 @@ inline __device__ void operator*=(float2 &a, float2 b) {
 // Multiply-and-accumulate (MAC) for complex operands
 inline __device__ void cmac(float2 &a, float2 b, float2 c)
 {
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.x), "f"(c.y), "f"(a.y));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(-b.y), "f"(c.y), "f"(a.x));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.y), "f"(c.x), "f"(a.y));
+    // asm("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
+    a.x = __fmaf_rn(b.x, c.x, a.x);
+    // asm("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.x), "f"(c.y), "f"(a.y));
+    a.y = __fmaf_rn(b.x, c.y, a.y);
+    // asm("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(-b.y), "f"(c.y), "f"(a.x));
+    a.x = __fmaf_rn(-b.y, c.y, a.x);
+    // asm("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.y), "f"(c.x), "f"(a.y));
+    a.y = __fmaf_rn(b.y, c.x, a.y);
 }
 
 // Use the Special Function Unit (SFU) for the sine evaluation
 inline __device__ float raw_sin(float a)
 {
     float r;
-    asm ("sin.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    // asm("sin.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    r = __sinf(a);
     return r;
 }
 
@@ -70,7 +82,8 @@ inline __device__ float raw_sin(float a)
 inline __device__ float raw_cos(float a)
 {
     float r;
-    asm ("cos.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    // asm("cos.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    r = __cosf(a);
     return r;
 }
 
@@ -78,20 +91,19 @@ inline __device__ float raw_cos(float a)
  * dedisperse kernel
  * FDD computes dedispersion as phase rotations in the Fourier domain
  */
-template<unsigned int NCHAN, bool extrapolate>
-__global__
-void dedisperse_kernel(
-    size_t        nfreq,
-    float         dt,
-    const float*  d_spin_frequencies,
-    const float*  d_dm_list,
-    size_t        in_stride,
-    size_t        out_stride,
-    const float2* d_in,
-          float2* d_out,
-    unsigned int  idm_start,
-    unsigned int  idm_end,
-    unsigned int  ichan_start)
+template <unsigned int NCHAN, bool extrapolate>
+__global__ void dedisperse_kernel(
+    size_t nfreq,
+    float dt,
+    const float *d_spin_frequencies,
+    const float *d_dm_list,
+    size_t in_stride,
+    size_t out_stride,
+    const float2 *d_in,
+    float2 *d_out,
+    unsigned int idm_start,
+    unsigned int idm_end,
+    unsigned int ichan_start)
 {
     // The DM that the current block processes
     unsigned int idm_current = blockIdx.x;
@@ -117,16 +129,16 @@ void dedisperse_kernel(
         }
     }
 
-    // Two input samples (two subsequent spin frequencies, float2 values) are stored as a float4 value
-    #if USE_SHARED_MEMORY
-    __shared__ float4 s_temp[NCHAN_BATCH_THREAD][NFREQ_BATCH_BLOCK+1];
-    #endif
+// Two input samples (two subsequent spin frequencies, float2 values) are stored as a float4 value
+#if USE_SHARED_MEMORY
+    __shared__ float4 s_temp[NCHAN_BATCH_THREAD][NFREQ_BATCH_BLOCK + 1];
+#endif
 
     for (unsigned int ifreq_current = ifreq_start + threadIdx.x; ifreq_current < nfreq; ifreq_current += ifreq_offset)
     {
         // Load output samples
         float2 sums[NDM_BATCH_GRID];
-        #pragma unroll
+#pragma unroll
         for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
         {
             unsigned int idm_idx = idm_current + (i * idm_offset);
@@ -134,7 +146,9 @@ void dedisperse_kernel(
             {
                 size_t out_idx = idm_idx * out_stride + ifreq_current;
                 sums[i] = d_out[out_idx];
-            } else {
+            }
+            else
+            {
                 sums[i] = make_float2(0, 0);
             }
         }
@@ -149,23 +163,23 @@ void dedisperse_kernel(
         // Apply phase rotation to input sample and add to output sample
         for (unsigned int ichan_outer = 0; ichan_outer < NCHAN; ichan_outer += NCHAN_BATCH_THREAD)
         {
-            // Load samples from device memory to shared memory
-            #if USE_SHARED_MEMORY
+// Load samples from device memory to shared memory
+#if USE_SHARED_MEMORY
             __syncthreads();
-            for (unsigned int i = threadIdx.x; i < NCHAN_BATCH_THREAD * (NFREQ_BATCH_BLOCK/2); i += blockDim.x)
+            for (unsigned int i = threadIdx.x; i < NCHAN_BATCH_THREAD * (NFREQ_BATCH_BLOCK / 2); i += blockDim.x)
             {
-                unsigned int ichan_inner = i / (NFREQ_BATCH_BLOCK/2);
-                unsigned int ifreq_inner = i % (NFREQ_BATCH_BLOCK/2);
+                unsigned int ichan_inner = i / (NFREQ_BATCH_BLOCK / 2);
+                unsigned int ifreq_inner = i % (NFREQ_BATCH_BLOCK / 2);
                 unsigned int ichan = ichan_outer + ichan_inner;
                 size_t in_idx = ichan * in_stride + (ifreq_current - threadIdx.x);
-                float4 *sample_ptr = (float4 *) &d_in[in_idx];
+                float4 *sample_ptr = (float4 *)&d_in[in_idx];
                 s_temp[ichan_inner][ifreq_inner] = sample_ptr[ifreq_inner];
             }
             __syncthreads();
-            #endif
+#endif
 
             if (extrapolate)
-            {   // This is an experimental optimization feature,
+            { // This is an experimental optimization feature,
                 // where extrapolation is used in the computation of the phasors
                 // in order to reach a better balance in sin and cos operations vs multiply and accumulate operations.
                 // This feature should be further explored to determine whether functional correctness is achieved at all times.
@@ -177,26 +191,26 @@ void dedisperse_kernel(
                 {
                     float tdm0 = dms[i] * c_delay_table[ichan_start + ichan_outer + 0] * dt;
                     float tdm1 = dms[i] * c_delay_table[ichan_start + ichan_outer + 1] * dt;
-                    float phase0 = 2.0f * ((float) M_PI) * f * tdm0;
-                    float phase1 = 2.0f * ((float) M_PI) * f * tdm1;
+                    float phase0 = 2.0f * ((float)M_PI) * f * tdm0;
+                    float phase1 = 2.0f * ((float)M_PI) * f * tdm1;
                     float phase_delta = phase1 - phase0;
-                    phasors[i]       = make_float2(raw_cos(phase0), raw_sin(phase0));
+                    phasors[i] = make_float2(raw_cos(phase0), raw_sin(phase0));
                     phasors_delta[i] = make_float2(raw_cos(phase_delta), raw_sin(phase_delta));
                 }
 
-                #pragma unroll
+#pragma unroll
                 for (unsigned int ichan_inner = 0; ichan_inner < NCHAN_BATCH_THREAD; ichan_inner++)
                 {
                     unsigned int ichan = ichan_outer + ichan_inner;
 
-                    // Load input sample
-                    #if USE_SHARED_MEMORY
-                    float2 sample = ((float2 *) &s_temp[ichan_inner][threadIdx.x/2])[threadIdx.x % 2];
-                    #else
+// Load input sample
+#if USE_SHARED_MEMORY
+                    float2 sample = ((float2 *)&s_temp[ichan_inner][threadIdx.x / 2])[threadIdx.x % 2];
+#else
                     float2 sample = d_in[ichan * in_stride + ifreq_current];
-                    #endif
+#endif
 
-                    #pragma unroll
+#pragma unroll
                     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
                     {
                         // Update sum
@@ -213,21 +227,21 @@ void dedisperse_kernel(
                 {
                     unsigned int ichan = ichan_outer + ichan_inner;
 
-                    // Load input sample
-                    #if USE_SHARED_MEMORY
-                    float2 sample = ((float2 *) &s_temp[ichan_inner][threadIdx.x/2])[threadIdx.x % 2];
-                    #else
+// Load input sample
+#if USE_SHARED_MEMORY
+                    float2 sample = ((float2 *)&s_temp[ichan_inner][threadIdx.x / 2])[threadIdx.x % 2];
+#else
                     float2 sample = d_in[ichan * in_stride + ifreq_current];
-                    #endif
+#endif
 
-                    #pragma unroll
+#pragma unroll
                     for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
                     {
                         // Compute DM delay
                         float tdm = dms[i] * c_delay_table[ichan_start + ichan];
 
                         // Compute phase
-                        float phase = 2.0f * ((float) M_PI) * f * dt * (int)tdm;
+                        float phase = 2.0f * ((float)M_PI) * f * dt * (int)tdm;
 
                         // Compute phasor
                         float2 phasor = make_float2(raw_cos(phase), raw_sin(phase));
@@ -242,7 +256,7 @@ void dedisperse_kernel(
         // Store result
         if (ifreq_current < nfreq)
         {
-            #pragma unroll
+#pragma unroll
             for (unsigned int i = 0; i < NDM_BATCH_GRID; i++)
             {
                 unsigned int idm_idx = idm_current + i * idm_offset;
@@ -256,12 +270,10 @@ void dedisperse_kernel(
     } // end for ifreq_current loop
 } // end dedisperse_kernel
 
-
 /*
  * scale kernel
  */
-__global__
-void scale_output_kernel(
+__global__ void scale_output_kernel(
     size_t n,
     size_t stride,
     float scale,

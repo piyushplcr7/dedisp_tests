@@ -56,7 +56,7 @@ endif()
 
 set(HIP_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
 
-set(CMAKE_HIP_ARCHITECTURES "70;80;89;90")
+set(CMAKE_HIP_ARCHITECTURES "gfx906;gfx908;gfx90a")
 
 #add_definitions(-D__HIP_PLATFORM_NVIDIA__)
 add_definitions(-D__HIP_PLATFORM_AMD__)

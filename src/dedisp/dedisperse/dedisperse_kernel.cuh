@@ -1,7 +1,5 @@
 #include "hip/hip_runtime.h"
 #include <hip/hip_runtime.h>
-#include <>
-#include <>
 
 // Texture reference for input data
 //texture<dedisp_word, 1, hipReadModeElementType> t_in;

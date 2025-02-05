@@ -1,7 +1,4 @@
 #include "hip/hip_runtime.h"
-#include <hip/hip_runtime.h>
-#include <>
-#include <>
 
 /*
 * Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)

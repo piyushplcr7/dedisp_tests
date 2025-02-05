@@ -1,6 +1,13 @@
 # include directory for common header files
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
+set_source_files_properties(
+    dedisperse/dedisperse.cu
+    unpack/unpack.cu
+    transpose/transpose.cu
+    PROPERTIES LANGUAGE HIP
+)
+
 add_library(
     dedisp SHARED
     DedispPlan.cpp
