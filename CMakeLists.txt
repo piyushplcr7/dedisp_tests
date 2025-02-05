@@ -16,7 +16,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # dependencies
 #find_package(CUDA)
-find_package(HIP REQUIRED)
+find_package(hip REQUIRED)
+find_package(hipfft REQUIRED)
 find_package(rocFFT REQUIRED)
 #find_package(rocTracer REQUIRED)
 

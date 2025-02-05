@@ -7,7 +7,7 @@ add_library(cu SHARED
 
 target_link_libraries(cu
     hip::host
-    /opt/rocm/lib/libhipfft.so #hip::hipfft  # Replace roc::rocfft with hip::hipfft
+    hip::hipfft  # Replace roc::rocfft with hip::hipfft
     /opt/rocm/lib/libroctracer64.so.4.1.60302
     # roc::roctracer # Uncomment if needed
 )
