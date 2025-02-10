@@ -36,7 +36,7 @@ void memcpy2D(
 // Also assumes float type
 void memcpy2D_width(
     void *dstPtr, size_t dstHeight,
-    const void *srcPtr, size_t srcHeight,
+    const float *srcPtr, size_t srcHeight,
     size_t height, size_t width)
 {
     typedef float SrcType[srcHeight][width];

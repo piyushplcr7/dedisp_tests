@@ -20,7 +20,7 @@ void memcpy2D(
 
 void memcpy2D_width(
     void *dstPtr, size_t dstHeight,
-    const void *srcPtr, size_t srcHeight,
+    const float *srcPtr, size_t srcHeight,
     size_t heightBytes, size_t width);
 
 // Return total system (host) memory in Mbits
