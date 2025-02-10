@@ -440,6 +440,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   std::cout << "Finished mExeGPU.start()" << std::endl;
 #endif
 
+  int file_no = 0;
+  
+  float* d_data_x_nu_h = (float*) calloc((size_t) nchan_batch_max * nsamp_padded, sizeof(float));
+
   // Process all dm batches (outer dm jobs)
   for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size();
        dm_job_id_outer += ndm_buffers) {
@@ -508,7 +512,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        in_nbits, 32,    // in_nbits, out_nbits
                        1.0 / nchan,     // scale
                        *executestream); // stream */
-      if (channel_job_id == 3) {
+      /* if (channel_job_id == 3) {
         std::cout << "noquant output" << std::endl;
           float* tempptr = (float*) channel_job.h_in_ptr;
           float* float_in_ptr = float_in + channel_job.ichan_start * nsamp;
@@ -530,7 +534,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             std::cout << std::endl;
           }
           
-      }
+      } */
 
       // Populating the d_data_x_nu memory. This was being done by the transpose unpack kernel
       // which is not called anymore
@@ -551,6 +555,16 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                                        nsamp_padding * sizeof(float), // width
                                        nchan_batch_max,               // height
                                        *executestream));
+
+      // Save d_data_x_nu.data() to disk for debugging
+      dtohstream->memcpyDtoHAsync(d_data_x_nu_h, // dst
+                                  d_data_x_nu.data(), // src
+                                  (size_t)nchan_batch_max * nsamp_padded * sizeof(float)); // size
+      char debugfilename[256];
+      sprintf(debugfilename,"noquant_%d.bin",file_no++);
+      FILE *debug_out = fopen(debugfilename,"wb");
+      fwrite(d_data_x_nu_h, sizeof(float), (size_t)nchan_batch_max * nsamp_padded, debug_out);
+      fclose(debug_out);
       
       // FFT data (real to complex) along time axis
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
