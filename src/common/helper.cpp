@@ -45,7 +45,7 @@ void memcpy2D_width(
     auto src = (SrcType *) srcPtr;
     auto dst = (DstType *) dstPtr;
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (size_t y = 0; y < height; y++)
     {
         for (size_t x = 0; x < width; x++)
