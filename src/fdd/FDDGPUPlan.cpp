@@ -508,14 +508,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       /* dtohstream->memcpyDtoHAsync(d_data_x_nu_h, // dst
                                   d_data_x_nu.data(), // src
                                   (size_t)nchan_batch_max * nsamp_padded * sizeof(float)); */ // size
-      /* char debugfilename[256];
+      char debugfilename[256];
       sprintf(debugfilename,"noquant_cuda_%d.bin",file_no++);
       FILE *debug_out = fopen(debugfilename,"wb");
       size_t written_no = fwrite(channel_job.h_in_ptr, sizeof(float), (size_t)nchan_batch_max * nsamp, debug_out);
       if (written_no != (size_t)nchan_batch_max * nsamp ) {
         std::cout << "error in writing the debug output. Quitting" << std::endl;
       }
-      fclose(debug_out); */
+      fclose(debug_out);
       
       // FFT data (real to complex) along time axis
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
