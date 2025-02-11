@@ -226,7 +226,7 @@ void dedisperse_kernel(
                         float tdm = dms[i] * c_delay_table[ichan_start + ichan];
 
                         // Compute phase
-                        float phase = 2.0f * ((float) M_PI) * f * dt * (int)tdm;
+                        float phase = 2.0f * ((float) M_PI) * f * dt * (int)tdm; // Positive tdm shifts to the left!!!
 
                         // Compute phasor
                         float2 phasor = make_float2(raw_cos(phase), raw_sin(phase));

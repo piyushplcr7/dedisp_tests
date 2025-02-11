@@ -5,8 +5,9 @@
 #include "fdd/FDDCPUPlan.hpp"
 #include "tdd/TDDPlan.hpp"
 
-#include "testfits.hpp"
+//#include "testfits.hpp"
 #include "fdd_gpu.h"
+#include "testconstshift.hpp"
 
 template<typename PlanType>
 int run();
@@ -16,5 +17,6 @@ int main(int argc, char **argv)
   //return run<dedisp::DedispPlan>(); // uses run method from test.hpp
   //return run<dedisp::TDDPlan>(); // uses run method from test.hpp
   //return run<dedisp::FDDCPUPlan>(); // uses run method from test.hpp
-  return run<dedisp::FDDGPUPlan>(argc, argv); // uses run method from test.hpp
+  //return run<dedisp::FDDGPUPlan>(argc, argv); // uses run method from test.hpp
+  return run(argc, argv); // uses run method from test.hpp
 }

@@ -441,7 +441,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   int file_no = 0;
   
-  float* d_data_x_nu_h = (float*) calloc((size_t) nchan_batch_max * nsamp_padded, sizeof(float));
+  //float* d_data_x_nu_h = (float*) calloc((size_t) nchan_batch_max * nsamp_padded, sizeof(float));
 
   // Process all dm batches (outer dm jobs)
   for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size();
@@ -505,17 +505,17 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                                        *executestream));
 
       // Save d_data_x_nu.data() to disk for debugging
-      dtohstream->memcpyDtoHAsync(d_data_x_nu_h, // dst
+      /* dtohstream->memcpyDtoHAsync(d_data_x_nu_h, // dst
                                   d_data_x_nu.data(), // src
-                                  (size_t)nchan_batch_max * nsamp_padded * sizeof(float)); // size
-      char debugfilename[256];
+                                  (size_t)nchan_batch_max * nsamp_padded * sizeof(float)); */ // size
+      /* char debugfilename[256];
       sprintf(debugfilename,"noquant_cuda_%d.bin",file_no++);
       FILE *debug_out = fopen(debugfilename,"wb");
-      size_t written_no = fwrite(d_data_x_nu_h, sizeof(float), (size_t)nchan_batch_max * nsamp_padded, debug_out);
-      if (written_no != (size_t)nchan_batch_max * nsamp_padded ) {
+      size_t written_no = fwrite(channel_job.h_in_ptr, sizeof(float), (size_t)nchan_batch_max * nsamp, debug_out);
+      if (written_no != (size_t)nchan_batch_max * nsamp ) {
         std::cout << "error in writing the debug output. Quitting" << std::endl;
       }
-      fclose(debug_out);
+      fclose(debug_out); */
       
       // FFT data (real to complex) along time axis
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
