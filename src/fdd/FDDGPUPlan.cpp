@@ -79,11 +79,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Parameters
   float dt = m_dt;                      // sample time
   unsigned int nchan = m_nchans;        // number of observering frequencies
-  unsigned int nsamp = nsamps;          // number of time samples
+  size_t nsamp = nsamps;          // number of time samples
   unsigned int ndm = m_dm_count;        // number of DMs
 
   // Compute the number of output samples
-  unsigned int nsamp_computed = nsamp - m_max_delay;
+  size_t nsamp_computed = nsamp - m_max_delay;
 
   // Use zero-padded FFT
   // This allows for a more efficient FFT implementation with cuFFT
@@ -93,14 +93,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // architecture
 
 #ifdef EXPORT_DEDISP_TIME_SERIES
-  unsigned int nsamp_fft =
+  size_t nsamp_fft =
       use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
 #else
-  unsigned int nsamp_fft = round_up(nsamp + m_max_delay, 16384);
+  size_t nsamp_fft = round_up(nsamp + m_max_delay, 16384);
   std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
 #endif  
-  unsigned int nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
-  unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+  size_t nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
+  size_t nsamp_padded = round_up(nsamp_fft + 1, 1024);
   std::cout << "nsamp        = " << nsamp << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
   std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
@@ -477,6 +477,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         
         // Starting position changes because data layout is transposed now
         dedisp_size gulp_chan_byte_idx = channel_job.ichan_start * nsamp;
+        //std::cout << "channel_job_id = " << channel_job_id << std::endl;
+        //std::cout << "ichan_start = " << channel_job.ichan_start << ", gulp_chan_byte_idx = chan * nsamp = " << gulp_chan_byte_idx << std::endl;
 
         /* memcpy2D(channel_job.h_in_ptr,    // dst
                  dst_stride,              // dst width
@@ -562,14 +564,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       /* dtohstream->memcpyDtoHAsync(d_data_x_nu_h, // dst
                                   d_data_x_nu.data(), // src
                                   (size_t)nchan_batch_max * nsamp_padded * sizeof(float)); // size */
-      char debugfilename[256];
+      /* char debugfilename[256];
       sprintf(debugfilename,"noquant_%d.bin",file_no++);
       FILE *debug_out = fopen(debugfilename,"wb");
       size_t written_no = fwrite(channel_job.h_in_ptr, sizeof(float), (size_t)nchan_batch_max * nsamp, debug_out);
       if (written_no != (size_t)nchan_batch_max * nsamp ) {
         std::cout << "error in writing the debug output. Quitting" << std::endl;
       }
-      fclose(debug_out);
+      fclose(debug_out); */
       
       // FFT data (real to complex) along time axis
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
@@ -646,6 +648,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             sizeof(dedisp_word); */
         // Starting position changes because data layout is transposed now
         dedisp_size gulp_chan_byte_idx = channel_job_next.ichan_start * nsamp;
+        //std::cout << "channel_job_next_id = " << channel_job_id_next << std::endl;
+        //std::cout << "ichan_start = " << channel_job_next.ichan_start << ", gulp_chan_byte_idx = chan * nsamp = " << gulp_chan_byte_idx << std::endl;
 
         /* memcpy2D(channel_job_next.h_in_ptr, // dst
                  dst_stride,                // dst width
