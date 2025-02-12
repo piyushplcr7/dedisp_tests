@@ -79,11 +79,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Parameters
   float dt = m_dt;                      // sample time
   unsigned int nchan = m_nchans;        // number of observering frequencies
-  unsigned int nsamp = nsamps;          // number of time samples
+  size_t nsamp = nsamps;          // number of time samples
   unsigned int ndm = m_dm_count;        // number of DMs
 
   // Compute the number of output samples
-  unsigned int nsamp_computed = nsamp - m_max_delay;
+  size_t nsamp_computed = nsamp - m_max_delay;
 
   // Use zero-padded FFT
   // This allows for a more efficient FFT implementation with cuFFT
@@ -93,14 +93,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // architecture
 
 #ifdef EXPORT_DEDISP_TIME_SERIES
-  unsigned int nsamp_fft =
+  size_t nsamp_fft =
       use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
 #else
   unsigned int nsamp_fft = round_up(nsamp + m_max_delay, 16384);
   std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
 #endif  
-  unsigned int nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
-  unsigned int nsamp_padded = round_up(nsamp_fft + 1, 1024);
+  size_t nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
+  size_t nsamp_padded = round_up(nsamp_fft + 1, 1024);
   std::cout << "nsamp        = " << nsamp << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
   std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
@@ -166,6 +166,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   total_timer->Start();
   init_timer->Start();
 #endif
+
+if ((nsamp_fft - (int) nsamp_fft) != 0 || (nsamp_padded - (int) nsamp_padded) != 0) {
+  std::cerr << "Too large sizes for nsamp_fft or nsamp_padded. Check FDDGPUPlan.cpp" << std::endl;
+  exit(1);
+}
 
   // Prepare cuFFT plans
 #ifdef DEDISP_DEBUG
