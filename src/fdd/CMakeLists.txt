@@ -9,11 +9,17 @@ add_library(fdd SHARED
     $<TARGET_OBJECTS:external>
 )
 
+##############################
+# CLIG INTERFACE
+##############################
+add_library(fdd_gpu_clig fdd_gpu.c)
+
 find_package(FFTW3 REQUIRED true)
 
 target_link_libraries(fdd
     ${FFTW3F_LIBRARY}
     cu
+    fdd_gpu_clig
 )
 
 target_include_directories(fdd

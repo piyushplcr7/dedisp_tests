@@ -12,10 +12,7 @@ target_include_directories(ctestdedisp PRIVATE
 target_link_libraries(ctestdedisp dedisp) #dedisp c-library
 target_link_libraries(ctestdedisp m) #c math library
 
-##############################
-# CLIG INTERFACE
-##############################
-add_library(fdd_gpu_clig fdd_gpu.c)
+include_directories(${CMAKE_SOURCE_DIR}/src/fdd)
 
 
 ################################################################################

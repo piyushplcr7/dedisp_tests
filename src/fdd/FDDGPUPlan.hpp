@@ -3,10 +3,12 @@
 #ifndef H_FDD_GPU_PLAN_INCLUDE_GUARD
 #define H_FDD_GPU_PLAN_INCLUDE_GUARD
 
-#define EXPORT_DEDISP_TIME_SERIES
-
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
+
+extern size_t nsamp_fft;
+extern size_t nsamps_computed;
+extern size_t nsamp_padded;
 
 namespace dedisp
 {

@@ -25,6 +25,11 @@
 #include "chunk.h"
 #include "common/helper.h"
 #include "helper.h"
+#include "fdd_gpu.h"
+
+size_t nsamp_fft = 0;
+size_t nsamps_computed = 0;
+size_t nsamp_padded = 0;
 
 namespace dedisp {
 // Constructor
@@ -81,31 +86,31 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   size_t nsamp = nsamps;          // number of time samples
   unsigned int ndm = m_dm_count;        // number of DMs
 
-  // Compute the number of output samples
-  size_t nsamp_computed = nsamp - m_max_delay;
-
   // Use zero-padded FFT
   // This allows for a more efficient FFT implementation with cuFFT
-  bool use_zero_padding = true;
+  //bool use_zero_padding = true;
   // Compute padded number of samples (for r2c transformation)
   // the round_up value might be tuned for efficiency depending on system
   // architecture
 
-#ifdef EXPORT_DEDISP_TIME_SERIES
-  size_t nsamp_fft =
-      use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
-#else
-  size_t nsamp_fft = round_up(nsamp + m_max_delay, 16384);
-  std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
-#endif  
+  //size_t nsamp_fft = (cmd.fftoutP) ? round_up(nsamp + m_max_delay, 16384) : ((use_zero_padding)? round_up(nsamp + 1, 16384) : nsamp );
+  /* if (cmd.fftoutP) {
+    nsamp_fft = round_up(nsamp + m_max_delay, 16384);
+    std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
+  }
+  else {
+    nsamp_fft = use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
+  } */
+
   size_t nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
-  size_t nsamp_padded = round_up(nsamp_fft + 1, 1024);
+  //size_t nsamp_padded = round_up(nsamp_fft + 1, 1024);
+  //size_t nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
   std::cout << "nsamp        = " << nsamp << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
   std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
 
   std::cout << "m_max_delay = " << m_max_delay << std::endl;
-  std::cout << "nsamp_computed = " << nsamp_computed << std::endl;
+  std::cout << "nsamps_computed = " << nsamps_computed << std::endl;
 #ifdef DEDISP_DEBUG
   std::cout << debug_str << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
@@ -407,14 +412,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // copy part from pinned h_data_t_dm to part of paged return buffer out
       // GPU Host mem pointers
       dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
-      auto *h_src = dm_job.h_data_t_dm->data();
+      size_t start_copy_from = cmd.cleanoutP ? m_max_delay : 0;
+      float* h_src_float = (float*)dm_job.h_data_t_dm->data() + start_copy_from;
+      auto *h_src = (void*) h_src_float;
       // CPU mem pointers
 
-#ifdef EXPORT_DEDISP_TIME_SERIES
-      dedisp_size dst_stride = 1ULL * nsamp_computed * out_bytes_per_sample;
-#else
-      dedisp_size dst_stride = 1ULL * nsamp_fft * out_bytes_per_sample;
-#endif
+  dedisp_size dst_stride = cmd.fftoutP ? 1ULL * nsamp_padded * out_bytes_per_sample : 1ULL * nsamps_computed * out_bytes_per_sample;
+
       dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
       auto *h_dst = (void *)(((size_t)out) + dst_offset);
       mCopyMem.start();
@@ -643,28 +647,29 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // Fourier transform results back to time domain if required
       executestream->record(dm_job.postprocessingStart);
 
-#ifdef EXPORT_DEDISP_TIME_SERIES
-      for (unsigned int i = 0; i < ndm_batch_max / ndm_fft_batch; i++) {
-        cufftReal *odata =
-            (cufftReal *)d_out + i * nsamp_padded * ndm_fft_batch;
-        cufftComplex *idata = (cufftComplex *)odata;
-        C2Rtimer.Start();
-        cufftResult result = cufftExecC2R(plan_c2r, idata, odata);
-        C2Rtimer.Stop();
-        c2rtime += C2Rtimer.Elapsed();
-        if (result != CUFFT_SUCCESS) {
-            throw std::runtime_error("Error creating real to complex FFT plan.");
+      if (!cmd.fftoutP) {
+        for (unsigned int i = 0; i < ndm_batch_max / ndm_fft_batch; i++) {
+          cufftReal *odata =
+              (cufftReal *)d_out + i * nsamp_padded * ndm_fft_batch;
+          cufftComplex *idata = (cufftComplex *)odata;
+          C2Rtimer.Start();
+          cufftResult result = cufftExecC2R(plan_c2r, idata, odata);
+          C2Rtimer.Stop();
+          c2rtime += C2Rtimer.Elapsed();
+          if (result != CUFFT_SUCCESS) {
+              throw std::runtime_error("Error creating real to complex FFT plan.");
+          }
         }
-      }
 
-      // FFT scaling
-      kernel.scale(dm_job.ndm_current, // height
-                   nsamp_padded,       // width
-                   nsamp_padded,       // stride
-                   1.0f / nsamp_fft,   // scale
-                   d_out,              // d_data
-                   *executestream);    // stream
-#endif
+        // FFT scaling
+        kernel.scale(dm_job.ndm_current, // height
+                      nsamp_padded,       // width
+                      nsamp_padded,       // stride
+                      1.0f / nsamp_fft,   // scale
+                      d_out,              // d_data
+                      *executestream);    // stream
+      }
+      
       executestream->record(dm_job.postprocessingEnd);
 
       // Copy output. If inverse FFT is not applied, the fourier coefficients are copied

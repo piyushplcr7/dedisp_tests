@@ -8,6 +8,7 @@
 #include <cmath>
 #include "common/dedisp_error.hpp"
 #include "common/cuda/CU.h"
+#include <iostream>
 
 namespace dedisp
 {
@@ -116,6 +117,15 @@ void Plan::generate_delay_table(
         // Note: To higher precision, the constant is 4.148741601e3
         h_delay_table[c] = 4.15e3/dt * (a*a - b*b);
     }
+
+    // Change the delay values such that the last channel has delay 0.
+    // This is done so that the shifts performed via the FDD algorithm
+    // with zero padding at the end put the time bins in chronologically 
+    // correct positions.
+
+    for( dedisp_size c=0; c<nchans; ++c ) {
+        h_delay_table[c] = h_delay_table[c] - h_delay_table[nchans-1];
+    }
 }
 
 dedisp_float Plan::get_smearing(
@@ -149,8 +159,9 @@ void Plan::generate_dm_list(
     m_dm_count = h_dm_list.size();
 
     // Calculate the maximum delay and store it in the plan
+    // assumes that either end has delay 0
     m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
-                              h_delay_table[m_nchans-1] + 0.5);
+                              (h_delay_table[m_nchans-1] - h_delay_table[0]) + 0.5); 
 }
 
 } // end namespace dedisp

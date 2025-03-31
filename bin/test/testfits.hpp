@@ -47,6 +47,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <vector>
 #include <random>
 #include <unistd.h>
 
@@ -62,6 +63,8 @@
 #include <cuda_runtime.h>
 
 #include "fdd/helper.h"
+#include "FDDGPUPlan.hpp"
+#include "cufft_optimal_size.hpp"
 
 // Debug options
 #define WRITE_INPUT_DATA 0
@@ -338,6 +341,75 @@ template <typename PlanType> int run(int argc, char **argv) {
   printf("No. of HDUs = %d\n", num_hdus);
 
   char comment[80];
+  char telescope_name[100];
+  fits_read_key(ffptr, TSTRING, "TELESCOP", telescope_name, comment, &status);
+  printf("telescope name = %s \n", telescope_name);
+
+  char instrument[100];
+  fits_read_key(ffptr, TSTRING, "BACKEND", instrument, comment, &status);
+  printf("instrument name = %s \n", instrument);
+
+  char object_name[100];
+  fits_read_key(ffptr, TSTRING, "SRC_NAME", object_name, comment, &status);
+  printf("object name = %s \n", object_name);
+
+  char right_ascension[100];
+  fits_read_key(ffptr, TSTRING, "RA", right_ascension, comment, &status);
+  printf("right_ascension = %s \n", right_ascension);
+
+  char declination[100];
+  fits_read_key(ffptr, TSTRING, "DEC", declination, comment, &status);
+  printf("declination = %s \n", declination+1);
+
+  char observed_by[100];
+  fits_read_key(ffptr, TSTRING, "OBSERVER", observed_by, comment, &status);
+  printf("observer = %s \n", observed_by);
+
+  int stt_imjd, stt_smjd;
+  double stt_offs;
+  double epoch;
+
+  /* Read and print the integer keyword STT_IMJD */
+    if (fits_read_key(ffptr, TINT, "STT_IMJD", &stt_imjd, comment, &status)) {
+        fits_report_error(stderr, status);
+        return(status);
+    }
+    printf("STT_IMJD = %d   (%s)\n", stt_imjd, comment);
+
+    /* Read and print the integer keyword STT_SMJD */
+    if (fits_read_key(ffptr, TINT, "STT_SMJD", &stt_smjd, comment, &status)) {
+        fits_report_error(stderr, status);
+        return(status);
+    }
+    printf("STT_SMJD = %d   (%s)\n", stt_smjd, comment);
+
+    /* Read and print the double keyword STT_OFFS */
+    if (fits_read_key(ffptr, TDOUBLE, "STT_OFFS", &stt_offs, comment, &status)) {
+        fits_report_error(stderr, status);
+        return(status);
+    }
+    printf("STT_OFFS = %.15f   (%s)\n", stt_offs, comment);
+
+    /* Compute the final epoch: epoch = STT_IMJD + (STT_SMJD + STT_OFFS)/86400 */
+    epoch = stt_imjd + ((stt_smjd + stt_offs) / 86400.0);
+    printf("Computed epoch = %.15f\n", epoch);
+
+  char projid[100];
+  /* Read and print the integer keyword STT_SMJD */
+    if (fits_read_key(ffptr, TSTRING, "PROJID", projid, comment, &status)) {
+        fits_report_error(stderr, status);
+        return(status);
+    }
+    printf("projid = %s   (%s)\n", projid, comment);
+
+  char dateobs[100];
+  /* Read and print the integer keyword STT_SMJD */
+    if (fits_read_key(ffptr, TSTRING, "DATE-OBS", dateobs, comment, &status)) {
+        fits_report_error(stderr, status);
+        return(status);
+    }
+    printf("dateobs = %s   (%s)\n", dateobs, comment);
+
   // Moving to the relevant hdu
   fits_movnam_hdu(ffptr, BINARY_TBL, "SUBINT", 0, &status);
 
@@ -387,10 +459,10 @@ template <typename PlanType> int run(int argc, char **argv) {
                   &anynull, &status);
   }
 
-  printf("lo, hi freq = %.12f, %.12f\n", freqs[0], freqs[nchans_read - 1]);
+  printf("lo, hi freq = %.15f, %.15f\n", freqs[0], freqs[nchans_read - 1]);
 
   fits_close_file(ffptr, &status);
-
+  
   ///////////////////////////////////////////////////////////////////
   //////////////// Initializing more parameters /////////////////////
   ///////////////////////////////////////////////////////////////////
@@ -420,8 +492,11 @@ template <typename PlanType> int run(int argc, char **argv) {
   dedisp_size nchans = nchans_read;
 
   // (hifreq-lofreq)/(nchans-1)
-  dedisp_float df = -1.0 * ((double)freqs[nchans_read - 1] - (double)freqs[0]) /
-                    (nchans - 1); // MHz   (This must be negative!)
+  double ddf = ((double)freqs[0] - (double)freqs[nchans_read - 1]) /
+                    (nchans - 1);
+  printf("double ddf = %.15f\n", ddf);
+
+  dedisp_float df = ddf; // MHz   (This must be negative!)
   printf("df = %.15f\n", df);
 
   dedisp_float bw = ((double)freqs[nchans_read - 1] - (double)freqs[0]) /
@@ -437,7 +512,6 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   dedisp_size dm_count;
   dedisp_size max_delay;
-  dedisp_size nsamps_computed;
   dedisp_byte *input = 0;
   dedisp_float *output = 0;
 
@@ -595,7 +669,6 @@ template <typename PlanType> int run(int argc, char **argv) {
   // Find the parameters that determine the output size
   dm_count = plan.get_dm_count();
   max_delay = plan.get_max_delay();
-  nsamps_computed = nsamps - max_delay;
   dmlist = plan.get_dm_list();
   // dt_factors = plan.get_dt_factors(plan);
 
@@ -607,44 +680,64 @@ template <typename PlanType> int run(int argc, char **argv) {
          max_delay * dt);
   std::cout << "dt = " << dt << std::endl;
 
-#ifdef EXPORT_DEDISP_TIME_SERIES
-  printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
+  // nsamp_fft is the fft size. Keeping this bigger than nsamps is implicitly
+  // adding zero padding to the end of the timeseries. Choosing nsamps + max_delay
+  // as nsamps_fft prevents contamination at the ends when combined with shifts to 
+  // right. The time samples even when missing info from channels remain chronologically
+  // relevant.
+
+  // nsamp_padded is chosen large enough to hold complex coefficients arising 
+  // from fourier transforms. 
+
+  //nsamp_fft = dedisp::round_up(nsamps + max_delay, 16384);
+  nsamp_fft = closestOptimal(nsamps + max_delay,true);
+  //nsamp_fft = nsamps;
+  nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
+
+  // output clean timeseries
+  if (cmd->cleanoutP) {
+      nsamps_computed = nsamps - max_delay;
+  }
+  // output dirty timeseries
+  else {
+      //nsamps_computed = nsamps;
+      //nsamps_computed = nsamp_fft;
+      nsamps_computed = nsamps + max_delay;
+  }
+
+  if (cmd->fftoutP) {
+    printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
+          "(adjusting for max delay)\n",
+          nsamp_fft);
+    printf("Output data array size : %lu MB\n",
+          (dm_count * nsamp_fft * (out_nbits / 8)) / (1 << 20));
+
+    // Output is chosen such that it is able to hold all the FFT coefficients
+    output = (dedisp_float *)malloc(nsamp_padded * dm_count * out_nbits / 8);
+  }
+  else {
+    printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
          nsamps_computed, nsamps,
          100.0 * (dedisp_float)nsamps_computed / nsamps);
-  printf("Output data array size : %lu MB\n",
-         (dm_count * nsamps_computed * (out_nbits / 8)) / (1 << 20));
-#else
-  unsigned int nsamp_fft = dedisp::round_up(nsamps + max_delay, 16384);
-  printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
-         "(adjusting for max delay)\n",
-         nsamp_fft);
-  printf("Output data array size : %lu MB\n",
-         (dm_count * nsamp_fft * (out_nbits / 8)) / (1 << 20));
-#endif
+    printf("Output data array size : %lu MB\n",
+          (dm_count * nsamps_computed * (out_nbits / 8)) / (1 << 20));
+    output = (dedisp_float *)malloc(nsamps_computed * dm_count * out_nbits / 8);
+  }
 
   printf("\n");
 
-  // Allocate space for the output data
-#ifdef EXPORT_DEDISP_TIME_SERIES
-  output = (dedisp_float *)malloc(nsamps_computed * dm_count * out_nbits / 8);
-#else
-  output = (dedisp_float *)malloc(nsamp_fft * dm_count * out_nbits / 8);
-#endif
   if (output == NULL) {
     printf("\nERROR: Failed to allocate output array\n");
     return -1;
   }
 
   printf("Compute on GPU\n");
-  // startclock = clock();
   aa_gpu_timer timer;
   timer.Start();
   // Compute the dedispersion transform on the GPU
   plan.execute(nsamps, input, in_nbits, (dedisp_byte *)output, out_nbits);
   timer.Stop();
   printf("plan.execute() took %.2f seconds\n", timer.Elapsed());
-  /* printf("Dedispersion took %.2f seconds\n",
-         (double)(clock() - startclock) / CLOCKS_PER_SEC); */
 
 #if WRITE_INPUT_DATA
   FILE *file_in = fopen("input.bin", "wb");
@@ -652,23 +745,95 @@ template <typename PlanType> int run(int argc, char **argv) {
   fclose(file_in);
 #endif
 
-  // #if WRITE_OUTPUT_DATA
-#ifdef EXPORT_DEDISP_TIME_SERIES
-  FILE *file_out = fopen("output.bin", "wb");
-#else
-  FILE *file_out = fopen("output.fft", "wb");
-#endif
-  start_time = std::chrono::high_resolution_clock::now();
-  fwrite(output, 1, (size_t)nsamps_computed * dm_count * out_nbits / 8,
-         file_out);
-  fclose(file_out);
-  end_time = std::chrono::high_resolution_clock::now();
-  duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                    end_time - start_time)
-                    .count();
-  std::cout << "Writing the output data took " << (double)duration_us / 1e6
-            << " seconds" << std::endl;
-  // #endif
+  const char* outfiles_basename = (cmd->outfile == NULL) ? "output" : cmd->outfile;
+
+  if (cmd->multoutP) {
+    start_time = std::chrono::high_resolution_clock::now();
+    #pragma omp parallel for 
+    for (unsigned int out_file_idx = 0 ; out_file_idx < dm_count ; ++out_file_idx) {
+      char out_file_name[256], out_inf_name[256];
+      sprintf(out_file_name,"%s_%ld_DM_%.2f.%s", outfiles_basename, out_file_idx, dmlist[out_file_idx], (cmd->fftoutP)? "fft":"dat");
+      sprintf(out_inf_name,"%s_%ld_DM_%.2f.inf", outfiles_basename, out_file_idx, dmlist[out_file_idx]);
+      
+      FILE* file_out = fopen(out_file_name, "wb");
+      size_t numtowrite = (size_t)(cmd->fftoutP? nsamp_padded : nsamps_computed) * out_nbits / 8;
+
+      size_t writtennum = fwrite(output + out_file_idx * (size_t)(cmd->fftoutP? nsamp_padded : nsamps_computed), 
+            1, 
+            numtowrite, 
+            file_out);
+
+      if (writtennum != numtowrite) {
+        std::cerr << "Writing file " << out_file_idx << " failed!" << std::endl;
+      }
+
+      fclose(file_out);
+
+      FILE* inf_out = fopen(out_inf_name,"w");
+
+      // Writing the inf data
+      fprintf(inf_out,"%-40s= %s_DM_%.2f\n", "Data file name without suffix" ,outfiles_basename, dmlist[out_file_idx]);
+      fprintf(inf_out,"%-40s= %s\n", "Telescope used", telescope_name);
+      fprintf(inf_out,"%-40s= %s\n", "Instrument used", instrument);
+      fprintf(inf_out,"%-40s= %s\n", "Object being observed", object_name);
+      fprintf(inf_out,"%-40s= %s\n", "J2000 Right Ascension (hh:mm:ss.ssss)", right_ascension);
+      fprintf(inf_out,"%-40s= %s\n", "J2000 Declination     (dd:mm:ss.ssss)", declination + 1);
+      fprintf(inf_out,"%-40s= %s\n", "Data observed by", observed_by);
+      fprintf(inf_out,"%-40s= %.15f\n", "Epoch of observation (MJD)", epoch);
+      fprintf(inf_out,"%-40s=  0\n", "Barycentered?           (1 yes, 0 no)", observed_by);
+      fprintf(inf_out,"%-40s=  %ld\n", "Number of bins in the time series", nsamps);
+      fprintf(inf_out,"%-40s=  %.4f\n", "Width of each time series bin (sec)", dt);
+      fprintf(inf_out,"%-40s=  1\n", "Any breaks in the data? (1 yes, 0 no)");
+      fprintf(inf_out,"%-40s=  0, %ld\n", "On/Off bin pair #  1 ", nsamps_computed-1);
+      fprintf(inf_out,"%-40s=  %ld, %ld\n", "On/Off bin pair #  2", nsamps-1, nsamps-1);
+      fprintf(inf_out,"%-40s=  Radio\n", "Type of observation (EM band)  ");
+      fprintf(inf_out,"%-40s=  900\n", "Beam diameter (arcsec)");
+      fprintf(inf_out,"%-40s=  %.2f\n", "Dispersion measure (cm-3 pc)", dmlist[out_file_idx]);
+      fprintf(inf_out,"%-40s=  %.7f\n", "Central freq of low channel (MHz)", freqs[0]);
+      fprintf(inf_out, "%-40s=  %.7f\n", "Total bandwidth (MHz)", bw);
+      fprintf(inf_out, "%-40s=  %d\n", "Number of channels", nchans);
+      fprintf(inf_out, "%-40s=  %.15f\n", "Channel bandwidth (MHz)", -ddf);
+
+      char *user = getenv("USER");  // Get the username
+      if (!user) user = getenv("USERNAME");  // Fallback for Windows
+
+      fprintf(inf_out, "%-40s=  %s\n", "Data analyzed by", user ? user : "Unknown");
+      fprintf(inf_out, "Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", projid, dateobs);
+      
+      fclose(inf_out);
+      
+    }
+
+    end_time = std::chrono::high_resolution_clock::now();
+    duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                      end_time - start_time)
+                      .count();
+    std::cout << "Writing the output data in multiple files took " << (double)duration_us / 1e6
+              << " seconds" << std::endl;
+  } else {
+    printf("abc");
+    FILE *file_out;
+    if (cmd->fftoutP) {
+      char out_file_name[256];
+      sprintf(out_file_name,"%s.allDMs.fft", outfiles_basename);
+      file_out = fopen(out_file_name, "wb");
+    } else {
+      char out_file_name[256];
+      sprintf(out_file_name,"%s.allDMs.dat", outfiles_basename);
+      file_out = fopen(out_file_name, "wb");
+    }
+
+    start_time = std::chrono::high_resolution_clock::now();
+    fwrite(output, 1, (size_t)(cmd->fftoutP? nsamp_padded : nsamps_computed) * dm_count * out_nbits / 8,
+          file_out);
+    fclose(file_out);
+    end_time = std::chrono::high_resolution_clock::now();
+    duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                      end_time - start_time)
+                      .count();
+    std::cout << "Writing the output data took " << (double)duration_us / 1e6
+              << " seconds" << std::endl;
+  }
 
   // Clean up
   free(output);
