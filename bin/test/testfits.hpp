@@ -705,6 +705,9 @@ template <typename PlanType> int run(int argc, char **argv) {
       nsamps_computed = nsamps + max_delay;
   }
 
+  // Make nsamps_computed even
+  nsamps_computed = (nsamps_computed/2) * 2; 
+
   if (cmd->fftoutP) {
     printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
           "(adjusting for max delay)\n",
