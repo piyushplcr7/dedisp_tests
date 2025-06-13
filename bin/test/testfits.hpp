@@ -755,8 +755,8 @@ template <typename PlanType> int run(int argc, char **argv) {
     #pragma omp parallel for 
     for (unsigned int out_file_idx = 0 ; out_file_idx < dm_count ; ++out_file_idx) {
       char out_file_name[256], out_inf_name[256];
-      sprintf(out_file_name,"%s_%ld_DM_%.2f.%s", outfiles_basename, out_file_idx, dmlist[out_file_idx], (cmd->fftoutP)? "fft":"dat");
-      sprintf(out_inf_name,"%s_%ld_DM_%.2f.inf", outfiles_basename, out_file_idx, dmlist[out_file_idx]);
+      sprintf(out_file_name,"%s_%ld_DM%.2f.%s", outfiles_basename, out_file_idx, dmlist[out_file_idx], (cmd->fftoutP)? "fft":"dat");
+      sprintf(out_inf_name,"%s_%ld_DM%.2f.inf", outfiles_basename, out_file_idx, dmlist[out_file_idx]);
       
       FILE* file_out = fopen(out_file_name, "wb");
       size_t numtowrite = (size_t)(cmd->fftoutP? nsamp_padded : nsamps_computed) * out_nbits / 8;
@@ -775,33 +775,33 @@ template <typename PlanType> int run(int argc, char **argv) {
       FILE* inf_out = fopen(out_inf_name,"w");
 
       // Writing the inf data
-      fprintf(inf_out,"%-40s= %s_DM_%.2f\n", "Data file name without suffix" ,outfiles_basename, dmlist[out_file_idx]);
-      fprintf(inf_out,"%-40s= %s\n", "Telescope used", telescope_name);
-      fprintf(inf_out,"%-40s= %s\n", "Instrument used", instrument);
-      fprintf(inf_out,"%-40s= %s\n", "Object being observed", object_name);
-      fprintf(inf_out,"%-40s= %s\n", "J2000 Right Ascension (hh:mm:ss.ssss)", right_ascension);
-      fprintf(inf_out,"%-40s= %s\n", "J2000 Declination     (dd:mm:ss.ssss)", declination + 1);
-      fprintf(inf_out,"%-40s= %s\n", "Data observed by", observed_by);
-      fprintf(inf_out,"%-40s= %.15f\n", "Epoch of observation (MJD)", epoch);
-      fprintf(inf_out,"%-40s=  0\n", "Barycentered?           (1 yes, 0 no)", observed_by);
-      fprintf(inf_out,"%-40s=  %ld\n", "Number of bins in the time series", nsamps);
-      fprintf(inf_out,"%-40s=  %.4f\n", "Width of each time series bin (sec)", dt);
-      fprintf(inf_out,"%-40s=  1\n", "Any breaks in the data? (1 yes, 0 no)");
-      fprintf(inf_out,"%-40s=  0, %ld\n", "On/Off bin pair #  1 ", nsamps_computed-1);
-      fprintf(inf_out,"%-40s=  %ld, %ld\n", "On/Off bin pair #  2", nsamps-1, nsamps-1);
-      fprintf(inf_out,"%-40s=  Radio\n", "Type of observation (EM band)  ");
-      fprintf(inf_out,"%-40s=  900\n", "Beam diameter (arcsec)");
-      fprintf(inf_out,"%-40s=  %.2f\n", "Dispersion measure (cm-3 pc)", dmlist[out_file_idx]);
-      fprintf(inf_out,"%-40s=  %.7f\n", "Central freq of low channel (MHz)", freqs[0]);
-      fprintf(inf_out, "%-40s=  %.7f\n", "Total bandwidth (MHz)", bw);
-      fprintf(inf_out, "%-40s=  %d\n", "Number of channels", nchans);
-      fprintf(inf_out, "%-40s=  %.15f\n", "Channel bandwidth (MHz)", -ddf);
+      fprintf(inf_out,"%-40s=  %s_DM_%.2f\n", " Data file name without suffix" ,outfiles_basename, dmlist[out_file_idx]);
+      fprintf(inf_out,"%-40s=  %s\n", " Telescope used", telescope_name);
+      fprintf(inf_out,"%-40s=  %s\n", " Instrument used", instrument);
+      fprintf(inf_out,"%-40s=  %s\n", " Object being observed", object_name);
+      fprintf(inf_out,"%-40s=  %s\n", " J2000 Right Ascension (hh:mm:ss.ssss)", right_ascension);
+      fprintf(inf_out,"%-40s=  %s\n", " J2000 Declination     (dd:mm:ss.ssss)", declination + 1);
+      fprintf(inf_out,"%-40s=  %s\n", " Data observed by", observed_by);
+      fprintf(inf_out,"%-40s=  %.15f\n", " Epoch of observation (MJD)", epoch);
+      fprintf(inf_out,"%-40s=  0\n", " Barycentered?           (1 yes, 0 no)", observed_by);
+      fprintf(inf_out,"%-40s=  %ld\n", " Number of bins in the time series", nsamps);
+      fprintf(inf_out,"%-40s=  %.4f\n", " Width of each time series bin (sec)", dt);
+      fprintf(inf_out,"%-40s=  1\n", " Any breaks in the data? (1 yes, 0 no)");
+      fprintf(inf_out,"%-40s=  0, %ld\n", " On/Off bin pair #  1 ", nsamps_computed-1);
+      fprintf(inf_out,"%-40s=  %ld, %ld\n", " On/Off bin pair #  2", nsamps-1, nsamps-1);
+      fprintf(inf_out,"%-40s=  Radio\n", " Type of observation (EM band)  ");
+      fprintf(inf_out,"%-40s=  900\n", " Beam diameter (arcsec)");
+      fprintf(inf_out,"%-40s=  %.2f\n", " Dispersion measure (cm-3 pc)", dmlist[out_file_idx]);
+      fprintf(inf_out,"%-40s=  %.7f\n", " Central freq of low channel (MHz)", freqs[0]);
+      fprintf(inf_out, "%-40s=  %.7f\n", " Total bandwidth (MHz)", bw);
+      fprintf(inf_out, "%-40s=  %d\n", " Number of channels", nchans);
+      fprintf(inf_out, "%-40s=  %.15f\n", " Channel bandwidth (MHz)", -ddf);
 
       char *user = getenv("USER");  // Get the username
       if (!user) user = getenv("USERNAME");  // Fallback for Windows
 
-      fprintf(inf_out, "%-40s=  %s\n", "Data analyzed by", user ? user : "Unknown");
-      fprintf(inf_out, "Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", projid, dateobs);
+      fprintf(inf_out, "%-40s=  %s\n", " Data analyzed by", user ? user : "Unknown");
+      fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", projid, dateobs);
       
       fclose(inf_out);
       
