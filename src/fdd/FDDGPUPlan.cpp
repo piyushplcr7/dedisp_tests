@@ -412,8 +412,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // copy part from pinned h_data_t_dm to part of paged return buffer out
       // GPU Host mem pointers
       dedisp_size src_stride = 1ULL * nsamp_padded * out_bytes_per_sample;
-      size_t start_copy_from = cmd.cleanoutP ? m_max_delay : 0;
-      float* h_src_float = (float*)dm_job.h_data_t_dm->data() + start_copy_from;
+      float* h_src_float = (float*)dm_job.h_data_t_dm->data();
       auto *h_src = (void*) h_src_float;
       // CPU mem pointers
 
@@ -1310,13 +1309,15 @@ void FDDGPUPlan::execute_gpu_segmented(size_type nsamps, const byte_type *in,
 
 // Private helper function
 void FDDGPUPlan::generate_spin_frequency_table(dedisp_size nfreq,
-                                               dedisp_size nsamp,
+                                               dedisp_size nsamp_fft,
                                                dedisp_float dt) {
   h_spin_frequencies.resize(nfreq);
 
 #pragma omp parallel for
   for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++) {
-    h_spin_frequencies[ifreq] = ifreq * (1.0 / (nsamp * dt));
+    // Skipping the scaling of 1/dt in the spin frequencies which saves a multiplication
+    // in the GPU kernel
+    h_spin_frequencies[ifreq] = ifreq * (1.0 / (nsamp_fft));
   }
 
   d_spin_frequencies.resize(nfreq * sizeof(dedisp_float));

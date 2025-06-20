@@ -83,8 +83,7 @@ void Plan::set_dm_list(
     h_dm_list.assign(dm_list, dm_list+count);
 
     // Calculate the maximum delay
-    m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
-                              h_delay_table[m_nchans-1] + 0.5);
+    m_max_delay = (dedisp_size) h_dm_list[m_dm_count-1] * h_delay_table[0];
 }
 
 void Plan::set_killmask(
@@ -111,20 +110,12 @@ void Plan::generate_delay_table(
     dedisp_float* h_delay_table, dedisp_size nchans,
     dedisp_float dt, dedisp_float f0, dedisp_float df)
 {
+    dedisp_float lofreq = f0 + (nchans-1) * df;
+
     for( dedisp_size c=0; c<nchans; ++c ) {
-        dedisp_float a = 1.f / (f0+c*df);
-        dedisp_float b = 1.f / f0;
+        dedisp_float nu = lofreq + std::abs(df) * c;
         // Note: To higher precision, the constant is 4.148741601e3
-        h_delay_table[c] = 4.15e3/dt * (a*a - b*b);
-    }
-
-    // Change the delay values such that the last channel has delay 0.
-    // This is done so that the shifts performed via the FDD algorithm
-    // with zero padding at the end put the time bins in chronologically 
-    // correct positions.
-
-    for( dedisp_size c=0; c<nchans; ++c ) {
-        h_delay_table[c] = h_delay_table[c] - h_delay_table[nchans-1];
+        h_delay_table[c] = 1.0 / (0.000241 * nu * nu * dt)  - 1.0 / (0.000241 * f0 * f0 * dt);
     }
 }
 
@@ -159,9 +150,7 @@ void Plan::generate_dm_list(
     m_dm_count = h_dm_list.size();
 
     // Calculate the maximum delay and store it in the plan
-    // assumes that either end has delay 0
-    m_max_delay = dedisp_size(h_dm_list[m_dm_count-1] *
-                              (h_delay_table[m_nchans-1] - h_delay_table[0]) + 0.5); 
+    m_max_delay = (dedisp_size) h_dm_list[m_dm_count-1] * h_delay_table[0];
 }
 
 } // end namespace dedisp
