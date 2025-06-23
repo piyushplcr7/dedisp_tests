@@ -309,6 +309,10 @@ template <typename PlanType> int run(int argc, char **argv) {
   }
 
   if (cmd->numdms > 0) {
+    if (cmd->numdms < 256) {
+      std::cerr << "ERROR: Please specify at least 256 numdms" << std::endl;
+      exit(1);
+    }
     if (cmd->dmstep == 0) {
       std::cerr
           << "ERROR: Non zero dmstep value required when specifying numdms!"
