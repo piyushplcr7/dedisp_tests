@@ -26,6 +26,8 @@
 #include "common/helper.h"
 #include "helper.h"
 #include "fdd_gpu.h"
+#include "mpi.h"
+#include <cufftMp.h>
 
 size_t nsamp_fft = 0;
 size_t nsamps_computed = 0;

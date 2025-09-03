@@ -66,6 +66,8 @@
 #include "FDDGPUPlan.hpp"
 #include "cufft_optimal_size.hpp"
 
+#include <mpi.h>
+
 // Debug options
 #define WRITE_INPUT_DATA 0
 #define WRITE_OUTPUT_DATA 0
@@ -294,6 +296,17 @@ long getDataFromRows(int fd, unsigned char *table_data, long chunksize,
 #define WRITEFILES
 
 template <typename PlanType> int run(int argc, char **argv) {
+  // Initializing MPI before parsing using clig
+  MPI_Init(&argc, &argv);
+
+  // Get the rank and size
+  int world_rank, world_size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // Hoping that MPI strips out only the MPI related arguments
+  // and clig continues to work as before
+
   /////////////////////////////////////////////////////////////
   /////////// Parsing the command line arguments //////////////
   /////////////////////////////////////////////////////////////
@@ -307,6 +320,13 @@ template <typename PlanType> int run(int argc, char **argv) {
   for (int i = 0; i < nfitsfiles; ++i) {
     printf("input file %d: %s \n", i, fitsfiles[i]);
   }
+
+  // Distributing the fits files across the MPI ranks
+  int nfits_per_rank = (nfitsfiles + world_size - 1) / world_size;
+  int start_index = world_rank * nfits_per_rank;
+
+  // indexing goes upto end_index-1!!
+  int end_index = std::min(start_index + nfits_per_rank, nfitsfiles);
 
   if (cmd->numdms > 0) {
     if (cmd->numdms < 256) {
@@ -589,12 +609,11 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   float *rawdata;
   // Allocating enough memory to hold the reduced data from all files
-  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans * nfitsfiles,
-                            sizeof(float));
+  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans * nfits_per_rank, sizeof(float));
 
   // Looping over the files
-  for (int file_idx = 0; file_idx < nfitsfiles; ++file_idx) {
-    const char *filename = fitsfiles[file_idx];
+  for (int file_idx = 0; file_idx < nfits_per_rank; ++file_idx) {
+    const char *filename = fitsfiles[file_idx + start_index];
     // Opening file DIRECT and no DIRECT
     int fd = open(filename, O_RDONLY | O_DIRECT);
     int fd_nodirect = open(filename, O_RDONLY);
@@ -615,7 +634,7 @@ template <typename PlanType> int run(int argc, char **argv) {
 
     long megabytes_read = (double)(file_size) / 1e6;
     std::cout << "read " << chunks << " chunks with chunksize = " << chunksize
-              << " from file " << fitsfiles[file_idx]
+              << " from file " << fitsfiles[file_idx + start_index]
               << ", time: " << (double)duration_us / 1e6 << " seconds"
               << ", Read speed (MB/s): "
               << megabytes_read / (double)duration_us * 1e6 << std::endl;
@@ -849,5 +868,8 @@ template <typename PlanType> int run(int argc, char **argv) {
   free(rawdata);
 #endif
   printf("Dedispersion successful.\n");
+  
+  MPI_Finalize();
+  
   return 0;
 }
