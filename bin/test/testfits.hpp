@@ -2,7 +2,7 @@
   Simple test application for libdedisp
   By Paul Ray (2013)
   With extended run method to use multiple different implementations
-  (Dedisp PlanType) of dedispersion. (2020 ASTRON)
+  (Dedisp FDDGPUPlan) of dedispersion. (2020 ASTRON)
 */
 
 #include <limits.h>
@@ -67,6 +67,10 @@
 #include "cufft_optimal_size.hpp"
 
 #include <mpi.h>
+#include "nccl_macro.hpp"
+#include "mpi_macro.hpp"
+#include "cuda_macro.hpp"
+#include <thread>
 
 // Debug options
 #define WRITE_INPUT_DATA 0
@@ -292,10 +296,52 @@ long getDataFromRows(int fd, unsigned char *table_data, long chunksize,
   return chunk;
 }
 
+typedef struct {
+  int local_id;
+  int global_id;
+  int start_chan;
+  int end_chan;
+  int nchans;
+  float* data;
+} gpuChanInfo;
+
+// Assumes all fits files have identical aligned file size
+/* void extractFitsData(char** fitsfiles, int nfitsfiles, size_t chunksize, size_t file_size_aligned, int nsblk, int naxis2, int nchans, std::vector<gpuChanInfo>& gpuchans) {
+  // Allocate aligned storage buffer to hold everything in the fits file
+  unsigned char *table_full;
+  if (posix_memalign((void **)&table_full, 4096, file_size_aligned) != 0) {
+    perror("posix_memalign");
+    return -1;
+  }
+
+  // Allocate the rawdata buffer which holds the relevant channel info from one file
+  float* rawdata = (float *) malloc(rawdata_size);
+
+  // Loop over the fits files
+  for (int file_idx = 0 ; file_idx < nfitsfiles ; ++file_idx) {
+    const char* filename = fitsfiles[file_idx];
+
+    // Opening file DIRECT and no DIRECT
+    int fd = open(filename, O_RDONLY | O_DIRECT);
+    int fd_nodirect = open(filename, O_RDONLY);
+
+     if (fd == -1) {
+      perror("open");
+      return -1;
+    }
+
+    // Read the whole fits file
+    long chunks = getDataFromRows(fd, table_full, chunksize, file_size, fd_nodirect);
+
+  }
+} */
+
 #define READFROMFILE
 #define WRITEFILES
 
-template <typename PlanType> int run(int argc, char **argv) {
+using namespace dedisp;
+
+int run(int argc, char **argv) {
   // Initializing MPI before parsing using clig
   MPI_Init(&argc, &argv);
 
@@ -304,8 +350,36 @@ template <typename PlanType> int run(int argc, char **argv) {
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
+  ncclUniqueId nccl_unique_id;
+  //generating NCCL unique ID at one process and broadcasting it to all
+  if (world_rank == 0) ncclGetUniqueId(&nccl_unique_id);
+  MPICHECK(MPI_Bcast((void *)&nccl_unique_id, sizeof(nccl_unique_id), MPI_BYTE, 0, MPI_COMM_WORLD));
+
   // Hoping that MPI strips out only the MPI related arguments
   // and clig continues to work as before
+
+  int numGPUsLocal = 0;
+  cudaError_t err = cudaGetDeviceCount(&numGPUsLocal);
+  
+  if (err != cudaSuccess) {
+      std::cerr << "Error detecting CUDA devices: " 
+                << cudaGetErrorString(err) << std::endl;
+      return 1;
+  }
+
+  std::cout << "Number of CUDA devices: " << numGPUsLocal << std::endl;
+
+
+  // Assumes that each node has same no. of GPUs
+  int numGPUsTotal = world_size * numGPUsLocal;
+
+  // Calculate the number of GPUs Total using MPI reduce.
+  // Sum the number of GPUs across all ranks
+  /* MPI_Allreduce(&numGPUsLocal, &numGPUsTotal, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+  if (world_rank == 0) {
+      std::cout << "Total number of GPUs across all ranks: " << numGPUsTotal << std::endl;
+  } */
 
   /////////////////////////////////////////////////////////////
   /////////// Parsing the command line arguments //////////////
@@ -320,13 +394,6 @@ template <typename PlanType> int run(int argc, char **argv) {
   for (int i = 0; i < nfitsfiles; ++i) {
     printf("input file %d: %s \n", i, fitsfiles[i]);
   }
-
-  // Distributing the fits files across the MPI ranks
-  int nfits_per_rank = (nfitsfiles + world_size - 1) / world_size;
-  int start_index = world_rank * nfits_per_rank;
-
-  // indexing goes upto end_index-1!!
-  int end_index = std::min(start_index + nfits_per_rank, nfitsfiles);
 
   if (cmd->numdms > 0) {
     if (cmd->numdms < 256) {
@@ -513,7 +580,30 @@ template <typename PlanType> int run(int argc, char **argv) {
   dedisp_float f0 = freqs[nchans_read - 1]; // MHz (highest channel!)
   printf("f0 = %f\n", f0);
 
-  dedisp_size nchans = nchans_read;
+  int nchans = nchans_read;
+
+  // Distributing the channels across the GPUs
+  int nchans_per_gpu_max = (nchans + numGPUsTotal - 1) / numGPUsTotal;
+  int nchans_per_node_max = nchans_per_gpu_max * numGPUsLocal;
+
+  int start_chan_node = world_rank * nchans_per_node_max;
+  int end_chan_node = std::min(start_chan_node + nchans_per_node_max, nchans);
+
+  int nchans_per_node =
+      end_chan_node - start_chan_node; // Actual no. of channels on this node
+
+  /* std::vector<gpuChanInfo> gpudevs(numGPUsLocal);
+  for (int i = 0 ; i < numGPUsLocal ; ++i) {
+    int gpuidx = world_rank * numGPUsLocal + i;
+    gpudevs[i].local_id = i;
+    gpudevs[i].global_id = gpuidx;
+    gpudevs[i].start_chan = gpuidx * nchans_per_gpu_max; // start_chan_node + i * nchans_per_gpu;
+
+    // end excluded
+    gpudevs[i].end_chan = std::min((gpuidx+1) * nchans_per_gpu_max, nchans);
+    gpudevs[i].nchans = gpudevs[i].end_chan - gpudevs[i].start_chan;
+  }  */
+
 
   // (hifreq-lofreq)/(nchans-1)
   double ddf = ((double)freqs[0] - (double)freqs[nchans_read - 1]) /
@@ -605,15 +695,18 @@ template <typename PlanType> int run(int argc, char **argv) {
                          end_time - start_time)
                          .count();
 
+  // Polarization to use 
   int poln = 0;
 
+  // Allocating memory on the GPUs on this node to hold the 
+ 
   float *rawdata;
   // Allocating enough memory to hold the reduced data from all files
-  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans * nfits_per_rank, sizeof(float));
+  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans * nfitsfiles, sizeof(float));
 
   // Looping over the files
-  for (int file_idx = 0; file_idx < nfits_per_rank; ++file_idx) {
-    const char *filename = fitsfiles[file_idx + start_index];
+  for (int file_idx = 0; file_idx < nfitsfiles; ++file_idx) {
+    const char *filename = fitsfiles[file_idx];
     // Opening file DIRECT and no DIRECT
     int fd = open(filename, O_RDONLY | O_DIRECT);
     int fd_nodirect = open(filename, O_RDONLY);
@@ -634,7 +727,7 @@ template <typename PlanType> int run(int argc, char **argv) {
 
     long megabytes_read = (double)(file_size) / 1e6;
     std::cout << "read " << chunks << " chunks with chunksize = " << chunksize
-              << " from file " << fitsfiles[file_idx + start_index]
+              << " from file " << fitsfiles[file_idx]
               << ", time: " << (double)duration_us / 1e6 << " seconds"
               << ", Read speed (MB/s): "
               << megabytes_read / (double)duration_us * 1e6 << std::endl;
@@ -670,38 +763,65 @@ template <typename PlanType> int run(int argc, char **argv) {
    */
 
   // input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
+
+  // Input at this point is what we require for the MPI implementation.
+  // Since this is a buffer on a single node, it will contain channel 
+  // info for all the gpus on this node. That is, it contains channels
+  // from start_chan_node to end_chan_node-1. I can use this buffer as 
+  // it is and not extract the relevant channels for each GPU right away
   input = (dedisp_byte *)rawdata;
 
-  printf("Create plan and init GPU\n");
-  // Create a dedispersion plan
-  PlanType plan(nchans, dt, f0, df, device_idx);
 
-  printf("Gen DM list\n");
-  // Generate a list of dispersion measures for the plan
-  if (cmd->numdms == 0) {
-    std::cout << "Numdms not specified, generating DM list using the internal "
-                 "function"
-              << std::endl;
-    plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
-  } else {
-    std::cout << "Generating equispaced DM list using the provided step size"
-              << std::endl;
-    plan.generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
+  /*
+  * Creating plans for multiple GPUs on the node using the host thread
+  */
+
+  printf("Create plan and init GPU\n");
+  // Create a dedispersion plan on all the GPUs
+
+  FDDGPUPlan *plans = (FDDGPUPlan *)malloc(numGPUsLocal * sizeof(FDDGPUPlan));
+
+  ncclComm_t comms[numGPUsLocal];
+
+  // Using the group semantics for NCCL here because of a single thread
+  NCCLCHECK(ncclGroupStart());
+  for (int i=0; i<numGPUsLocal; i++) {
+     CUDA_CHECK(cudaSetDevice(i));
+     NCCLCHECK(ncclCommInitRank(comms+i, world_size*numGPUsLocal, nccl_unique_id, world_rank*numGPUsLocal + i));
+  }
+  NCCLCHECK(ncclGroupEnd());
+
+  // Creating plans using the host thread
+  for (int i = 0 ; i < numGPUsLocal ; ++i) {
+      int gpuidx = world_rank * numGPUsLocal + i;
+
+      // Defining the channel chunks per GPU
+      int start_chan = gpuidx * nchans_per_gpu_max; // start_chan_node + i * nchans_per_gpu;
+      int end_chan = std::min((gpuidx+1) * nchans_per_gpu_max, nchans);
+      int nchans_gpu = end_chan - start_chan;
+
+      new(plans+i) FDDGPUPlan(nchans, dt, f0, df, i, gpuidx, start_chan, end_chan, nchans_gpu, start_chan_node, comms[i]);
+
+      // Generate a list of dispersion measures for the plan
+    if (cmd->numdms == 0) {
+      std::cout << "Numdms not specified, generating DM list using the internal "
+                  "function"
+                << std::endl;
+      plans[i].generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
+    } else {
+      std::cout << "Generating equispaced DM list using the provided step size"
+                << std::endl;
+      plans[i].generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
+    }
   }
 
-  // Find the parameters that determine the output size
-  dm_count = plan.get_dm_count();
-  max_delay = plan.get_max_delay();
-  dmlist = plan.get_dm_list();
-  // dt_factors = plan.get_dt_factors(plan);
+  /* 
+   * Find the parameters that determine the output size
+   */
 
-  printf("----------------------------- DM COMPUTATIONS  "
-         "----------------------------\n");
-  printf("Computing %lu DMs from %f to %f pc/cm^3\n", dm_count, dmlist[0],
-         dmlist[dm_count - 1]);
-  printf("Max DM delay is %lu samples (%.3f seconds)\n", max_delay,
-         max_delay * dt);
-  std::cout << "dt = " << dt << std::endl;
+  dm_count = plans[0].get_dm_count();
+  max_delay = plans[0].get_max_delay();
+  dmlist = plans[0].get_dm_list();
 
   // nsamp_fft is the fft size. Keeping this bigger than nsamps is implicitly
   // adding zero padding to the end of the timeseries. Choosing nsamps + max_delay
@@ -712,9 +832,7 @@ template <typename PlanType> int run(int argc, char **argv) {
   // nsamp_padded is chosen large enough to hold complex coefficients arising 
   // from fourier transforms. 
 
-  //nsamp_fft = dedisp::round_up(nsamps + max_delay, 16384);
   nsamp_fft = closestOptimal(nsamps + max_delay,true);
-  //nsamp_fft = nsamps;
   nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
 
   // output clean timeseries
@@ -730,6 +848,15 @@ template <typename PlanType> int run(int argc, char **argv) {
 
   // Make nsamps_computed even
   nsamps_computed = (nsamps_computed/2) * 2; 
+
+  /* int local_dm_count = (dm_count + world_size - 1) / world_size;
+  int start_dm_idx = world_rank * local_dm_count;
+  int end_dm_idx = std::min(start_dm_idx + local_dm_count, (int)dm_count);
+  local_dm_count = end_dm_idx - start_dm_idx; */
+
+  /*
+   * Allocating space for the output. The output is local to the node.
+   */
 
   if (cmd->fftoutP) {
     printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
@@ -757,19 +884,41 @@ template <typename PlanType> int run(int argc, char **argv) {
     return -1;
   }
 
-  printf("Compute on GPU\n");
-  aa_gpu_timer timer;
-  timer.Start();
-  // Compute the dedispersion transform on the GPU
-  plan.execute(nsamps, input, in_nbits, (dedisp_byte *)output, out_nbits);
-  timer.Stop();
-  printf("plan.execute() took %.2f seconds\n", timer.Elapsed());
+  
 
-#if WRITE_INPUT_DATA
-  FILE *file_in = fopen("input.bin", "wb");
-  fwrite(input, 1, (size_t)nsamps * nchans * (in_nbits / 8), file_in);
-  fclose(file_in);
-#endif
+
+  // Lambda function to be launched on a different thread for each GPU
+  auto GPURunfunctor = [&](int dev_idx) {
+    // Set the GPU
+    cudaSetDevice(dev_idx);
+
+    // Create the plan
+    FDDGPUPlan &plan = plans[dev_idx];
+
+    std::cout << "Computing on GPU device " << dev_idx << std::endl;
+
+    aa_gpu_timer timer;
+    timer.Start();
+    // Compute the dedispersion transform on the GPU
+    plan.execute(nsamps, input, in_nbits, (dedisp_byte *)output, out_nbits);
+    timer.Stop();
+
+    std::cout << "plan.execute() took " << timer.Elapsed() << " seconds on GPU device " << dev_idx << std::endl;
+
+  };  
+
+  // Launching threads for each GPU on this node
+  std::vector<std::thread> gpu_threads;
+  for (int i = 0 ; i < numGPUsLocal ; ++i)  {
+      gpu_threads.emplace_back(GPURunfunctor, i);
+  }
+
+  // Joining the threads
+  for (auto& th : gpu_threads) {
+      // if joinable then join
+      if (th.joinable()) 
+          th.join();  
+  }
 
   const char* outfiles_basename = (cmd->outfile == NULL) ? "output" : cmd->outfile;
 
@@ -867,6 +1016,7 @@ template <typename PlanType> int run(int argc, char **argv) {
 #ifdef READFROMFILE
   free(rawdata);
 #endif
+  free(plans);
   printf("Dedispersion successful.\n");
   
   MPI_Finalize();

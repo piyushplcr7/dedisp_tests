@@ -18,6 +18,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 #find_package(CUDA)
 find_package(CUDAToolkit REQUIRED)
 
+find_package(NCCL)
+
 # set Release as default build type
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -86,7 +88,10 @@ else()
     message(FATAL_ERROR "CFITSIO include directory not found or invalid!")
 endif()
 
-
+################################################################################
+# MPI
+################################################################################
+find_package(MPI REQUIRED)
 
 ################################################################################
 # library

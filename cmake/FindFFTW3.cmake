@@ -33,16 +33,8 @@ find_library(
 include(FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args(
-  FFTW3_INCLUDE_DIR DEFAULT_MSG
+  FFTW3 DEFAULT_MSG
   FFTW3_INCLUDE_DIR
-)
-
-find_package_handle_standard_args(
-  FFTW3_LIBRARY DEFAULT_MSG
   FFTW3_LIBRARY
-)
-
-find_package_handle_standard_args(
-  FFTW3F_LIBRARY DEFAULT_MSG
   FFTW3F_LIBRARY
 )

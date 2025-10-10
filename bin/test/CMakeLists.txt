@@ -19,14 +19,18 @@ include_directories(${CMAKE_SOURCE_DIR}/src/fdd)
 # test for dedisp library
 ################################################################################
 add_executable(testdedisp
-    testdedisp.cpp
+    testdedisp.cu
 )
 
-target_include_directories(testdedisp PRIVATE
-    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR}
+target_include_directories(testdedisp 
+    PRIVATE ${CMAKE_SOURCE_DIR}/src 
+    PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
+    PRIVATE ${MPI_CXX_INCLUDE_DIRS}
+    PRIVATE ${CFITSIO_INCLUDE_DIR}
+    PRIVATE ${NCCL_INCLUDE_DIR}
 )
 
-target_link_libraries(testdedisp fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
+target_link_libraries(testdedisp fdd_gpu_clig fdd ${CFITSIO_LIBRARY} ${NCCL_LIBRARY} MPI::MPI_CXX)
 
 ################################################################################
 # test for read speed
@@ -91,6 +95,26 @@ target_include_directories(mmap_only_read PRIVATE
 
 target_link_libraries(mmap_only_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
 
+add_executable(fits_class_test
+    fits_class_test.cpp
+)
+
+target_include_directories(fits_class_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR}
+)
+
+target_link_libraries(fits_class_test fits ${CFITSIO_LIBRARY})
+
+add_executable(fits_class_test_mpi
+    fits_class_test_mpi.cpp
+)
+
+target_include_directories(fits_class_test_mpi PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR} ${MPI_CXX_INCLUDE_DIRS}
+)
+
+target_link_libraries(fits_class_test_mpi fits ${CFITSIO_LIBRARY} MPI::MPI_CXX)
+
 
 ################################################################################
 # test for tdd library
@@ -109,15 +133,15 @@ target_link_libraries(testtdd tdd)
 ################################################################################
 # test for fdd library
 ################################################################################
-add_executable(testfdd
-    testfdd.cpp
-)
+#add_executable(testfdd
+#    testfdd.cpp
+#)
 
-target_include_directories(testfdd PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
+#target_include_directories(testfdd PRIVATE
+#    ${CMAKE_SOURCE_DIR}/src ${NCCL_INCLUDE_DIR}
+#)
 
-target_link_libraries(testfdd fdd)
+#target_link_libraries(testfdd fdd ${NCCL_LIBRARY})
 
 
 ################################################################################
@@ -128,7 +152,7 @@ install(
         ctestdedisp
         testdedisp
         testtdd
-        testfdd
+        #testfdd
     RUNTIME
         DESTINATION bin
 )

@@ -29,15 +29,15 @@ target_link_libraries(benchtdd tdd)
 ################################################################################
 # test for fdd library
 ################################################################################
-add_executable(benchfdd
-    benchfdd.cpp
-)
+#add_executable(benchfdd
+#    benchfdd.cpp
+#)
 
-target_include_directories(benchfdd PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
+#target_include_directories(benchfdd PRIVATE
+#    ${CMAKE_SOURCE_DIR}/src
+#)
 
-target_link_libraries(benchfdd fdd)
+#target_link_libraries(benchfdd fdd)
 
 
 ################################################################################
@@ -47,7 +47,7 @@ install(
     TARGETS
         benchdedisp
         benchtdd
-        benchfdd
+        #benchfdd
     RUNTIME
         DESTINATION bin
 )

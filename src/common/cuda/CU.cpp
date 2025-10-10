@@ -156,6 +156,26 @@ namespace cu {
         }
     }
 
+    DeviceMemory::DeviceMemory(size_t size, int dev_id) {
+        m_capacity = size;
+        m_size = size;
+        if (size) {
+            cudaSetDevice(dev_id);                  // set device for this thread
+            assertCudaCall(cudaMalloc(&m_ptr, size));
+        }
+    }
+
+    void DeviceMemory::resize(size_t size, int dev_id) {
+        assert(size > 0);
+        m_size = size;
+        if (size > m_capacity) {
+            release();
+            cudaSetDevice(dev_id);                  // ensure allocation goes to correct device
+            assertCudaCall(cudaMalloc(&m_ptr, size));
+            m_capacity = size;
+        }
+    }
+
     void DeviceMemory::release() {
         if (m_capacity) {
             assertCudaCall(cudaFree(m_ptr));

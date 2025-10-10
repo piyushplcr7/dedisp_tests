@@ -78,9 +78,12 @@ namespace cu {
 
         public:
             DeviceMemory(size_t size = 0);
+            DeviceMemory(size_t size, int dev_id);
             ~DeviceMemory();
 
             void resize(size_t size);
+            void resize(size_t size, int dev_id);
+            
             void zero(cudaStream_t stream = NULL);
 
             template <typename T> operator T () {

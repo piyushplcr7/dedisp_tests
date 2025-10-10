@@ -5,10 +5,37 @@
 
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
+#include <nccl.h>
+
+// #define USECUFILE
+
+#ifdef USECUFILE
+#include <cufile.h>
+#endif
 
 extern size_t nsamp_fft;
 extern size_t nsamps_computed;
 extern size_t nsamp_padded;
+
+#ifdef CUFILE
+// Check cuFile API calls that return CUfileError_t
+#define CK_CUFILE(call)                                                        \
+do {                                                                           \
+    CUfileError_t _st = (call);                                                \
+    if (_st.err != CU_FILE_SUCCESS) {                                          \
+        fprintf(stderr,                                                        \
+                "cuFile error %s:%d: err=%d (%s)\n",                           \
+                __FILE__, __LINE__, (int)_st.err, CUFILE_ERRSTR(_st.err));     \
+        std::exit(EXIT_FAILURE);                                               \
+    }                                                                          \
+} while (0)
+#endif
+
+
+static inline size_t round_up_4k(size_t x) {
+    const size_t A = 4096;
+    return (x + (A - 1)) & ~(A - 1);
+}
 
 namespace dedisp
 {
@@ -21,7 +48,13 @@ public:
         float_type dt,
         float_type f0,
         float_type df,
-        int device_idx = 0);
+        int device_idx,
+        int global_gpu_id_,
+        int start_chan_,
+        int end_chan_,
+        int nchan_gpu_, 
+        int start_chan_node_, 
+        ncclComm_t comm_);
 
     // Destructor
     ~FDDGPUPlan();
@@ -34,6 +67,8 @@ public:
         byte_type*       out,
         size_type        out_nbits,
         unsigned         flags = 0) override;
+
+    void gpuDirectWrite(std::string path_string, void* buf, size_t size);
 
 private:
     // Private interface for FDD on GPU
@@ -67,6 +102,14 @@ private:
     cu::DeviceMemory d_spin_frequencies; // type = dedisp_float
     std::vector<cu::DeviceMemory> d_data_t_nu_;
     std::vector<cu::DeviceMemory> d_data_x_dm_;
+
+    int global_gpu_id = 0;
+    int local_gpu_id = 0;
+    int start_chan = 0;
+    int end_chan = 0;
+    int nchan_gpu = 0;
+    int start_chan_node = 0;
+    ncclComm_t comm;
 };
 
 } // end namespace dedisp

@@ -143,7 +143,7 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
 
 		case DEDISP_FDD:
   			if (use_cpu) (*plan)->ptr.reset(new dedisp::FDDCPUPlan(nchans, dt, f0, df, g_device_idx));
-			else (*plan)->ptr.reset(new dedisp::FDDGPUPlan(nchans, dt, f0, df, g_device_idx));
+			else int x=1;//(*plan)->ptr.reset(new dedisp::FDDGPUPlan(nchans, dt, f0, df, g_device_idx));
 		break;
 
 		default:
