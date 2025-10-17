@@ -277,7 +277,7 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
   cudaSetDevice(local_gpu_id);
 
   
-  /* int n[] = {(int)nsamp_fft};
+  int n[] = {(int)nsamp_fft};
   int rnembed[] = {(int)nsamp_padded};     // width in real elements
   int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
   
@@ -318,7 +318,7 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
       throw std::runtime_error("Error creating complex to real FFT plan.");
     }
     cufftSetStream(plan_c2r, *executestream);
-    mPrepFFT1.end(); */
+    mPrepFFT1.end();
   //});
 
   cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
@@ -384,7 +384,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   cudaSetDevice(local_gpu_id);
   cudaFree(0); 
 
-  int n[] = {(int)nsamp_fft};
+  /* int n[] = {(int)nsamp_fft};
   int rnembed[] = {(int)nsamp_padded};     // width in real elements
   int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
   
@@ -425,7 +425,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       throw std::runtime_error("Error creating complex to real FFT plan.");
     }
     cufftSetStream(plan_c2r, *executestream);
-    mPrepFFT1.end();
+    mPrepFFT1.end(); */
 
   enum {
     BITS_PER_BYTE = 8,
