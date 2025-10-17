@@ -393,22 +393,22 @@ int run(int argc, char **argv) {
   //ncclinit.start();
 
   // Parallel NCCL init. Doesn't work! hangs!
-  /* #pragma omp parallel for
+  #pragma omp parallel for num_threads(numGPUsLocal) schedule(static)
   for (int i=0; i<numGPUsLocal; ++i) {
     cudaSetDevice(i);                 // context already warmed
     NCCLCHECK(ncclCommInitRank(&comms[i],
                     world_size*numGPUsLocal,
                     nccl_unique_id,
                     world_rank*numGPUsLocal + i));
-  } */
+  }
 
   // Using the group semantics for NCCL here because of a single thread
-  NCCLCHECK(ncclGroupStart());
+  /* NCCLCHECK(ncclGroupStart());
   for (int i=0; i<numGPUsLocal; i++) {
      CUDA_CHECK(cudaSetDevice(i));
      NCCLCHECK(ncclCommInitRank(comms+i, world_size*numGPUsLocal, nccl_unique_id, world_rank*numGPUsLocal + i));
   }
-  NCCLCHECK(ncclGroupEnd());
+  NCCLCHECK(ncclGroupEnd()); */
 
   //ncclinit.end();
 
