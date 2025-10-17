@@ -1,5 +1,5 @@
 add_library(fdd SHARED
-    FDDGPUPlan.cu
+    FDDGPUPlan.cpp
     FDDCPUPlan.cpp
     dedisperse/FDDKernel.cu
     unpack/unpack.cu

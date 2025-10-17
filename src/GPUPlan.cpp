@@ -22,9 +22,9 @@ GPUPlan::GPUPlan(
     set_device(device_idx);
 
     // Initialize streams
-    htodstream.reset(new cu::Stream());
-    dtohstream.reset(new cu::Stream());
-    executestream.reset(new cu::Stream());
+    htodstream.reset(new cu::Stream(cudaStreamNonBlocking));
+    dtohstream.reset(new cu::Stream(cudaStreamNonBlocking));
+    executestream.reset(new cu::Stream(cudaStreamNonBlocking));
 
     // Initialize delay table
     d_delay_table.resize(nchans * sizeof(dedisp_float));

@@ -40,10 +40,13 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <nvToolsExt.h>
 
 size_t nsamp_fft = 0;
 size_t nsamps_computed = 0;
 size_t nsamp_padded = 0;
+int numGPUsLocal = 0;
+int total_cores = 0;
 
 namespace dedisp {
 
@@ -125,6 +128,40 @@ FDDGPUPlan::FDDGPUPlan(size_type nchans,
 // Destructor
 FDDGPUPlan::~FDDGPUPlan() {}
 
+// Assumes same height of the source and destination memory layout in 2D
+void FDDGPUPlan::memcpy2D_internal(
+    void *dstPtr, size_t dstWidth,
+    const void *srcPtr, size_t srcWidth,
+    size_t widthBytes, size_t height)
+{
+    cu::Marker mCopyMem("memcpy2D_internal", cu::Marker::Color::blue);
+    mCopyMem.start();
+    typedef char SrcType[height][srcWidth];
+    typedef char DstType[height][dstWidth];
+
+    auto src = (SrcType *) srcPtr;
+    auto dst = (DstType *) dstPtr;
+
+    int memcpy2d_cores = total_cores / numGPUsLocal - 2;
+    #pragma omp parallel
+    {
+      int thread_id = omp_get_thread_num();
+      pin_thread_to_core(2 * numGPUsLocal + local_gpu_id * memcpy2d_cores + thread_id);
+
+      #pragma omp for
+      for (size_t y = 0; y < height; y++)
+      {
+          /* for (size_t x = 0; x < widthBytes; x++)
+          {
+              (*dst)[y][x] = (*src)[y][x];
+          } */
+         std::memcpy((*dst)[y], (*src)[y], widthBytes);
+      }
+    }
+    mCopyMem.end();
+    
+}
+
 // Public interface for FDD on GPU
 void FDDGPUPlan::execute(size_type nsamps, const byte_type *in,
                          size_type in_nbits, byte_type *out,
@@ -144,182 +181,53 @@ void FDDGPUPlan::execute(size_type nsamps, const byte_type *in,
   }
 }
 
-// Private interface for FDD on GPU
-void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
-                             size_type in_nbits, byte_type *out,
-                             size_type out_nbits) {
-  enum {
-    BITS_PER_BYTE = 8,
-    BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
-  };
-
-  #ifdef USECUFILE
-  #define DSOUT
-  #endif
-
-  cudaSetDevice(local_gpu_id);
-  int loc_gpu_id = local_gpu_id;
-
-  float* float_in = (float*) in;
-
-  aa_gpu_timer C2Rtimer;
-  double c2rtime = 0;
-
-  aa_gpu_timer R2Ctimer;
-  double r2ctime = 0;
-
-  // Original code. Commented out to allow working directly with floats
-  //assert(in_nbits == 8);
-  assert(out_nbits == 32);
-
-  // Parameters
-  float dt = m_dt;                      // sample time
-  unsigned int nchan = nchan_gpu;        // number of channels for this GPU
-  size_t nsamp = nsamps;          // number of time samples
-  unsigned int ndm = m_dm_count;        // number of DMs
-
-  // Use zero-padded FFT
-  // This allows for a more efficient FFT implementation with cuFFT
-  //bool use_zero_padding = true;
-  // Compute padded number of samples (for r2c transformation)
-  // the round_up value might be tuned for efficiency depending on system
-  // architecture
-
-  //size_t nsamp_fft = (cmd.fftoutP) ? round_up(nsamp + m_max_delay, 16384) : ((use_zero_padding)? round_up(nsamp + 1, 16384) : nsamp );
-  /* if (cmd.fftoutP) {
-    nsamp_fft = round_up(nsamp + m_max_delay, 16384);
-    std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
-  }
-  else {
-    nsamp_fft = use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
-  } */
-
-  size_t nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
-  //size_t nsamp_padded = round_up(nsamp_fft + 1, 1024);
-  //size_t nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
-  std::cout << "nsamp        = " << nsamp << std::endl;
-  std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
-  std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
-
-  std::cout << "m_max_delay = " << m_max_delay << std::endl;
-  std::cout << "nsamps_computed = " << nsamps_computed << std::endl;
-#ifdef DEDISP_DEBUG
-  std::cout << debug_str << std::endl;
-  std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
-  std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
-#endif
+void FDDGPUPlan::determineBufferSizes(size_t nsamps) {
+  
+  nchan_fft_batch = 64;
+  nchan = nchan_gpu;        // number of channels for this GPU
+  nsamp = nsamps;          // number of time samples
+  nfreq = (nsamp_fft / 2 + 1); // number of spin frequencies
+  ndm = m_dm_count;        // number of DMs
 
   // Maximum number of DMs computed in one gulp
   // Parameters might be tuned for efficiency depending on system architecture
-  unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
-  unsigned int ndm_fft_batch = 32;
+  ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
+  ndm_fft_batch = 32;
   ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
   // The number of buffers for DM results is configured below based on the
   // amount of available GPU memory.
-  unsigned int ndm_buffers = 1;
+  ndm_buffers = 1;
 
   // Maximum number of channels processed in one gulp
   // Parameters might be tuned for efficiency depending on system architecture
-  unsigned int nchan_batch_max = std::min(nchan / 4, (unsigned int)64);
-  unsigned int nchan_fft_batch = 64;
-  unsigned int nchan_buffers = 2;
-
-  // Verbose iteration reporting
-#ifdef DEDISP_DEBUG
-  bool enable_verbose_iteration_reporting = false;
-#endif
-
-  // Compute derived counts
-  dedisp_size out_bytes_per_sample =
-      out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
+  nchan_batch_max = std::min(nchan / 4, (unsigned int)64);
   
-  //dedisp_size chans_per_word = sizeof(dedisp_word) * BITS_PER_BYTE / in_nbits;
-  dedisp_size chans_per_word = 1;
+  nchan_buffers = 2;
+
+  chans_per_word = 1;
+
+  /* std::cout << "nsamp        = " << nsamp << std::endl;
+  std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
+  std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
+  std::cout << "m_max_delay = " << m_max_delay << std::endl;
+  std::cout << "nsamps_computed = " << nsamps_computed << std::endl; */
 
   // The number of channel words in the input
   // For input that contains all channels per node, distribution between GPUs
   // requires stride of nchans (total)
-  dedisp_size nchan_words = m_nchans / chans_per_word;
+  nchan_words = m_nchans / chans_per_word;
 
   // The number of channel words proccessed in one gulp
-  dedisp_size nchan_words_gulp = nchan_batch_max / chans_per_word;
+  nchan_words_gulp = nchan_batch_max / chans_per_word;
 
-  // Events, markers, timers
-  cu::Event eStartGPU, eEndGPU;
-  cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
-  cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
-  cu::Marker mPrepFFT("cufft Plan Many", cu::Marker::yellow);
-  cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
-  cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
-  cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
-#ifdef DEDISP_BENCHMARK
-  std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> gpuexec_timer(Stopwatch::create());
-  std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
-  total_timer->Start();
-  init_timer->Start();
-#endif
-
-  if ((nsamp_fft - (int) nsamp_fft) != 0 || (nsamp_padded - (int) nsamp_padded) != 0) {
-    std::cerr << "Too large sizes for nsamp_fft or nsamp_padded. Check FDDGPUPlan.cpp" << std::endl;
-    exit(1);
-  }
-
-  // Prepare cuFFT plans
-#ifdef DEDISP_DEBUG
-  std::cout << fft_plan_str << std::endl;
-#endif
-  mPrepFFT.start();
-  cufftHandle plan_r2c, plan_c2r;
-  int n[] = {(int)nsamp_fft};
-  int rnembed[] = {(int)nsamp_padded};     // width in real elements
-  int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
-
-  cufftResult result =
-      cufftPlanMany(&plan_r2c,              // plan
-                    1, n,                   // rank, n
-                    rnembed, 1, rnembed[0], // inembed, istride, idist
-                    cnembed, 1, cnembed[0], // onembed, ostride, odist
-                    CUFFT_R2C,              // type
-                    nchan_fft_batch);       // batch
-  if (result != CUFFT_SUCCESS) {
-    throw std::runtime_error("Error creating real to complex FFT plan.");
-  }
-  cufftSetStream(plan_r2c, *executestream);
-
-  result =
-      cufftPlanMany(&plan_c2r,              // plan
-                    1, n,                   // rank, n
-                    cnembed, 1, cnembed[0], // inembed, istride, idist
-                    rnembed, 1, rnembed[0], // onembed, ostride, odist
-                    CUFFT_C2R,              // type
-                    ndm_fft_batch);         // batch
-  if (result != CUFFT_SUCCESS) {
-    throw std::runtime_error("Error creating complex to real FFT plan.");
-  }
-  cufftSetStream(plan_c2r, *executestream);
-  mPrepFFT.end();
-
-  // Generate spin frequency table
-  mPrepSpinf.start();
-  if (h_spin_frequencies.size() != nfreq) {
-    generate_spin_frequency_table(nfreq, nsamp_fft, dt);
-  }
-  mPrepSpinf.end();
-
-  // Determine the amount of memory to use
   size_t d_memory_total = m_device->get_total_memory();
   size_t d_memory_free = m_device->get_free_memory();
-  size_t sizeof_data_t_nu =
+
+  sizeof_data_t_nu =
       1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
-  size_t sizeof_data_x_nu =
+  sizeof_data_x_nu =
       1ULL * nchan_batch_max * nsamp_padded * sizeof(float);
-  size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded * sizeof(float);
+  sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded * sizeof(float);
   // For device side, initial value
   size_t d_memory_required = sizeof_data_t_nu * nchan_buffers +
                              sizeof_data_x_nu * 1 +
@@ -346,13 +254,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                         sizeof_data_x_nu * 1 + sizeof_data_x_dm * (ndm_buffers);
   };
 
-  // Debug
-//#ifdef DEDISP_DEBUG
-  std::cout << debug_str << std::endl;
+  /* std::cout << debug_str << std::endl;
   std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
             << " DMs" << std::endl;
-  /* std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
-            << " channels" << std::endl; */
+  std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
+            << " channels" << std::endl;
   std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3)
             << " Gb" << std::endl;
   std::cout << "Device memory free     = " << d_memory_free / std::pow(1024, 3)
@@ -362,13 +268,60 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   std::cout << "Host memory total    = "
             << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
   std::cout << "Host memory free     = "
-            << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-//#endif
+            << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl; */
+}
 
-  // Allocate memory
-#ifdef DEDISP_DEBUG
-  std::cout << memory_alloc_str << std::endl;
-#endif
+void FDDGPUPlan::allocateMem(size_t nsamps) {
+  // This function just allocates the host/device memory required for the execute step
+  // The memory to be allocated is calculated based on a few parameters
+  cudaSetDevice(local_gpu_id);
+
+  
+  /* int n[] = {(int)nsamp_fft};
+  int rnembed[] = {(int)nsamp_padded};     // width in real elements
+  int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
+  
+  // Threads for cufft plan r2c
+  //std::jthread thread_r2c = std::jthread([&]() {
+  //  cudaSetDevice(local_gpu_id);
+    cu::Marker mPrepFFT("cufft Plan r2c", cu::Marker::yellow);
+    mPrepFFT.start();
+
+    cufftResult result =
+        cufftPlanMany(&plan_r2c,              // plan
+                      1, n,                   // rank, n
+                      rnembed, 1, rnembed[0], // inembed, istride, idist
+                      cnembed, 1, cnembed[0], // onembed, ostride, odist
+                      CUFFT_R2C,              // type
+                      nchan_fft_batch);       // batch
+    if (result != CUFFT_SUCCESS) {
+      throw std::runtime_error("Error creating real to complex FFT plan.");
+    }
+    cufftSetStream(plan_r2c, *executestream);
+    mPrepFFT.end();
+  //});
+
+  // Threads for cufft plan c2r
+  //std::jthread thread_c2r = std::jthread([&]() {
+  //  cudaSetDevice(local_gpu_id);
+    cu::Marker mPrepFFT1("cufft Plan c2r", cu::Marker::yellow);
+    mPrepFFT1.start();
+
+      result =
+        cufftPlanMany(&plan_c2r,              // plan
+                      1, n,                   // rank, n
+                      cnembed, 1, cnembed[0], // inembed, istride, idist
+                      rnembed, 1, rnembed[0], // onembed, ostride, odist
+                      CUFFT_C2R,              // type
+                      ndm_fft_batch);         // batch
+    if (result != CUFFT_SUCCESS) {
+      throw std::runtime_error("Error creating complex to real FFT plan.");
+    }
+    cufftSetStream(plan_c2r, *executestream);
+    mPrepFFT1.end(); */
+  //});
+
+  cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
   mAllocMem.start();
   /*
       The buffers are used as follows:
@@ -392,25 +345,27 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   */
 
   // Allocate host output buffers if not using direct storage for output
-  #ifndef DSOUT
+  #ifndef USECUFILE
   // Allocate host output buffers only once per node
   if (local_gpu_id == 0) {
     h_data_t_dm_.resize(ndm_buffers);
   }
   #endif
-
   h_data_t_nu_.resize(nchan_buffers);
   
   d_data_t_nu_.resize(nchan_buffers);
   d_data_x_dm_.resize(ndm_buffers);
-  cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
+
+  //cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
+  d_data_x_nu.resize(sizeof_data_x_nu);
+
   for (unsigned int i = 0; i < nchan_buffers; i++) {
     h_data_t_nu_[i].resize(sizeof_data_t_nu);
     d_data_t_nu_[i].resize(sizeof_data_t_nu);
   }
-  for (unsigned int i = 0; i < ndm_buffers; i++) {
 
-    #ifdef DSOUT
+  for (unsigned int i = 0; i < ndm_buffers; i++) {
+    #ifdef USECUFILE
     d_data_x_dm_[i].resize(round_up_4k(sizeof_data_x_dm));
     #else
     if (local_gpu_id == 0)
@@ -419,6 +374,156 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     #endif
   }
   mAllocMem.end();
+
+}
+
+// Private interface for FDD on GPU
+void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
+                             size_type in_nbits, byte_type *out,
+                             size_type out_nbits) {
+  cudaSetDevice(local_gpu_id);
+  cudaFree(0); 
+
+  int n[] = {(int)nsamp_fft};
+  int rnembed[] = {(int)nsamp_padded};     // width in real elements
+  int cnembed[] = {(int)nsamp_padded / 2}; // width in complex elements
+  
+  // Threads for cufft plan r2c
+  //std::jthread thread_r2c = std::jthread([&]() {
+  //  cudaSetDevice(local_gpu_id);
+    cu::Marker mPrepFFT("cufft Plan r2c", cu::Marker::yellow);
+    mPrepFFT.start();
+
+    cufftResult result =
+        cufftPlanMany(&plan_r2c,              // plan
+                      1, n,                   // rank, n
+                      rnembed, 1, rnembed[0], // inembed, istride, idist
+                      cnembed, 1, cnembed[0], // onembed, ostride, odist
+                      CUFFT_R2C,              // type
+                      nchan_fft_batch);       // batch
+    if (result != CUFFT_SUCCESS) {
+      throw std::runtime_error("Error creating real to complex FFT plan.");
+    }
+    cufftSetStream(plan_r2c, *executestream);
+    mPrepFFT.end();
+  //});
+
+  // Threads for cufft plan c2r
+  //std::jthread thread_c2r = std::jthread([&]() {
+  //  cudaSetDevice(local_gpu_id);
+    cu::Marker mPrepFFT1("cufft Plan c2r", cu::Marker::yellow);
+    mPrepFFT1.start();
+
+      result =
+        cufftPlanMany(&plan_c2r,              // plan
+                      1, n,                   // rank, n
+                      cnembed, 1, cnembed[0], // inembed, istride, idist
+                      rnembed, 1, rnembed[0], // onembed, ostride, odist
+                      CUFFT_C2R,              // type
+                      ndm_fft_batch);         // batch
+    if (result != CUFFT_SUCCESS) {
+      throw std::runtime_error("Error creating complex to real FFT plan.");
+    }
+    cufftSetStream(plan_c2r, *executestream);
+    mPrepFFT1.end();
+
+  enum {
+    BITS_PER_BYTE = 8,
+    BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
+  };
+
+  int loc_gpu_id = local_gpu_id;
+
+  float* float_in = (float*) in;
+
+  aa_gpu_timer C2Rtimer;
+  double c2rtime = 0;
+
+  aa_gpu_timer R2Ctimer;
+  double r2ctime = 0;
+
+  // Original code. Commented out to allow working directly with floats
+  //assert(in_nbits == 8);
+  assert(out_nbits == 32);
+
+  // Parameters
+  float dt = m_dt;                      // sample time
+  
+#ifdef DEDISP_DEBUG
+  std::cout << debug_str << std::endl;
+  std::cout << "nsamp_fft    = " << nsamp_fft << std::endl;
+  std::cout << "nsamp_padded = " << nsamp_padded << std::endl;
+#endif
+
+  // Verbose iteration reporting
+#ifdef DEDISP_DEBUG
+  bool enable_verbose_iteration_reporting = false;
+#endif
+
+  // Compute derived counts
+  dedisp_size out_bytes_per_sample =
+      out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
+
+  // Events, markers, timers
+  cu::Event eStartGPU, eEndGPU;
+  cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
+  cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
+  cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
+  cu::Marker mExeGPU("Dedisp fdd execution on GPU", cu::Marker::green);
+  cu::Marker m1("Finishing #ndm_buffer dedispersion kernels, moving to next channel batch", cu::Marker::green);
+  cu::Marker m2("DM job prev. outputEnd", cu::Marker::green);
+#ifdef DEDISP_BENCHMARK
+  std::unique_ptr<Stopwatch> init_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> preprocessing_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> input_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> dedispersion_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> postprocessing_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> output_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> gpuexec_timer(Stopwatch::create());
+  std::unique_ptr<Stopwatch> total_timer(Stopwatch::create());
+  total_timer->Start();
+  init_timer->Start();
+#endif
+
+  if ((nsamp_fft - (int) nsamp_fft) != 0 || (nsamp_padded - (int) nsamp_padded) != 0) {
+    std::cerr << "Too large sizes for nsamp_fft or nsamp_padded. Check FDDGPUPlan.cpp" << std::endl;
+    exit(1);
+  }
+
+  // Prepare cuFFT plans
+#ifdef DEDISP_DEBUG
+  std::cout << fft_plan_str << std::endl;
+#endif
+
+  int genspinfreq_cores = total_cores / numGPUsLocal - 1;
+  if (genspinfreq_cores < 1) {
+    std::cerr << "Not enough CPU cores for generating spin frequency table!" << std::endl;
+    exit(-1);
+  }
+  // Set omp num threads, ensuring proper division of the available cores into gpus
+  omp_set_num_threads(genspinfreq_cores);
+
+  // Generate spin frequency table
+  mPrepSpinf.start();
+  if (h_spin_frequencies.size() != nfreq) {
+    generate_spin_frequency_table(nfreq, nsamp_fft, dt);
+  }
+  mPrepSpinf.end();
+
+  // Set omp num threads, ensuring proper division of the available cores into gpus
+  // This one is done for the memcpy2D_internal function
+  int memcpy2d_cores = total_cores / numGPUsLocal - 2;
+  if (memcpy2d_cores < 1) {
+    std::cerr << "Not enough CPU cores for memcpy2D_internal!" << std::endl;
+    exit(-1);
+  }
+  omp_set_num_threads(genspinfreq_cores);
+
+  // Allocate memory
+#ifdef DEDISP_DEBUG
+  std::cout << memory_alloc_str << std::endl;
+#endif
+
 
 #ifdef DEDISP_DEBUG
   size_t d_memory_free_after_malloc = m_device->get_free_memory(); // bytes
@@ -491,7 +596,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     job.ndm_current = std::min(ndm_batch_max, ndm - job.idm_start);
     job.idm_end = job.idm_start + job.ndm_current;
 
-    #ifndef DSOUT
+    #ifndef USECUFILE
     if (local_gpu_id == 0)
       job.h_data_t_dm = &h_data_t_dm_[job_id % ndm_buffers];
     #endif
@@ -508,19 +613,20 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   std::cout << "ndm_jobs = " << ndm_jobs << ", dm_jobs.size() = " << dm_jobs.size() << std::endl;
 
-  #ifndef DSOUT
+  #ifndef USECUFILE
   std::thread output_thread;
   // Take care of the output only once per node
   // Launch thread to copy output data from device to host for each dm_job
   output_thread = std::thread([&]() {
-    //cudaSetDevice(loc_gpu_id);
-    if (loc_gpu_id == 0 || true) {
+    pin_thread_to_core(loc_gpu_id + numGPUsLocal);
+    cudaSetDevice(loc_gpu_id);
+    /* if (loc_gpu_id == 0 || true) {
       std::cout << "Output thread begins for device: " << loc_gpu_id << std::endl;
-    }
+    } */
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
-      if (loc_gpu_id == 0 || true) {
+      /* if (loc_gpu_id == 0 || true) {
         std::cout << "GPU: " << loc_gpu_id << ", out DM job: " << job_id << std::endl;
-      } 
+      }  */
       auto &dm_job = dm_jobs[job_id];
 
       // Wait for DtoH copy to finish for this job
@@ -540,7 +646,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       dedisp_size dst_stride = cmd.fftoutP ? 1ULL * nsamp_padded * out_bytes_per_sample : 1ULL * nsamps_computed * out_bytes_per_sample;
 
       if (local_gpu_id == 0 ) {
-        std::cout << "GPU: " << loc_gpu_id << ", out DM job: " << job_id << " begin memcpy" << std::endl;
+        //std::cout << "GPU: " << loc_gpu_id << ", out DM job: " << job_id << " begin memcpy" << std::endl;
         
         // copy part from pinned h_data_t_dm to part of paged return buffer out
         // GPU Host mem pointers
@@ -552,14 +658,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
         auto *h_dst = (void *)(((size_t)out) + dst_offset);
         mCopyMem.start();
-        memcpy2D(h_dst,               // dst
+        memcpy2D_internal(h_dst,               // dst
                 dst_stride,          // dst stride
                 h_src,               // src
                 src_stride,          // src stride
                 dst_stride,          // width bytes
                 dm_job.ndm_current); // height
         mCopyMem.end();
-        std::cout << "GPU: " << loc_gpu_id << ", out DM job: " << job_id << " end memcpy" << std::endl;
+        //std::cout << "GPU: " << loc_gpu_id << ", out DM job: " << job_id << " end memcpy" << std::endl;
       }
 
       // Signal that the host buffer can be used again
@@ -567,9 +673,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         dm_jobs[job_id + ndm_buffers].gpu_lock.unlock();
       }
     }
-    if (loc_gpu_id == 0 || true) {
+    /* if (loc_gpu_id == 0 || true) {
       std::cout << "Output thread ends for device: " << loc_gpu_id << std::endl;
-    }
+    } */
   });
   #endif
   
@@ -587,11 +693,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   std::cout << "Finished mExeGPU.start()" << std::endl;
 #endif
 
-  std::cout << " GPU: " << local_gpu_id << ", channels: " << start_chan << " - " << end_chan << std::endl;
+  //std::cout << " GPU: " << local_gpu_id << ", channels: " << start_chan << " - " << end_chan << std::endl;
   // Process all dm batches (outer dm jobs)
   for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size(); dm_job_id_outer += ndm_buffers) 
   {
-    std::cout << " GPU: " << local_gpu_id << ", dm_job_id_outer = " << dm_job_id_outer << std::endl;
+    //std::cout << " GPU: " << local_gpu_id << ", dm_job_id_outer = " << dm_job_id_outer << std::endl;
     // Process all channel batches
     for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size(); channel_job_id++) 
     {
@@ -611,11 +717,16 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // Copy the input data for the first job
       if (channel_job_id == 0) 
       {
+
+        // This can probably be optimized further if the input is pinned memory
+        // The two steps can be reduced to one using cudaMemcpy2DAsync, directly
+        // copying from in to d_in_ptr, skipping the host buffer.
+
         // "in" is local to the node. Globally, it begins at start_chan_node
         dedisp_size gulp_chan_byte_idx =
             ((channel_job.ichan_start - start_chan_node) / chans_per_word) * sizeof(dedisp_word);
 
-        memcpy2D(channel_job.h_in_ptr,    // dst
+        memcpy2D_internal(channel_job.h_in_ptr,    // dst
                  dst_stride,              // dst width
                  in + gulp_chan_byte_idx, // src. 
                  src_stride,              // src width
@@ -693,18 +804,24 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           if (dm_job_id_outer > 0) 
           {
             auto &dm_job_previous = dm_jobs[dm_job_id - ndm_buffers];
+            // Done so that the dm buffer can be safely zeroed
+            //nvtxRangePushA("DM job prev. outputEnd");  
+            m2.start();
             dm_job_previous.outputEnd.synchronize();
+            m2.end();
+            //nvtxRangePop();
           }
 
           dm_job.d_data_x_dm->zero(*executestream);
         }
 
+        // Commenting this out because it seems that chan_job.outputEnd is never recorded
         // Wait for temporary output from previous job to be copied
-        if (channel_job_id > (nchan_buffers - 1)) 
+        /* if (channel_job_id > (nchan_buffers - 1)) 
         {
           auto &chan_job_previous = channel_jobs[channel_job_id - nchan_buffers];
           chan_job_previous.outputEnd.synchronize();
-        }
+        } */
 
         // Dedispersion in frequency domain
         executestream->record(dm_job.dedispersionStart);
@@ -735,7 +852,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             (channel_job_next.ichan_start / chans_per_word) *
             sizeof(dedisp_word);
 
-        memcpy2D(channel_job_next.h_in_ptr, // dst
+        memcpy2D_internal(channel_job_next.h_in_ptr, // dst
                  dst_stride,                // dst width
                  in + gulp_chan_byte_idx,   // src
                  src_stride,                // src width
@@ -749,9 +866,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         htodstream->record(channel_job_next.inputEnd);
       }
 
-      // Is this synchronize really necessary here?
+      // Is this synchronize really necessary here? 
+      // - It is because of the single d_data_x_nu buffer through which all jobs pass 
       // Wait for current batch to finish
+      //nvtxRangePushA("Finishing #ndm_buffer dedispersion kernels, moving to next channel batch");
+      m1.start();
       executestream->synchronize();
+      m1.end();
+      //nvtxRangePop();
 
       // Add input and preprocessing time for the current channel job
       #ifdef DEDISP_BENCHMARK
@@ -844,7 +966,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
       executestream->record(dm_job.postprocessingEnd);
 
-      #ifdef DSOUT
+      #ifdef USECUFILE
       // Writing out the data directly from the GPU buffer
       // The final timeseries resides on GPU 0 on node 0
       std::string outname = "dm_chunk_" + std::to_string(dm_job_id_outer + dm_job_id_inner) + ".dat";
@@ -878,11 +1000,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     } // end for dm_job_id_inner
   } // end for dm_job_id_outer
 
-  if (local_gpu_id == 0 || true) {
+  /* if (local_gpu_id == 0 || true) {
     std::cout << "Scheduled work for all DMS on device: " << local_gpu_id << std::endl;
-  }
+  } */
 
-  #ifndef DSOUT
+  #ifndef USECUFILE
   // Wait for final memory transfer
   // Wait for host threads to exit
   if (output_thread.joinable()) {
@@ -890,9 +1012,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   #endif
 
-  if (local_gpu_id == 0) {
+  /* if (local_gpu_id == 0) {
     std::cout << "Output thread joined for device: " << local_gpu_id << std::endl;
-  }
+  } */
   
   dtohstream->record(eEndGPU);
   mExeGPU.end(eEndGPU);
@@ -1516,12 +1638,21 @@ void FDDGPUPlan::generate_spin_frequency_table(dedisp_size nfreq,
                                                dedisp_float dt) {
   h_spin_frequencies.resize(nfreq);
 
-#pragma omp parallel for
-  for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++) {
-    // Skipping the scaling of 1/dt in the spin frequencies which saves a multiplication
-    // in the GPU kernel
-    h_spin_frequencies[ifreq] = ifreq * (1.0 / (nsamp_fft));
+  int genspinfreq_cores = total_cores / numGPUsLocal - 1;
+
+  #pragma omp parallel
+  {
+    int thread_id = omp_get_thread_num();
+    pin_thread_to_core(numGPUsLocal + local_gpu_id * genspinfreq_cores + thread_id);
+
+    #pragma omp for
+    for (unsigned int ifreq = 0; ifreq < nfreq; ifreq++) {
+      // Skipping the scaling of 1/dt in the spin frequencies which saves a multiplication
+      // in the GPU kernel
+      h_spin_frequencies[ifreq] = ifreq * (1.0 / (nsamp_fft));
+    }
   }
+
 
   d_spin_frequencies.resize(nfreq * sizeof(dedisp_float));
 

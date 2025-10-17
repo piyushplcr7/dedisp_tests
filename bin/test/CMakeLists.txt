@@ -19,18 +19,43 @@ include_directories(${CMAKE_SOURCE_DIR}/src/fdd)
 # test for dedisp library
 ################################################################################
 add_executable(testdedisp
-    testdedisp.cu
+    testdedisp.cpp
 )
 
 target_include_directories(testdedisp 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
-    PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
-    PRIVATE ${MPI_CXX_INCLUDE_DIRS}
+    #PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
+    #PRIVATE ${MPI_CXX_INCLUDE_DIRS}
     PRIVATE ${CFITSIO_INCLUDE_DIR}
     PRIVATE ${NCCL_INCLUDE_DIR}
 )
 
-target_link_libraries(testdedisp fdd_gpu_clig fdd ${CFITSIO_LIBRARY} ${NCCL_LIBRARY} MPI::MPI_CXX)
+target_link_libraries(testdedisp 
+    fdd_gpu_clig 
+    fdd 
+    ${CFITSIO_LIBRARY} 
+    ${NCCL_LIBRARY} 
+    #MPI::MPI_CXX
+)
+
+################################################################################
+# test for dedisp library
+################################################################################
+add_executable(testdedispold
+    testdedispold.cpp
+)
+
+target_include_directories(testdedispold 
+    PRIVATE ${CMAKE_SOURCE_DIR}/src 
+    PRIVATE ${CFITSIO_INCLUDE_DIR}
+    PRIVATE ${NCCL_INCLUDE_DIR}
+)
+
+target_link_libraries(testdedispold 
+    fdd_gpu_clig 
+    dedisp
+    ${CFITSIO_LIBRARY} 
+)
 
 ################################################################################
 # test for read speed

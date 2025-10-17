@@ -9,3 +9,8 @@ target_include_directories(
    PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
    PRIVATE ${NCCL_INCLUDE_DIR}
 )
+
+target_link_libraries(
+    clib
+    CUDA::cufft
+)

@@ -110,7 +110,7 @@ namespace cu {
 
     class Stream {
         public:
-            Stream(int flags = cudaStreamDefault);
+            Stream(int flags = cudaStreamNonBlocking);
             ~Stream();
 
             void memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size);
