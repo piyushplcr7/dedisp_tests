@@ -351,7 +351,7 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
     h_data_t_dm_.resize(ndm_buffers);
   }
   #endif
-  h_data_t_nu_.resize(nchan_buffers);
+  //h_data_t_nu_.resize(nchan_buffers);
   
   d_data_t_nu_.resize(nchan_buffers);
   d_data_x_dm_.resize(ndm_buffers);
@@ -360,7 +360,7 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
   d_data_x_nu.resize(sizeof_data_x_nu);
 
   for (unsigned int i = 0; i < nchan_buffers; i++) {
-    h_data_t_nu_[i].resize(sizeof_data_t_nu);
+    //h_data_t_nu_[i].resize(sizeof_data_t_nu);
     d_data_t_nu_[i].resize(sizeof_data_t_nu);
   }
 
@@ -566,7 +566,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     job.ichan_start = job_id == 0 ? start_chan : channel_jobs[job_id - 1].ichan_end;
     job.nchan_current = std::min(nchan_batch_max, end_chan - job.ichan_start);
     job.ichan_end = job.ichan_start + job.nchan_current;
-    job.h_in_ptr = h_data_t_nu_[job_id % nchan_buffers];
+    //job.h_in_ptr = h_data_t_nu_[job_id % nchan_buffers];
     job.d_in_ptr = d_data_t_nu_[job_id % nchan_buffers];
     if (job.nchan_current == 0) {
       channel_jobs.pop_back();
@@ -726,17 +726,24 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         dedisp_size gulp_chan_byte_idx =
             ((channel_job.ichan_start - start_chan_node) / chans_per_word) * sizeof(dedisp_word);
 
-        memcpy2D_internal(channel_job.h_in_ptr,    // dst
+        /* memcpy2D_internal(channel_job.h_in_ptr,    // dst
                  dst_stride,              // dst width
                  in + gulp_chan_byte_idx, // src. 
                  src_stride,              // src width
                  dst_stride,              // width bytes (represents how many columns actually copied?)
-                 nsamp);                  // height
+                 nsamp);                  // height */
 
         htodstream->record(channel_job.inputStart);
-        htodstream->memcpyHtoDAsync(channel_job.d_in_ptr, // dst
+        /* htodstream->memcpyHtoDAsync(channel_job.d_in_ptr, // dst
                                     channel_job.h_in_ptr, // src
-                                    nsamp * nchan_words_gulp * sizeof(dedisp_float));  // size
+                                    nsamp * nchan_words_gulp * sizeof(dedisp_float));  // size */
+
+        htodstream->memcpyHtoD2DAsync(channel_job.d_in_ptr, // dst
+                                       dst_stride,          // dst pitch
+                                       in + gulp_chan_byte_idx, // src
+                                       src_stride,          // src pitch
+                                       dst_stride,          // width bytes
+                                       nsamp);              // height
         htodstream->record(channel_job.inputEnd);
       }
       executestream->waitEvent(channel_job.inputEnd);
@@ -849,20 +856,28 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       {
         auto &channel_job_next = channel_jobs[channel_job_id_next];
         dedisp_size gulp_chan_byte_idx =
-            (channel_job_next.ichan_start / chans_per_word) *
+            ((channel_job_next.ichan_start - start_chan_node) / chans_per_word) *
             sizeof(dedisp_word);
 
-        memcpy2D_internal(channel_job_next.h_in_ptr, // dst
+        /* memcpy2D_internal(channel_job_next.h_in_ptr, // dst
                  dst_stride,                // dst width
                  in + gulp_chan_byte_idx,   // src
                  src_stride,                // src width
                  dst_stride,                // width bytes
-                 nsamp);                    // height
+                 nsamp);                    // height */
 
         htodstream->record(channel_job_next.inputStart);
-        htodstream->memcpyHtoDAsync(channel_job_next.d_in_ptr, // dst
+
+        htodstream->memcpyHtoD2DAsync(channel_job_next.d_in_ptr, // dst
+                                       dst_stride,          // dst pitch
+                                       in + gulp_chan_byte_idx, // src
+                                       src_stride,          // src pitch
+                                       dst_stride,          // width bytes
+                                       nsamp);              // height
+
+        /* htodstream->memcpyHtoDAsync(channel_job_next.d_in_ptr, // dst
                                     channel_job_next.h_in_ptr, // src
-                                    nsamp * nchan_words_gulp * sizeof(dedisp_float));       // size
+                                    nsamp * nchan_words_gulp * sizeof(dedisp_float));  */      // size
         htodstream->record(channel_job_next.inputEnd);
       }
 
