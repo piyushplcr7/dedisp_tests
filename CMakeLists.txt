@@ -25,7 +25,20 @@ endif()
 
 # set default compiler flags
 #set(CMAKE_CXX_FLAGS "-Wall -g -O3")
-set(CMAKE_CXX_FLAGS "-Wall -O3")
+set(CMAKE_CXX_FLAGS "-Wall -O3 -march=native")
+
+# Vectorization reports
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-sign-compare")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec-missed")
+
+# Loop transformation reports
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-loop")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-loop-missed")
+
+# Inlining reports
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-inline")
+
 message("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 

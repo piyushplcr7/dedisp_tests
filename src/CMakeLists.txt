@@ -8,6 +8,7 @@ include_directories(common)
 # add subdirectories for individual libraries
 add_subdirectory(common)
 add_subdirectory(external)
+add_subdirectory(presto)
 
 
 ################################################################################

@@ -14,6 +14,34 @@ target_link_libraries(ctestdedisp m) #c math library
 
 include_directories(${CMAKE_SOURCE_DIR}/src/fdd)
 
+################################################################################
+# test for barycenter using libpresto
+################################################################################
+add_executable(barycenter_test
+    barycenter_test.cpp
+)
+
+target_include_directories(barycenter_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/presto
+)
+
+target_link_libraries(barycenter_test libpresto) #dedisp c-library
+
+target_compile_features(barycenter_test PRIVATE cxx_std_20)
+
+#target_compile_options(barycenter_test PRIVATE)
+
+add_executable(resample_test
+    resample_map_test.cpp
+)
+
+target_include_directories(resample_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/presto
+)
+
+target_link_libraries(resample_test libpresto) #dedisp c-library
+
+target_compile_features(resample_test PRIVATE cxx_std_20)
 
 ################################################################################
 # test for dedisp library
@@ -23,10 +51,10 @@ add_executable(testdedisp
 )
 
 target_include_directories(testdedisp PRIVATE
-    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/src/presto
 )
 
-target_link_libraries(testdedisp fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
+target_link_libraries(testdedisp fdd_gpu_clig dedisp ${CFITSIO_LIBRARY} libpresto)
 
 ################################################################################
 # test for read speed
