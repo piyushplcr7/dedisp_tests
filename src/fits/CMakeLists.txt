@@ -1,5 +1,6 @@
 add_library(fits SHARED
     fits.cpp
+    fitscontainer.cpp
 )
 
 ##############################

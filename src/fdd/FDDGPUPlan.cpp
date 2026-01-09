@@ -151,6 +151,12 @@ void FDDGPUPlan::memcpy2D_internal(
       #pragma omp for
       for (size_t y = 0; y < height; y++)
       {
+        /* int cpu = sched_getcpu();
+        int src_node = get_node(&(*src)[y][0]);
+        int dst_node = get_node(&(*dst)[y][0]);
+
+        printf("thread %d on CPU %d: copying row %zu src node %d -> dst node %d\n",
+              thread_id, cpu, y, src_node, dst_node); */
           /* for (size_t x = 0; x < widthBytes; x++)
           {
               (*dst)[y][x] = (*src)[y][x];
@@ -368,8 +374,12 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
     #ifdef USECUFILE
     d_data_x_dm_[i].resize(round_up_4k(sizeof_data_x_dm));
     #else
-    if (local_gpu_id == 0)
+    if (local_gpu_id == 0) {
       h_data_t_dm_[i].resize(sizeof_data_x_dm);
+      std::cout << "==================================" << std::endl;
+      std::cout << "h_data_t_dm buffer #" << i << " on NUMA node " << get_node(h_data_t_dm_[i].data()) << std::endl;
+      std::cout << "==================================" << std::endl;
+    }
     d_data_x_dm_[i].resize(sizeof_data_x_dm);
     #endif
   }

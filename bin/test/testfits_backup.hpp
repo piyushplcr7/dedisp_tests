@@ -2,7 +2,7 @@
   Simple test application for libdedisp
   By Paul Ray (2013)
   With extended run method to use multiple different implementations
-  (Dedisp FDDGPUPlan) of dedispersion. (2020 ASTRON)
+  (Dedisp PlanType) of dedispersion. (2020 ASTRON)
 */
 
 #include <limits.h>
@@ -65,12 +65,6 @@
 #include "fdd/helper.h"
 #include "FDDGPUPlan.hpp"
 #include "cufft_optimal_size.hpp"
-
-#include <mpi.h>
-#include "nccl_macro.hpp"
-#include "mpi_macro.hpp"
-#include "cuda_macro.hpp"
-#include <thread>
 
 // Debug options
 #define WRITE_INPUT_DATA 0
@@ -189,9 +183,6 @@ void reduceBinaryTable(unsigned char *full_binary_table, float *data, int poln,
     int num_threads = omp_get_num_threads();
     // std::cout << "omp_num_threads = " << num_threads << std::endl;
     int thread_id = omp_get_thread_num();
-    
-    // pin thread to core
-    pin_thread_to_core(thread_id);
 
 #pragma omp for
     for (size_t subint = 0; subint < naxis2; ++subint) {
@@ -302,153 +293,7 @@ long getDataFromRows(int fd, unsigned char *table_data, long chunksize,
 #define READFROMFILE
 #define WRITEFILES
 
-using namespace dedisp;
-
-int run(int argc, char **argv) {
-  float* pinned_input = nullptr;
-  size_t allocation_size = (size_t)10000 * 200 * 3072 * 1;  // e.g., 64 MB
-
-  // Launch a background thread to allocate pinned memory
-  /* std::thread host_alloc_thread([&]() {
-      cudaError_t err = cudaHostAlloc(
-          (void**)&pinned_input,
-          allocation_size * sizeof(float),
-          cudaHostAllocDefault);
-
-      if (err != cudaSuccess) {
-          std::cerr << "cudaHostAlloc failed: "
-                    << cudaGetErrorString(err) << std::endl;
-      } else {
-          std::cout << "Pinned host memory allocated (" 
-                    << allocation_size * sizeof(float) / (1024.0 * 1024.0)
-                    << " MB)" << std::endl;
-      }
-  }); */
-
-  cu::Marker mpiinit("MPI init");
-  mpiinit.start();
-
-  // Initializing MPI before parsing using clig
-  #ifdef USEMPI
-  MPI_Init(&argc, &argv);
-  #endif
-
-  mpiinit.end();
-
-  cu::Marker mpi_nccl_init("MPI obtaining ranks and size, NCCL obtain ID, MPI_BDcast");
-  mpi_nccl_init.start();
-
-  // Get the rank and size
-  int world_rank, world_size;
-  #ifdef USEMPI
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-  #else
-  world_rank = 0;
-  world_size = 1;
-  #endif
-
-  // Hoping that MPI strips out only the MPI related arguments
-  // and clig continues to work as before
-
-  ncclUniqueId nccl_unique_id;
-  //generating NCCL unique ID at one process and broadcasting it to all
-  if (world_rank == 0) ncclGetUniqueId(&nccl_unique_id);
-
-  #ifdef USEMPI
-  MPICHECK(MPI_Bcast((void *)&nccl_unique_id, sizeof(nccl_unique_id), MPI_BYTE, 0, MPI_COMM_WORLD));
-  #endif
-
-  mpi_nccl_init.end();
-
-  cudaError_t err = cudaGetDeviceCount(&numGPUsLocal);
-  
-  if (err != cudaSuccess) {
-      std::cerr << "Error detecting CUDA devices: " 
-                << cudaGetErrorString(err) << std::endl;
-      return 1;
-  }
-
-  std::cout << "Number of CUDA devices: " << numGPUsLocal << std::endl;
-
-  cu::Marker context_init("CUDA/Cufft context initialization");
-  context_init.start();
-
-  ncclComm_t comms[numGPUsLocal];
-
-  omp_set_dynamic(0);
-  omp_set_nested(1);
-  omp_set_max_active_levels(2);
-
-  #pragma omp parallel for num_threads(numGPUsLocal) schedule(static)
-  for (int i = 0; i < numGPUsLocal; ++i) {
-      cudaSetDevice(i);
-      cudaFree(0);                 // warm up context
-      cufftHandle tmp;
-      cufftPlan1d(&tmp, 16, CUFFT_R2C, 1);  // warm up cuFFT modules
-      cufftDestroy(tmp);
-  }
-  context_init.end();
-
-  cu::Marker ncclinit("NCCL initialization", cu::Marker::blue);
-  ncclinit.start();
-
-  // Parallel NCCL init. Doesn't work! hangs!
-  #pragma omp parallel for num_threads(numGPUsLocal) schedule(static)
-  for (int i=0; i<numGPUsLocal; ++i) {
-    cudaSetDevice(i);                 // context already warmed
-    NCCLCHECK(ncclCommInitRank(&comms[i],
-                    world_size*numGPUsLocal,
-                    nccl_unique_id,
-                    world_rank*numGPUsLocal + i));
-  }
-
-  // Using the group semantics for NCCL here because of a single thread
-  /* NCCLCHECK(ncclGroupStart());
-  for (int i=0; i<numGPUsLocal; i++) {
-     CUDA_CHECK(cudaSetDevice(i));
-     NCCLCHECK(ncclCommInitRank(comms+i, world_size*numGPUsLocal, nccl_unique_id, world_rank*numGPUsLocal + i));
-  }
-  NCCLCHECK(ncclGroupEnd()); */
-
-  ncclinit.end();
-
-  cu::Marker host_alloc("Pinned host memory allocation");
-  host_alloc.start();
-  /* cudaError_t err = cudaHostAlloc(
-          (void**)&pinned_input,
-          allocation_size * sizeof(float),
-          cudaHostAllocDefault); */
-
-  cudaError_t err1 = cudaMallocHost(
-          (void**)&pinned_input,
-          allocation_size * sizeof(float));
-
-  if (err1 != cudaSuccess) {
-      std::cerr << "cudaHostAlloc failed: "
-                << cudaGetErrorString(err1) << std::endl;
-  } else {
-      std::cout << "Pinned host memory allocated (" 
-                << allocation_size * sizeof(float) / (1024.0 * 1024.0)
-                << " MB)" << std::endl;
-  }
-  host_alloc.end();
-
-
-
-  //cu::Marker initialization("Reading variables from FITS file");
-  //initialization.start();
-  // Assumes that each node has same no. of GPUs
-  int numGPUsTotal = world_size * numGPUsLocal;
-
-  // Calculate the number of GPUs Total using MPI reduce.
-  // Sum the number of GPUs across all ranks
-  /* MPI_Allreduce(&numGPUsLocal, &numGPUsTotal, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-
-  if (world_rank == 0) {
-      std::cout << "Total number of GPUs across all ranks: " << numGPUsTotal << std::endl;
-  } */
-
+template <typename PlanType> int run(int argc, char **argv) {
   /////////////////////////////////////////////////////////////
   /////////// Parsing the command line arguments //////////////
   /////////////////////////////////////////////////////////////
@@ -648,17 +493,7 @@ int run(int argc, char **argv) {
   dedisp_float f0 = freqs[nchans_read - 1]; // MHz (highest channel!)
   printf("f0 = %f\n", f0);
 
-  int nchans = nchans_read;
-
-  // Distributing the channels across the GPUs
-  int nchans_per_gpu_max = (nchans + numGPUsTotal - 1) / numGPUsTotal;
-  int nchans_per_node_max = nchans_per_gpu_max * numGPUsLocal;
-
-  int start_chan_node = world_rank * nchans_per_node_max;
-  int end_chan_node = std::min(start_chan_node + nchans_per_node_max, nchans);
-
-  int nchans_per_node =
-      end_chan_node - start_chan_node; // Actual no. of channels on this node
+  dedisp_size nchans = nchans_read;
 
   // (hifreq-lofreq)/(nchans-1)
   double ddf = ((double)freqs[0] - (double)freqs[nchans_read - 1]) /
@@ -686,130 +521,7 @@ int run(int argc, char **argv) {
 
   const dedisp_float *dmlist;
 
-  //initialization.end();
-
-  
   clock_t startclock;
-
-  int slurm_cores = 0;
-  if (const char* env = std::getenv("SLURM_CPUS_PER_TASK"))
-      slurm_cores = std::stoi(env);
-
-  std::cout << "slurm cores: " << slurm_cores << std::endl; 
-  total_cores = slurm_cores;//std::thread::hardware_concurrency();
-  int ompcores = total_cores - numGPUsLocal -1;
-  if (!ompcores) {
-    std::cerr << "OMP Cores can't be zero!" << std::endl;
-    exit(-1);
-  }
-
-  if (ompcores > 16)
-    ompcores = 16;
-
-  std::cout << "total cores: " << total_cores << ", ompcores: " << ompcores << std::endl; 
-
-  cu::Marker fddgpuinit("FDDGPUPlan class init", cu::Marker::red);
-  fddgpuinit.start();
-
-  // Initializing the instances of the FDDGPUPlan. Here we start 
-  // the device/host memory allocations which can run in 
-  // parallel with the upcoming reading operation.
-
-  FDDGPUPlan *plans = (FDDGPUPlan *)malloc(numGPUsLocal * sizeof(FDDGPUPlan));
-
-  unsigned int min_ndm_buffers = std::numeric_limits<unsigned int>::max();
-
-  for (int i = 0 ; i < numGPUsLocal ; ++i) {
-    int gpuidx = world_rank * numGPUsLocal + i;
-
-    // Defining the channel chunks per GPU
-    int start_chan = gpuidx * nchans_per_gpu_max; // start_chan_node + i * nchans_per_gpu;
-    int end_chan = std::min((gpuidx+1) * nchans_per_gpu_max, nchans);
-    int nchans_gpu = end_chan - start_chan;
-
-    new(plans+i) FDDGPUPlan(nchans, dt, f0, df, i, gpuidx, start_chan, end_chan, nchans_gpu, start_chan_node, comms[i]);
-
-      // Generate a list of dispersion measures for the plan
-    if (cmd->numdms == 0) {
-      std::cout << "Numdms not specified, generating DM list using the internal "
-                  "function"
-                << std::endl;
-      plans[i].generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
-    } else {
-      std::cout << "Generating equispaced DM list using the provided step size"
-                << std::endl;
-      plans[i].generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
-    }
-
-    if (i == 0) {
-      /* 
-      * Find the parameters that determine the output size
-      */
-
-      dm_count = plans[0].get_dm_count();
-      max_delay = plans[0].get_max_delay();
-      dmlist = plans[0].get_dm_list();
-
-      // nsamp_fft is the fft size. Keeping this bigger than nsamps is implicitly
-      // adding zero padding to the end of the timeseries. Choosing nsamps + max_delay
-      // as nsamps_fft prevents contamination at the ends when combined with shifts to 
-      // right. The time samples even when missing info from channels remain chronologically
-      // relevant.
-
-      // nsamp_padded is chosen large enough to hold complex coefficients arising 
-      // from fourier transforms. 
-
-      nsamp_fft = closestOptimal(nsamps + max_delay,true);
-      nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
-    }
-
-    // Can determine buffer sizes now that nsamp_fft and nsamp_padded are defined
-    plans[i].determineBufferSizes(nsamps);
-    min_ndm_buffers = std::min(min_ndm_buffers, plans[i].getNdmBuffers());
-  }
-
-  // Ensure that no. of DM buffers match across GPUs!
-  for (int i = 0 ; i < numGPUsLocal ; ++i) {
-    plans[i].setNdmBuffers(min_ndm_buffers);
-  }
-
-  // output clean timeseries
-  if (cmd->cleanoutP) {
-      nsamps_computed = nsamps - max_delay;
-  }
-  // output dirty timeseries
-  else {
-      //nsamps_computed = nsamps;
-      //nsamps_computed = nsamp_fft;
-      nsamps_computed = nsamps + max_delay;
-  }
-
-  // Make nsamps_computed even
-  nsamps_computed = (nsamps_computed/2) * 2; 
-
-  fddgpuinit.end();
-
-  // Function to call the memory allocation function on a plan
-  auto allocationFunctor = [&](int dev_idx) {
-    // pin thread to core, trying to avoid reduceBinaryTable omp threads
-    // reduceBinaryTable uses ompcores threads starting from index 0
-    pin_thread_to_core(dev_idx+ompcores);
-    
-    FDDGPUPlan &plan = plans[dev_idx];
-    plan.allocateMem(nsamps);
-  };  
-  
-  cu::Marker allocT_marker("Allocator threads initialization");
-  allocT_marker.start();
-
-  // Creating threads to take care of the allocation. This is done
-  // to be in parallel with loading the input
-  std::vector<std::thread> allocator_threads;
-  for (int i = 0 ; i < numGPUsLocal ; ++i)  {
-      allocator_threads.emplace_back(allocationFunctor, i);
-  }
-
-  allocT_marker.end();
 
   /////////////////////////////////////////////////////////////
   //////////////// Finding byte size of HDUs //////////////////
@@ -855,8 +567,7 @@ int run(int argc, char **argv) {
   ////////////////////////////////////////////////////////////
   ///////////// Reading the whole file ///////////////////////
   ////////////////////////////////////////////////////////////
-  cu::Marker malloc_marker("Allocating aligned and rawdata memory");
-  malloc_marker.start();
+
   // Longest chunksize 2147479552 for direct read (linux read documentation)
   //long chunksize = 2147479552; 
   long chunksize = 1073741824;
@@ -874,24 +585,13 @@ int run(int argc, char **argv) {
                          end_time - start_time)
                          .count();
 
-  // Polarization to use 
   int poln = 0;
-
-  //host_alloc_thread.join();
-  // Allocating memory on the GPUs on this node to hold the 
 
   float *rawdata;
   // Allocating enough memory to hold the reduced data from all files
-  //rawdata = (float *)malloc((size_t)nsblk * naxis2 * nchans * nfitsfiles * sizeof(float));
-  rawdata = pinned_input;
+  rawdata = (float *)calloc((size_t)nsblk * naxis2 * nchans * nfitsfiles,
+                            sizeof(float));
 
-  malloc_marker.end();
-
-  // Openmp sections would have max ompcores threads!
-  omp_set_num_threads(ompcores);
-
-  cu::Marker read_reduce("Read and reduce from FITS");
-  read_reduce.start();
   // Looping over the files
   for (int file_idx = 0; file_idx < nfitsfiles; ++file_idx) {
     const char *filename = fitsfiles[file_idx];
@@ -939,16 +639,8 @@ int run(int argc, char **argv) {
     close(fd);
     close(fd_nodirect);
   }
-  read_reduce.end();
 
-  cu::Marker freetablefull("Free table full");
-  freetablefull.start();
   free(table_full);
-
-  freetablefull.end();
-
-  cu::Marker output_alloc_marker("Allocating output memory");
-  output_alloc_marker.start();
 
   /*
      input is a pointer to an array containing a time series of length
@@ -959,31 +651,66 @@ int run(int argc, char **argv) {
    */
 
   // input = (dedisp_byte *)malloc(nsamps * nchans * (in_nbits / 8));
-
-  // Input at this point is what we require for the MPI implementation.
-  // Since this is a buffer on a single node, it will contain channel 
-  // info for all the gpus on this node. That is, it contains channels
-  // from start_chan_node to end_chan_node-1. I can use this buffer as 
-  // it is and not extract the relevant channels for each GPU right away
   input = (dedisp_byte *)rawdata;
 
-
-  /*
-  * Creating plans for multiple GPUs on the node using the host thread
-  */
-
   printf("Create plan and init GPU\n");
-  // Create a dedispersion plan on all the GPUs
+  // Create a dedispersion plan
+  PlanType plan(nchans, dt, f0, df, device_idx);
 
+  printf("Gen DM list\n");
+  // Generate a list of dispersion measures for the plan
+  if (cmd->numdms == 0) {
+    std::cout << "Numdms not specified, generating DM list using the internal "
+                 "function"
+              << std::endl;
+    plan.generate_dm_list(dm_start, dm_end, pulse_width, dm_tol);
+  } else {
+    std::cout << "Generating equispaced DM list using the provided step size"
+              << std::endl;
+    plan.generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
+  }
 
-  /* int local_dm_count = (dm_count + world_size - 1) / world_size;
-  int start_dm_idx = world_rank * local_dm_count;
-  int end_dm_idx = std::min(start_dm_idx + local_dm_count, (int)dm_count);
-  local_dm_count = end_dm_idx - start_dm_idx; */
+  // Find the parameters that determine the output size
+  dm_count = plan.get_dm_count();
+  max_delay = plan.get_max_delay();
+  dmlist = plan.get_dm_list();
+  // dt_factors = plan.get_dt_factors(plan);
 
-  /*
-   * Allocating space for the output. The output is local to the node.
-   */
+  printf("----------------------------- DM COMPUTATIONS  "
+         "----------------------------\n");
+  printf("Computing %lu DMs from %f to %f pc/cm^3\n", dm_count, dmlist[0],
+         dmlist[dm_count - 1]);
+  printf("Max DM delay is %lu samples (%.3f seconds)\n", max_delay,
+         max_delay * dt);
+  std::cout << "dt = " << dt << std::endl;
+
+  // nsamp_fft is the fft size. Keeping this bigger than nsamps is implicitly
+  // adding zero padding to the end of the timeseries. Choosing nsamps + max_delay
+  // as nsamps_fft prevents contamination at the ends when combined with shifts to 
+  // right. The time samples even when missing info from channels remain chronologically
+  // relevant.
+
+  // nsamp_padded is chosen large enough to hold complex coefficients arising 
+  // from fourier transforms. 
+
+  //nsamp_fft = dedisp::round_up(nsamps + max_delay, 16384);
+  nsamp_fft = closestOptimal(nsamps + max_delay,true);
+  //nsamp_fft = nsamps;
+  nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
+
+  // output clean timeseries
+  if (cmd->cleanoutP) {
+      nsamps_computed = nsamps - max_delay;
+  }
+  // output dirty timeseries
+  else {
+      //nsamps_computed = nsamps;
+      //nsamps_computed = nsamp_fft;
+      nsamps_computed = nsamps + max_delay;
+  }
+
+  // Make nsamps_computed even
+  nsamps_computed = (nsamps_computed/2) * 2; 
 
   if (cmd->fftoutP) {
     printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
@@ -1004,11 +731,6 @@ int run(int argc, char **argv) {
     output = (dedisp_float *)malloc(nsamps_computed * dm_count * out_nbits / 8);
   }
 
-  // print the numa node for the output buffer
-  std::cout << "==================================" << std::endl;
-  std::cout << "Output buffer on NUMA node " << get_node(output) << std::endl;
-  std::cout << "==================================" << std::endl;
-
   printf("\n");
 
   if (output == NULL) {
@@ -1016,65 +738,19 @@ int run(int argc, char **argv) {
     return -1;
   }
 
-  output_alloc_marker.end();
+  printf("Compute on GPU\n");
+  aa_gpu_timer timer;
+  timer.Start();
+  // Compute the dedispersion transform on the GPU
+  plan.execute(nsamps, input, in_nbits, (dedisp_byte *)output, out_nbits);
+  timer.Stop();
+  printf("plan.execute() took %.2f seconds\n", timer.Elapsed());
 
-  // Wait for allocator threads to finish before execution of plan
-  for (auto& th: allocator_threads) {
-    if (th.joinable())
-      th.join();
-  }
-
-  // Lambda function to be launched on a different thread for each GPU
-  /* auto GPURunfunctor = [&](int dev_idx) {
-    pin_thread_to_core(dev_idx + numGPUsLocal);
-    // Set the GPU
-    cudaSetDevice(dev_idx);
-
-    // Create the plan
-    FDDGPUPlan &plan = plans[dev_idx];
-
-    std::cout << "Computing on GPU device " << dev_idx << std::endl;
-
-    aa_gpu_timer timer;
-    timer.Start();
-    // Compute the dedispersion transform on the GPU
-    plan.execute(nsamps, input, in_nbits, (dedisp_byte *)output, out_nbits);
-    timer.Stop();
-
-    std::cout << "plan.execute() took " << timer.Elapsed() << " seconds on GPU device " << dev_idx << std::endl;
-
-  };  
-
-  // Launching threads for each GPU on this node
-  std::vector<std::thread> gpu_threads;
-  for (int i = 0 ; i < numGPUsLocal ; ++i)  {
-      gpu_threads.emplace_back(GPURunfunctor, i);
-  }
-
-  // Joining the threads
-  for (auto& th : gpu_threads) {
-      // if joinable then join
-      if (th.joinable()) 
-          th.join();  
-  } */
-
-
-  #pragma omp parallel for num_threads(numGPUsLocal)
-  for (int dev_idx = 0; dev_idx < numGPUsLocal; ++dev_idx) {
-      pin_thread_to_core(dev_idx);
-      cudaSetDevice(dev_idx);
-
-      FDDGPUPlan &plan = plans[dev_idx];
-
-      aa_gpu_timer timer;
-      timer.Start();
-      plan.execute(nsamps, input, in_nbits, (dedisp_byte*)output, out_nbits);
-      timer.Stop();
-
-      #pragma omp critical
-      std::cout << "GPU " << dev_idx
-                << " took " << timer.Elapsed() << " s\n";
-  }
+#if WRITE_INPUT_DATA
+  FILE *file_in = fopen("input.bin", "wb");
+  fwrite(input, 1, (size_t)nsamps * nchans * (in_nbits / 8), file_in);
+  fclose(file_in);
+#endif
 
   const char* outfiles_basename = (cmd->outfile == NULL) ? "output" : cmd->outfile;
 
@@ -1170,15 +846,8 @@ int run(int argc, char **argv) {
   free(output);
 // free(input);
 #ifdef READFROMFILE
-  //free(rawdata);
-  cudaFreeHost(pinned_input);
+  free(rawdata);
 #endif
-  free(plans);
   printf("Dedispersion successful.\n");
-  
-  #ifdef USEMPI
-  MPI_Finalize();
-  #endif
-  
   return 0;
 }

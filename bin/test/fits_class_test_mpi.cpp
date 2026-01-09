@@ -3,13 +3,9 @@
 #include <memory>
 #include <new>
 #include <mpi.h>
-
-struct AlignedDeleter {
-    std::size_t align;
-    void operator()(unsigned char* p) const noexcept {
-        ::operator delete(p, std::align_val_t{align}); // matches allocation
-    }
-};
+#include <vector>
+#include <string>
+#include "fits/fitscontainer.hpp"
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
@@ -17,29 +13,34 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    const char* filename = "/scratch/panchal/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits";
-    Fits obj(filename);
+    int numfiles = argc - 1;
+    std::cout << "Numfiles = " << numfiles << std::endl;
 
-    //if (world_rank == 0)
-        obj.setVerbosity(1);
-    obj.readDataMPI(world_rank, world_size,0);
+    std::vector<std::string> listFitsNames(numfiles);
 
-    unsigned char* mpi_rawdata_buffer = obj.mpiRawdataBuffer();
-
-    std::cout << "Inside process: " << world_rank << ", local channel start = " << obj.chanStartLocal() << ", num channels = " << obj.nchanLocal() << std::endl;
-    for (int i =  50000 ; i < 50010 ; ++i) {
-        std::cout << "local buffer[" << i << "] = " << (int)mpi_rawdata_buffer[i] << std::endl;
+    for (int i = 0 ; i < numfiles ; ++i) {
+        std::cout << argv[i+1] << std::endl;
+        listFitsNames[i] = std::string(argv[i+1]);
     }
 
-    // Allocate buffer for reduced data
-    size_t reduced_data_size = (size_t)obj.nchanLocal() * obj.nsblk() * obj.naxis2() * sizeof(float);
-    float* mpi_reduced_data_buffer = (float*)malloc(reduced_data_size);
-    obj.reduceDataMPI(world_rank, world_size, mpi_reduced_data_buffer);
+    float *a, *b;
+    unsigned char *c;
+    {
+        fitsLoader container(listFitsNames, world_rank, world_size);
+        container.assembleAllTimesTest();
+        a = container.fits_data_buf_;
+        b = container.assembledDataBuffer_;
+        c = container.aligned_buf_;
+    }
 
-    free(mpi_reduced_data_buffer);
+    std::free(a);
+    std::cout << "freed a on " << world_rank << std::endl;
+    std::free(b);
+    std::cout << "freed b on " << world_rank << std::endl;
+    std::free(c);
+    std::cout << "freed c on " << world_rank << std::endl;
 
+    std::cout << "Just before MPI_Finalize() on proc " << world_rank << std::endl;
     MPI_Finalize();
-
-
     return 0; 
 }

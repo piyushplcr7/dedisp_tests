@@ -16,12 +16,15 @@ add_library(fdd_gpu_clig fdd_gpu.c)
 
 find_package(FFTW3 REQUIRED true)
 
+find_library(NUMA_LIBRARY NAMES numa)
+
 target_link_libraries(fdd
     ${FFTW3F_LIBRARY}
     cu
     fdd_gpu_clig
     MPI::MPI_CXX
     ${NCCL_LIBRARY}
+    ${NUMA_LIBRARY}
 )
 
 target_include_directories(fdd
