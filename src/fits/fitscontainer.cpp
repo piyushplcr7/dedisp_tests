@@ -3,10 +3,48 @@
 #include <iostream>
 #include <memory>
 #include <mpi.h>
+#include "matrix_view.hpp"
+
+/*
+ * Safe large MPI_Put
+ *
+ * - Works for arbitrarily large buffers
+ * - Respects MPI's int-count limitation
+ * - Assumes:
+ *     - window already created
+ *     - access epoch already open (fence or lock)
+ *     - disp_unit corresponds to element size
+ */
+inline void MPI_Put_split_Float(
+    const float* origin_buf,
+    size_t        origin_count,
+    int           target_rank,
+    size_t        target_disp,
+    MPI_Win       win
+) {
+    const size_t MAX_ELEMS = static_cast<size_t>(INT_MAX);
+
+    size_t offset = 0;
+    size_t remaining = origin_count;
+
+    while (remaining > 0) {
+        size_t chunk = std::min(remaining, MAX_ELEMS);
+
+        MPI_Put(origin_buf + offset,
+                static_cast<int>(chunk),
+                MPI_FLOAT,
+                target_rank,
+                static_cast<MPI_Aint>(target_disp + offset),
+                static_cast<int>(chunk),
+                MPI_FLOAT,
+                win);
+
+        offset    += chunk;
+        remaining -= chunk;
+    }
+}
 
 fitsLoader::fitsLoader(std::vector<std::string>& listFitsNames, int world_rank, int world_size) { 
-    std::cout << "Entered constructor" << std::endl;
-
     world_rank_ = world_rank;
     world_size_ = world_size;
 
@@ -24,16 +62,10 @@ fitsLoader::fitsLoader(std::vector<std::string>& listFitsNames, int world_rank, 
     // If configuration is allowed, set the number of local fits
     numGlobFits_ = listFitsNames.size();
     numLocFits_ = numGlobFits_ / world_size_;
-
-    std::cout << "numLocFits_ = " << numLocFits_ << std::endl;
-
     listFits_.reserve(numLocFits_);
-    
 
     for (int i = 0 ; i < numLocFits_ ; ++i) {
-        std::cout << "Constructing fits object using file: " << listFitsNames[world_rank_ * numLocFits_ + i].c_str() << std::endl;
         listFits_.emplace_back(listFitsNames[world_rank_ * numLocFits_ + i].c_str());
-        std::cout << "Loop iteration no. " << i << " finished" << std::endl;
     }
 
     nchans_ = listFits_[0].nchan();
@@ -43,24 +75,21 @@ fitsLoader::fitsLoader(std::vector<std::string>& listFitsNames, int world_rank, 
         exit(-1);
     }
 
-    std::cout << "aligned buf size = " << listFits_[0].getAlignedBufSize() << std::endl;
-    
-    // Allocate aligned buffer once which will be reused for all Fits
-    //aligned_buf_ = static_cast<unsigned char*>(std::aligned_alloc(4096, listFits_[0].getAlignedBufSize()));
-    aligned_buf_ = static_cast<unsigned char*>(std::aligned_alloc(ALIGNMENT, listFits_[0].getAlignedBufSize()));
+    channelChunkSize_ = nchans_ / world_size_;
 
+    // length of assembled data: channel_chunk_size * dimTimeGlobal
+    contiguousChunkLen_ = channelChunkSize_ * listFits_[0].dimTime();
+    assembledDataLen_ = contiguousChunkLen_ * numGlobFits_;
 
-    for (int i = 0 ; i < numLocFits_ ; ++i) {
-        listFits_[i].setAlignedFileSizeBuffer(aligned_buf_);
-    }
+    assembledDataBuffer_ = std::make_unique<float[]>(assembledDataLen_);
+    assembledData_ = matrixView<float> 
+        (assembledDataBuffer_.get(),  
+        listFits_[0].dimTime() * numGlobFits_,
+        (size_t)channelChunkSize_
+        );
 
-    // Allocate space for the reduced data
-    fits_data_buf_ = static_cast<float*> (std::malloc(listFits_[0].getNumElements() * sizeof(float))); //std::make_unique<float[]>(listFits_[0].getNumElements());
-
-    for (int i = 0 ; i < numLocFits_ ; ++i) {
-        listFits_[i].setDataBuffer(fits_data_buf_);
-    }
-    std::cout << "Exit constructor" << std::endl;
+    start_chan_ = world_rank_ * channelChunkSize_;
+    end_chan_ = start_chan_ + channelChunkSize_ ;
 }
 
 void fitsLoader::ldSeq() {
@@ -70,134 +99,132 @@ void fitsLoader::ldSeq() {
     }
 }
 
-/*void fitsLoader::assembleAllTimes() {
+void fitsLoader::assembleAllTimes() {
+    // Allocate aligned buffer once which will be reused for all Fits extraction
+    std::unique_ptr<unsigned char, void (*)(unsigned char*)> aligned_buf(
+        static_cast<unsigned char*>(::operator new(listFits_[0].fileSizeAligned(), std::align_val_t(ALIGNMENT))),
+        [](unsigned char* x){ ::operator delete(x, std::align_val_t(ALIGNMENT)); }
+    );
 
-    // Allocate memory for the buffer associated with MPI window
-    size_t assembledDataLen = (nchans_ / world_size_) * 
-                (numGlobFits_ * listFits_[0].dimTime());
-    std::cout << "dimTime =  " << listFits_[0].dimTime();
-    assembledDataBuffer = std::make_unique<float[]>(assembledDataLen);
-    float* assembledDataBufferPtr = assembledDataBuffer.get();
+    for (int i = 0 ; i < numLocFits_ ; ++i) {
+        listFits_[i].setAlignedFileSizeBuffer(aligned_buf.get());
+    }
 
-    std::cout << "local size = " << assembledDataLen  << std::endl;
+    // Allocate space for the reduced data
+    std::unique_ptr<float[]> fits_data_buf = std::make_unique<float[]>(listFits_[0].getNumElements());
+
+    for (int i = 0 ; i < numLocFits_ ; ++i) {
+        listFits_[i].setDataBuffer(fits_data_buf.get());
+    }
+
+    float* assembledDataBufferPtr = assembledDataBuffer_.get();
  
     MPI_Win win;
-    MPI_Win_create(assembledDataBufferPtr, assembledDataLen * sizeof(float), sizeof(float), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+    MPI_Win_create(assembledDataBufferPtr, assembledDataLen_ * sizeof(float), sizeof(float), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     MPI_Win_fence(0, win);
+    
+    std::unique_ptr<float[]> contiguousData = std::make_unique<float[]>(contiguousChunkLen_);
+    matrixView<float> contiguousDataView(contiguousData.get(), listFits_[0].dimTime(), channelChunkSize_);
 
-    size_t contiguousChunkLen = (nchans_ / world_size_) * listFits_[0].dimTime();
-    std::unique_ptr<float[]> contiguousData = std::make_unique<float[]>(contiguousChunkLen);
-    float* contiguousDataPtr = contiguousData.get();
-
-    for (int i = 0 ; i < listFits_.size() ; ++i) {
+    for (unsigned int i = 0 ; i < listFits_.size() ; ++i) {
 
         // Global index of the ith fits file in listFits_
-        int globalIndex = world_rank_ * numLocFits_ + i;
-        std::cout << "Proc " << world_rank_ << " processing global fits file no. " << globalIndex << std::endl;
+        int globalFitsIndex = world_rank_ * numLocFits_ + i;
 
         auto& fits = listFits_[i];
         fits.extractDataDirect(fits.naxis1());
         fits.reduceData();
 
-        std::cout << "Proc " << world_rank_ << " extracted & reduced global fits file no. " << globalIndex << std::endl;
-
         // Collecting data for a target rank. This does a partitioning 
         // of channels. All the time points in a fits file are dealt with here
         for (int target_rank = 0 ; target_rank < world_size_; ++target_rank) {
 
-            int start_chan = target_rank * nchans_ / world_size_;
-            int end_chan = start_chan + nchans_ / world_size_;
+            int start_chan = target_rank * channelChunkSize_;
+            int end_chan = start_chan + channelChunkSize_;
             
-            std::cout << "Proc " << world_rank_ << " packing channels " << start_chan << "-" << end_chan << ", for local file " << i << std::endl;
             // Get the data from the channel chunk into the contiguous buffer
-            //packChannelChunk(i, contiguousDataPtr, start_chan, end_chan);
+            packChannelChunk(i, contiguousDataView, start_chan, end_chan);
             
             // offset required for the target rank based on the source
-            size_t target_offset = globalIndex * contiguousChunkLen;
+            size_t target_offset = globalFitsIndex * contiguousChunkLen_;
 
-            MPI_Put(contiguousDataPtr, contiguousChunkLen, MPI_FLOAT, target_rank, target_offset, contiguousChunkLen, MPI_FLOAT, win);
+            MPI_Put_split_Float(contiguousDataView.data(), contiguousChunkLen_, target_rank, target_offset, win);
             MPI_Win_fence(0, win);
         }
-
-        
     } // end loop over fits
 
     MPI_Win_free(&win);
-}   */
+}   
 
-void fitsLoader::assembleAllTimesTest() {
-    std::cout << "test function" << std::endl;
+void fitsLoader::assembleAllTimesAsync() {
 
-    // length of assembled data: channel_chunk_size * dimTimeGlobal
-    size_t channelChunkSize = nchans_ / world_size_;
-    size_t dimTimeTotal = numGlobFits_ * listFits_[0].dimTime();
-    size_t assembledDataLen = channelChunkSize * dimTimeTotal;
+    // Allocate aligned buffer once which will be reused for all Fits extraction
+    std::unique_ptr<unsigned char, void (*)(unsigned char*)> aligned_buf(
+        static_cast<unsigned char*>(::operator new(listFits_[0].fileSizeAligned(), std::align_val_t(ALIGNMENT))),
+        [](unsigned char* x){ ::operator delete(x, std::align_val_t(ALIGNMENT)); }
+    );
 
-    std::cout << "dimTime =  " << listFits_[0].dimTime() << std::endl;
+    for (int i = 0 ; i < numLocFits_ ; ++i) {
+        listFits_[i].setAlignedFileSizeBuffer(aligned_buf.get());
+    }
 
-    //assembledDataBuffer = std::make_unique<float[]>(assembledDataLen);
-    assembledDataBuffer_ = static_cast<float*> (std::malloc(assembledDataLen * sizeof(float)));
-    float* assembledDataBufferPtr = assembledDataBuffer_;//assembledDataBuffer.get();
+    // Allocate space for the reduced data
+    std::unique_ptr<float[]> fits_data_buf = std::make_unique<float[]>(listFits_[0].getNumElements());
 
-    std::cout << "local size = " << assembledDataLen  << std::endl;
+    for (int i = 0 ; i < numLocFits_ ; ++i) {
+        listFits_[i].setDataBuffer(fits_data_buf.get());
+    }
+
+    float* assembledDataBufferPtr = assembledDataBuffer_.get();
  
-    //MPI_Win win;
-    //MPI_Win_create(assembledDataBufferPtr, assembledDataLen * sizeof(float), sizeof(float), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
-    //MPI_Win_fence(0, win);
+    MPI_Win win;
+    MPI_Win_create(assembledDataBufferPtr, assembledDataLen_ * sizeof(float), sizeof(float), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+    MPI_Win_fence(0, win);
+    
+    std::unique_ptr<float[]> contiguousData = std::make_unique<float[]>(contiguousChunkLen_);
+    matrixView<float> contiguousDataView(contiguousData.get(), listFits_[0].dimTime(), channelChunkSize_);
 
-    size_t contiguousChunkLen = channelChunkSize * listFits_[0].dimTime();
-    std::unique_ptr<float[]> contiguousData = std::make_unique<float[]>(contiguousChunkLen);
-    float* contiguousDataPtr = contiguousData.get();
-
-    for (int i = 0 ; i < listFits_.size() ; ++i) {
+    for (unsigned int i = 0 ; i < listFits_.size() ; ++i) {
 
         // Global index of the ith fits file in listFits_
-        int globalIndex = world_rank_ * numLocFits_ + i;
-        std::cout << "Proc " << world_rank_ << " processing global fits file no. " << globalIndex << std::endl;
+        int globalFitsIndex = world_rank_ * numLocFits_ + i;
 
         auto& fits = listFits_[i];
         fits.extractDataDirect(fits.naxis1());
         fits.reduceData();
 
-        std::cout << "Proc " << world_rank_ << " extracted & reduced global fits file no. " << globalIndex << std::endl;
-
         // Collecting data for a target rank. This does a partitioning 
         // of channels. All the time points in a fits file are dealt with here
         for (int target_rank = 0 ; target_rank < world_size_; ++target_rank) {
 
-            int start_chan = target_rank * channelChunkSize;
-            int end_chan = start_chan + channelChunkSize;
+            int start_chan = target_rank * channelChunkSize_;
+            int end_chan = start_chan + channelChunkSize_;
             
-            std::cout << "Proc " << world_rank_ << " packing channels " << start_chan << "-" << end_chan << ", for local file " << i << std::endl;
             // Get the data from the channel chunk into the contiguous buffer
-            packChannelChunk(i, contiguousDataPtr, start_chan, end_chan);
-
-            std::cout << "Proc " << world_rank_ << " packing channels finished" << start_chan << "-" << end_chan << ", for local file " << i << std::endl;
+            packChannelChunk(i, contiguousDataView, start_chan, end_chan);
             
             // offset required for the target rank based on the source
-            size_t target_offset = globalIndex * contiguousChunkLen;
+            size_t target_offset = globalFitsIndex * contiguousChunkLen_;
 
-            //MPI_Put(contiguousDataPtr, contiguousChunkLen, MPI_FLOAT, target_rank, target_offset, contiguousChunkLen, MPI_FLOAT, win);
-            //MPI_Win_fence(0, win);
+            MPI_Put_split_Float(contiguousDataView.data(), contiguousChunkLen_, target_rank, target_offset, win);
+            MPI_Win_fence(0, win);
         }
-
-        
     } // end loop over fits
 
-    //MPI_Win_free(&win);
+    MPI_Win_free(&win);
 }   
 
-void fitsLoader::packChannelChunk(int i, float* contiguousDataPtr, int start_chan, int end_chan) {
+void fitsLoader::packChannelChunk(int i, matrixView<float> contiguousDataView, int start_chan, int end_chan) {
     auto& fits = listFits_[i];
-    float* data = fits.data();
-
-    size_t channelChunkSize = end_chan - start_chan;
+    const matrixView<float> data(fits.data(), fits.dimTime(), fits.nchan());
 
     for (size_t j = 0 ; j < fits.dimTime() ; ++j) {
         for (int chan = start_chan ; chan < end_chan ; ++chan) {
-            contiguousDataPtr[j * (nchans_ / world_size_) + chan - start_chan] = data[j * nchans_ + chan];
+            contiguousDataView(j, chan - start_chan) = data(j,chan);
         }
     }
 }
+
+
 
 

@@ -135,11 +135,52 @@ add_executable(fits_class_test_mpi
 )
 
 target_include_directories(fits_class_test_mpi PRIVATE
-    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR} ${MPI_CXX_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/src 
+    ${CFITSIO_INCLUDE_DIR}
+    ${MPI_CXX_INCLUDE_DIRS}
 )
 
 target_link_libraries(fits_class_test_mpi fits ${CFITSIO_LIBRARY} MPI::MPI_CXX)
 
+add_executable(numatests
+    numatests.cpp
+)
+
+target_include_directories(numatests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src 
+    ${CFITSIO_INCLUDE_DIR}
+)
+
+target_link_libraries(numatests fits ${CFITSIO_LIBRARY})
+
+################################################################################
+
+add_executable(numa_gpu_bw
+    numa_gpu_bw.cu
+)
+
+target_link_libraries(numa_gpu_bw hwloc::hwloc numa)
+
+################################################################################
+
+add_executable(numa_bw
+    numa_bw.cpp
+)
+
+target_link_libraries(numa_bw numa)
+
+################################################################################
+
+add_executable(parFitsLoad
+    parFitsLoad.cpp
+)
+
+target_include_directories(parFitsLoad PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CFITSIO_INCLUDE_DIR}
+)
+
+target_link_libraries(parFitsLoad fits hwloc::hwloc numa)
 
 ################################################################################
 # test for tdd library

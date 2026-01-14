@@ -7,6 +7,8 @@
 #include <byteswap.h>
 #include <cstdint>
 #include <string>
+#include <iostream>
+#include "matrix_view.hpp"
 
 inline void swap_endian_3floats(float &f1, float &f2, float &f3) {
   uint32_t *p1 = reinterpret_cast<uint32_t *>(&f1);
@@ -24,33 +26,14 @@ class Fits {
     Fits(const char* filename);
 
     // ----- Getters (read-only API) -----
-    int         num_hdus()     const noexcept { return num_hdus_; }
-    const char* telescope()    const noexcept { return telescope_name_; }   // TELESCOP
-    const char* instrument()   const noexcept { return instrument_; }       // BACKEND
-    const char* source_name()  const noexcept { return object_name_; }      // SRC_NAME
-    const char* ra()           const noexcept { return ra_; }               // RA
-    const char* dec()          const noexcept { return dec_; }              // DEC
-    const char* observer()     const noexcept { return observer_; }         // OBSERVER
-    const char* projid()       const noexcept { return projid_; }           // PROJID
-    const char* dateobs()      const noexcept { return dateobs_; }          // DATE-OBS
-    int         stt_imjd()     const noexcept { return stt_imjd_; }         // STT_IMJD
-    int         stt_smjd()     const noexcept { return stt_smjd_; }         // STT_SMJD
-    double      stt_offs()     const noexcept { return stt_offs_; }         // STT_OFFS
-    double      epoch()        const noexcept { return epoch_; }            // computed
-    double      tbin()         const noexcept { return tbin_; }             // TBIN
     int         nchan()        const noexcept { return nchans_read_; }      // NCHAN
-    int         nsblk()        const noexcept { return nsblk_; }            // NSBLK
-    int         naxis1()       const noexcept { return naxis1_; }           // NAXIS1
-    int         nbin()         const noexcept { return nbin_; }             // NBIN
-    int         npol()         const noexcept { return npol_; }             // NPOL
-    int         naxis2()       const noexcept { return naxis2_; }           // NAXIS2
     double      f_lo()         const { return freqs_.front(); }
     double      f_hi()         const { return freqs_.back();  }
     size_t      dimTime()      const { return naxis2_ * nsblk_; }
-    size_t      data_byte_width()   const noexcept { return data_byte_width_; }
-    size_t      scal_offs_width()   const noexcept { return scal_offs_width_; }
-    size_t      file_size_aligned() const noexcept { return file_size_aligned_; }
+    size_t      fileSizeAligned() const noexcept { return file_size_aligned_; }
+    size_t      fileSize()     const { return file_size_; }
     float*      data()         const noexcept { return data_; }
+    int         naxis1()       const noexcept {return naxis1_; }
 
     // Channel frequencies column (DAT_FREQ)
     const std::vector<double>& freqs() const noexcept { return freqs_; }
@@ -76,25 +59,25 @@ class Fits {
     // Reduce the data into the data buffer. The first dimension in the reduced data is channels
     void reduceData(int poln=0, unsigned int downsamp=1);
 
-    void setAlignedFileSizeBuffer(unsigned char* aligned_filesize_buffer) { aligned_filesize_buffer_ = aligned_filesize_buffer; }
+    void setAlignedFileSizeBuffer(unsigned char* buf) { 
+      aligned_filesize_buffer_ = buf; 
+    }
     
     void setDataBuffer(float* data) { data_ = data; }
 
     void setVerbosity(int verbosity) {verbose = verbosity;}
 
-    size_t getAlignedBufSize() {return ((file_size_ + 4095) / 4096) * 4096; }
-
-    size_t getNumElements(unsigned int downsamp=1) {return (nchans_read_ * nsblk_ * naxis2_)/downsamp; }
+    size_t getNumElements(unsigned int downsamp=1) {
+      return ((size_t)nchans_read_ * nsblk_ * naxis2_)/downsamp; 
+    }
 
     size_t getDataSize(unsigned int downsamp=1) {return getNumElements(downsamp) * sizeof(float); }
 
+    matrixView<float>& dataView() { return dataView_; }
+
+    const matrixView<float>& dataView() const { return dataView_; }
+
     ~Fits() {};
-
-    //Fits(const Fits&) = delete;
-    //Fits& operator=(const Fits&) = delete;
-
-    //Fits(Fits&&) noexcept;
-    //Fits& operator=(Fits&&) noexcept;
   
   private:
     const char* filename_;
@@ -139,6 +122,7 @@ class Fits {
 
     float* data_                            = nullptr; 
     unsigned char* aligned_filesize_buffer_ = nullptr;
+    matrixView<float> dataView_;
 };
 
 #endif

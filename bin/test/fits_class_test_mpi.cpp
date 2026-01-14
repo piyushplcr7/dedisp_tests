@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include "fits/fitscontainer.hpp"
+#include "fits/matrix_view.hpp"
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
@@ -23,22 +24,53 @@ int main(int argc, char** argv) {
         listFitsNames[i] = std::string(argv[i+1]);
     }
 
-    float *a, *b;
-    unsigned char *c;
+    fitsLoader container(listFitsNames, world_rank, world_size);
+
+    std::cout << "assembling distributed data using MPI on " << world_rank << std::endl;
+    container.assembleAllTimes();
+    std::cout << "assembled distributed data using MPI on " << world_rank << std::endl;
+
+    // Now generate one fits object
+    Fits standaloneFits(listFitsNames[0].c_str());
+
+    // Buffer to store its data
+    std::unique_ptr<float[]> data = std::make_unique<float[]>(standaloneFits.getNumElements());
+
+    std::cout << "Getting data in the standalone fits object on " << world_rank << std::endl;
     {
-        fitsLoader container(listFitsNames, world_rank, world_size);
-        container.assembleAllTimesTest();
-        a = container.fits_data_buf_;
-        b = container.assembledDataBuffer_;
-        c = container.aligned_buf_;
+        std::unique_ptr<unsigned char, void (*)(unsigned char*)> alignedBuf(
+            static_cast<unsigned char*>( ::operator new(standaloneFits.fileSizeAligned() , std::align_val_t(4096))),
+            [] (unsigned char* x) { ::operator delete(x, std::align_val_t(4096)); }
+        );
+
+        standaloneFits.setAlignedFileSizeBuffer(alignedBuf.get());
+        standaloneFits.setDataBuffer(data.get());
+
+        // Extract and reduce the data
+        standaloneFits.extractDataDirect();
+        standaloneFits.reduceData();
     }
 
-    std::free(a);
-    std::cout << "freed a on " << world_rank << std::endl;
-    std::free(b);
-    std::cout << "freed b on " << world_rank << std::endl;
-    std::free(c);
-    std::cout << "freed c on " << world_rank << std::endl;
+    std::cout << "standalone fits created on " << world_rank << std::endl;
+
+    // Get data view on the assembled data and standalone fits
+    matrixView<float> assembled = container.getAssembledData();
+    matrixView<float> standalone = standaloneFits.dataView();
+
+    std::cout << "assembled.rows() = " << assembled.rows() << ", assembled.cols() = " << assembled.cols() << std::endl;
+    std::cout << "standalone.rows() = " << standalone.rows() << ", standalone.cols() = " << standalone.cols() << std::endl;
+    //exit(-1);
+    size_t start_chan = container.startChan();
+    // Comparing the assembled with the standalone
+    for (size_t i = 0 ; i < assembled.rows() ; ++i) {
+        for (size_t j = 0 ; j < assembled.cols() ; ++j) {
+            if ( std::abs(assembled(i,j) - standalone(i % standalone.rows() , j + start_chan) ) > 1e-5 ) {
+                std::cout << "mismatch at " << i << ", " << j << "on rank " << world_rank << std::endl;
+            }
+        }
+    }
+
+    std::cout << "Test passed! on " << world_rank << std::endl;
 
     std::cout << "Just before MPI_Finalize() on proc " << world_rank << std::endl;
     MPI_Finalize();

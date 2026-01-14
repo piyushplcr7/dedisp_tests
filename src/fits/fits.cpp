@@ -12,6 +12,7 @@
 #include <tuple>
 #include <string>
 #include <fstream>
+#include "matrix_view.hpp"
 
 Fits::Fits(const char* filename) {
   // assign the filename
@@ -157,12 +158,12 @@ Fits::Fits(const char* filename) {
   fclose(fptr);
 
   // Finding important sizes and offsets
-  fits_header_bytesize_ = i * 2880;
+  fits_header_bytesize_ = (size_t)i * 2880;
   fits_data_bytesize_ = (size_t)naxis1_ * naxis2_;
   file_size_ = fits_header_bytesize_+ fits_data_bytesize_;
   file_size_aligned_ = ((file_size_ + 4095) / 4096) * 4096;
   timeseries_col_byte_offset_ =
-    (size_t)naxis1_ - 4 * nchans_read_ - 2 * 4 * scal_offs_width_ - data_byte_width_;
+    (size_t)naxis1_ - (size_t)4 * nchans_read_ - (size_t)2 * 4 * scal_offs_width_ - data_byte_width_;
 
 }
 
@@ -239,6 +240,10 @@ void Fits::reduceData(int poln, unsigned int downsamp) {
                     nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
                     scal_offs_width_, downsamp);
   }
+
+  // Create the data view for easy access
+  std::cout << "creating data view with " << (size_t)nsblk_ * naxis2_/downsamp << " rows and " << (size_t) nchans_read_ << " cols" << std::endl; 
+  dataView_ = matrixView<float> (data_, (size_t)nsblk_ * naxis2_/downsamp , (size_t)nchans_read_);
   
 #ifdef DEDISP_BENCHMARK
   auto end_time = std::chrono::high_resolution_clock::now();

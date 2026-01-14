@@ -23,13 +23,18 @@ find_package(NCCL)
 # set Release as default build type
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
+  #set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-# set default compiler flags
-#set(CMAKE_CXX_FLAGS "-Wall -g -O3")
-set(CMAKE_CXX_FLAGS "-Wall -O3")
-message("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_FLAGS "-Wall")
+
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Mframe")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fno-omit-frame-pointer")
+
+# Optimization level: -O2 (safer for profiling than -O3)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 
 ################################################################################
@@ -87,6 +92,12 @@ if(DEFINED CFITSIO_INCLUDE_DIR AND CFITSIO_INCLUDE_DIR)
 else()
     message(FATAL_ERROR "CFITSIO include directory not found or invalid!")
 endif()
+
+################################################################################
+# hwloc
+################################################################################
+
+find_package(HWLOC REQUIRED)
 
 ################################################################################
 # MPI
