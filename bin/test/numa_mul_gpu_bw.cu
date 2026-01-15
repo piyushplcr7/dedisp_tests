@@ -5,6 +5,7 @@
 #include <vector>
 #include "numa/hwloc_utils.hpp"
 #include "numa/numa_mem.hpp"
+#include <thread>
 
 #define CUDA_CHECK(call) do { \
     cudaError_t err = call; \
@@ -17,38 +18,21 @@
 
 hwlocUtils hwlocobj{};
 
-int main(int argc, char** argv)
-{
-    if (argc < 4) {
-        std::cerr << "usage: ./bw <mem_numa_node> <cuda_device> <concurrent>\n";
-        return 1;
-    }
+void testMemCpy(int node, int cuda_dev, bool concurrent) {
 
-    int mem_node = atoi(argv[1]);
-    int cuda_dev = atoi(argv[2]);
-    bool concurrent;
-
-    if (strcmp(argv[3],"true") == 0) {
-        concurrent = true;
-    }
-    else if (strcmp(argv[3],"false") == 0) {
-        concurrent = false;
-    }
-    else {
-        std::cerr << "invalid argument 3, it must be true or false" << std::endl;
-        exit(-1);
-    }
-
-    hwlocobj.bindThreadToNUMA(mem_node);
-    hwlocobj.bindMemToNUMA(mem_node);
+    if (node < 0)
+        return;
+    
+    hwlocobj.bindThreadToNUMA(node);
+    hwlocobj.bindMemToNUMA(node);
 
     CUDA_CHECK(cudaSetDevice(cuda_dev));
 
-    size_t gigabytes = 15;
+    size_t gigabytes = 8;
     const size_t bytes = gigabytes * 1024 * 1024 * 1024;
 
-    numaMem h2dmem(mem_node, bytes);
-    numaMem d2hmem(mem_node, bytes);
+    numaMem h2dmem(node, bytes);
+    numaMem d2hmem(node, bytes);
 
     void* hptr_h2d = h2dmem.get();
     void* hptr_d2h = d2hmem.get();
@@ -63,7 +47,7 @@ int main(int argc, char** argv)
     void* dptr_d2h;
     CUDA_CHECK(cudaMalloc(&dptr_h2d, bytes));
     CUDA_CHECK(cudaMalloc(&dptr_d2h, bytes));
-
+    
     int trials = 10;
 
     std::vector<cudaEvent_t> starth2d(trials), stoph2d(trials);
@@ -76,9 +60,7 @@ int main(int argc, char** argv)
         cudaEventCreate(&startd2h[i]);
         cudaEventCreate(&stopd2h[i]);
     }
-    
 
-    // ---------------- Streams ----------------
     cudaStream_t streamH2D, streamD2H;
     CUDA_CHECK(cudaStreamCreate(&streamH2D));
 
@@ -97,7 +79,6 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaMemcpyAsync(hptr_d2h, dptr_d2h, bytes, cudaMemcpyDeviceToHost, streamD2H));
     CUDA_CHECK(cudaDeviceSynchronize());
 
-
     for (int i = 0 ; i < trials ; ++i) {
         CUDA_CHECK(cudaEventRecord(starth2d[i], streamH2D));
         CUDA_CHECK(cudaMemcpyAsync(dptr_h2d, hptr_h2d, bytes, cudaMemcpyHostToDevice, streamH2D));
@@ -107,10 +88,10 @@ int main(int argc, char** argv)
         CUDA_CHECK(cudaMemcpyAsync(hptr_d2h, dptr_d2h, bytes, cudaMemcpyDeviceToHost, streamD2H));
         CUDA_CHECK(cudaEventRecord(stopd2h[i], streamD2H));
     }
-    
+
     CUDA_CHECK(cudaStreamSynchronize(streamH2D));
     CUDA_CHECK(cudaStreamSynchronize(streamD2H));
-    
+
     float totmsh2d=0., totmsd2h=0.;
     float ms;
     for (int i = 0 ; i < trials ; ++i) {
@@ -124,11 +105,10 @@ int main(int argc, char** argv)
     totmsh2d /= trials;
     totmsd2h /= trials;
 
-    std::cout << "Numa node " << mem_node << " <-> cuda device " << cuda_dev << ", concurrent = " << concurrent << std::endl;
+    std::cout << "Numa node " << node << " <-> cuda device " << cuda_dev << ", concurrent = " << concurrent << std::endl;
     std::cout << "H2D: " << gigabytes / (totmsh2d/1e3) << " GBps" << std::endl;
     std::cout << "D2H: " << gigabytes / (totmsd2h/1e3) << " GBps" << std::endl;
 
-    // ---------------- Cleanup ----------------
     for (int i = 0 ; i < trials ; ++i) {
         CUDA_CHECK(cudaEventDestroy(starth2d[i]));
         CUDA_CHECK(cudaEventDestroy(stoph2d[i]));
@@ -144,6 +124,44 @@ int main(int argc, char** argv)
 
     CUDA_CHECK(cudaHostUnregister(hptr_h2d));
     CUDA_CHECK(cudaHostUnregister(hptr_d2h));
+}
+
+int main(int argc, char** argv)
+{   
+    if (argc != 6) {
+        std::cerr << "Usage: ./executable a b c d concurrent, where a-d are numa nodes, concurrent is boolean" << std::endl;
+        exit(-1); 
+    }
+
+    int a = atoi(argv[1]);
+    int b = atoi(argv[2]);
+    int c = atoi(argv[3]);
+    int d = atoi(argv[4]);
+
+    bool concurrent;
+
+    if (strcmp(argv[5],"true") == 0) {
+        concurrent = true;
+    }
+    else if (strcmp(argv[5],"false") == 0) {
+        concurrent = false;
+    }
+    else {
+        std::cerr << "invalid argument 5, it must be true or false" << std::endl;
+        exit(-1);
+    }
+
+    std::vector<int> cudaDevices = {0,1,2,3};
+    std::vector<int> NUMAnodes = {a, b, c, d};
+
+    std::vector<std::thread> threads(cudaDevices.size());
+
+    for (int i = 0 ; i < cudaDevices.size() ; ++i) {
+        threads[i] = std::thread(testMemCpy, NUMAnodes[i], cudaDevices[i], concurrent);
+    }
+
+    for (int i = 0 ; i < cudaDevices.size() ; ++i) 
+        threads[i].join();
     
     return 0;
 }

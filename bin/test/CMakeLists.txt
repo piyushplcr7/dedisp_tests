@@ -159,7 +159,23 @@ add_executable(numa_gpu_bw
     numa_gpu_bw.cu
 )
 
-target_link_libraries(numa_gpu_bw hwloc::hwloc numa)
+target_include_directories(numa_gpu_bw PRIVATE
+    ${CMAKE_SOURCE_DIR}/src 
+)
+
+target_link_libraries(numa_gpu_bw hwlocutils)
+
+################################################################################
+
+add_executable(numa_mul_gpu_bw
+    numa_mul_gpu_bw.cu
+)
+
+target_include_directories(numa_mul_gpu_bw PRIVATE
+    ${CMAKE_SOURCE_DIR}/src 
+)
+
+target_link_libraries(numa_mul_gpu_bw hwlocutils)
 
 ################################################################################
 
