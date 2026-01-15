@@ -47,40 +47,54 @@ void extractOnNode(int node, Fits& fits) {
     std::cout << "Extracted fits on node " << node << " at " << (double)fits.fileSize()/(1<<20)/diff.count() << " MBps" << std::endl; 
 }
 
-void parallelLoadTest() {
-    Fits fits1("/scratch/panchal/1.fits");
-    Fits fits2("/scratch/panchal/2.fits");
-    Fits fits3("/scratch/panchal/3.fits");
+void parallelLoadTest(std::vector<int> nodes) {
+    int parFiles = nodes.size();
+    std::vector<Fits> fits;
+    fits.reserve(4);
+
+    fits.emplace_back("/scratch/panchal/1.fits");
+    fits.emplace_back("/scratch/panchal/2.fits");
+    fits.emplace_back("/scratch/panchal/3.fits");
+    fits.emplace_back("/scratch/panchal/4.fits");
+
+    std::vector<std::thread> threads(parFiles);
 
     auto start = std::chrono::high_resolution_clock::now();
-    std::thread t1(extractOnNode, 0, std::ref(fits1));
-    std::thread t2(extractOnNode, 1, std::ref(fits2));
-    std::thread t3(extractOnNode, 2, std::ref(fits3));
 
-    t1.join();
-    t2.join();
-    t3.join();
+    for (int i = 0 ; i < parFiles ; ++i) {
+        threads[i] = std::thread(extractOnNode, nodes[i], std::ref(fits[i]));
+    }
+
+    for (int i = 0 ; i < parFiles ; ++i) {
+        threads[i].join();
+    }
     
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<double> diff = end-start;
 
-    std::cout << "Effective read speed: " << ((double) (fits1.fileSize() + fits2.fileSize()))/(1<<30)/diff.count() << " GBps" << std::endl;
-}
+    size_t tot_size = 0;
 
-void singleLoadTest(int node) {
-    Fits fits("/scratch/panchal/1.fits");
-    extractOnNode(node, fits);
+    for (int i = 0 ; i < parFiles ; ++i) {
+        tot_size += fits[i].fileSize();
+    }
+
+    std::cout << "Effective read speed: " << ((double) tot_size )/(1<<30)/diff.count() << " GBps" << std::endl;
 }
 
 int main(int argc, char** argv) {
     int node;
-    if (argc > 1) {
-        node = atoi(argv[1]);
+    if (argc > 5 or argc == 1) {
+        std::cerr << "Specify 1-4 nodes to load fits on" << std::endl;
     }
 
-    //singleLoadTest(node);
-    parallelLoadTest();
+    std::vector<int> nodes(argc-1);
+
+    for (int i = 1 ; i < argc ; ++i) {
+        nodes[i-1] = atoi(argv[i]);
+    }
+    
+    parallelLoadTest(nodes);
 
     return 0;
 }
