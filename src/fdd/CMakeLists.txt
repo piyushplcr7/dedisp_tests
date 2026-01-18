@@ -1,3 +1,9 @@
+set_source_files_properties(
+    dedisperse/FDDKernel.cu
+    unpack/unpack.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
+
 add_library(fdd SHARED
     FDDGPUPlan.cpp
     FDDCPUPlan.cpp
@@ -14,16 +20,12 @@ add_library(fdd SHARED
 ##############################
 add_library(fdd_gpu_clig fdd_gpu.c)
 
-find_package(FFTW3 REQUIRED true)
-
-find_library(NUMA_LIBRARY NAMES numa)
-
 target_link_libraries(fdd
     ${FFTW3F_LIBRARY}
     cu
     fdd_gpu_clig
     MPI::MPI_CXX
-    ${NCCL_LIBRARY}
+    ${GPU_XCCL}
     ${NUMA_LIBRARY}
 )
 
@@ -33,7 +35,7 @@ target_include_directories(fdd
    PRIVATE ${FFTW3_INCLUDE_DIR}
    PRIVATE ${NCCL_INCLUDE_DIR}
    PRIVATE ${MPI_CXX_INCLUDE_DIRS}
-   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+   PUBLIC ${GPU_INCLUDE_DIRS}
 )
 
 set_target_properties(fdd PROPERTIES

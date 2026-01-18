@@ -6,11 +6,10 @@ add_library(
 target_include_directories(
    clib
    PRIVATE ${CMAKE_SOURCE_DIR}/src
-   PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
-   PRIVATE ${NCCL_INCLUDE_DIR}
+   PRIVATE ${GPU_INCLUDE_DIRS}
 )
 
-target_link_libraries(
-    clib
-    CUDA::cufft
-)
+#target_link_libraries(
+#    clib
+#    ${GPU_FFT_LIBS}
+#)

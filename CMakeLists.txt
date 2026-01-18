@@ -2,9 +2,9 @@
 # main
 ################################################################################
 # cmake configuration
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.21)
 
-project(dedisp LANGUAGES C CXX CUDA)
+project(dedisp LANGUAGES C CXX)
 
 # version number
 set(DEDISP_VERSION_MAJOR 1)
@@ -14,11 +14,67 @@ set(DEDISP_VERSION ${DEDISP_VERSION_MAJOR}.${DEDISP_VERSION_MINOR}.${DEDISP_VERS
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# dependencies
-#find_package(CUDA)
-find_package(CUDAToolkit REQUIRED)
+###############################################################################
+# Select backend
 
-find_package(NCCL)
+set(GPU_BACKEND "" CACHE STRING "GPU backend (CUDA or HIP)")
+set_property(CACHE GPU_BACKEND PROPERTY STRINGS CUDA HIP)
+
+if(GPU_BACKEND STREQUAL "CUDA")
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    find_package(NCCL)
+
+    set(CMAKE_CUDA_ARCHITECTURES "70;80;89;90")
+    set(CUDA_NVCC_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
+
+    # abstracted vars
+    set(GPU_INCLUDE_DIRS ${CUDAToolkit_INCLUDE_DIRS})
+    set(GPU_HOST_RUNTIME_LIBS CUDA::cudart)
+    set(GPU_TRACER_LIBS CUDA::nvToolsExt)
+    set(GPU_LIBRARIES ${CUDAToolkit_LIBRARIES} ${NCCL_LIBRARIES})
+    set(GPU_FFT_LIBS CUDA::cufft)
+    set(GPU_DEFINITIONS -DUSE_CUDA)
+    set(GPU_XCCL ${NCCL_LIBRARY})
+    set(GPU_LANG CUDA)
+
+elseif(GPU_BACKEND STREQUAL "HIP")
+    enable_language(HIP)
+    find_package(hip REQUIRED)
+    find_package(hipfft REQUIRED)
+    find_package(rocFFT REQUIRED)
+    find_package(rccl REQUIRED)
+
+    set(CMAKE_HIP_ARCHITECTURES "gfx906;gfx908;gfx90a")
+    add_definitions(-D__HIP_PLATFORM_AMD__)
+
+    # abstracted vars
+    set(GPU_INCLUDE_DIRS ${HIP_INCLUDE_DIRS})
+    set(GPU_HOST_RUNTIME_LIBS hip::host)
+    set(GPU_LIBRARIES ${HIP_LIBRARIES})
+    set(GPU_FFT_LIBS ${HIPFFT_LIBRARIES} ${ROCFFT_LIBRARIES})
+    set(GPU_DEFINITIONS -DUSE_HIP)
+
+    find_library(ROCTRACERLIB
+        NAMES roctracer64
+        PATHS ${HIP_LIB_INSTALL_DIR}
+        PATH_SUFFIXES lib lib64
+        NO_DEFAULT_PATH
+    )
+
+    set(GPU_TRACER_LIBS ${ROCTRACERLIB})
+    set(GPU_XCCL rccl)
+    set(GPU_LANG HIP)
+
+else()
+    message(FATAL_ERROR
+        "GPU_BACKEND must be set to CUDA or HIP.\n"
+        "Example:\n"
+        "  cmake -DGPU_BACKEND=CUDA ..\n"
+        "  cmake -DGPU_BACKEND=HIP  ..")
+endif()
+
+###############################################################################
 
 # set Release as default build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -54,23 +110,6 @@ if (ENABLE_DEBUG)
     message("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
 endif()
 
-
-################################################################################
-# cuda configuration
-################################################################################
-
-set(CUDA_NVCC_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
-
-set(CMAKE_CUDA_ARCHITECTURES "70;80;89;90")
-
-# compile for specified architecture (if any)
-#set(CUDA_ARCH "" CACHE STRING "CUDA architecture")
-
-#if (${CUDA_ARCH})
-#    set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -arch=compute_${CUDA_ARCH} -code=compute_${CUDA_ARCH})
-#endif()
-
-
 ################################################################################
 # OpenMP configuration
 ################################################################################
@@ -96,13 +135,22 @@ endif()
 ################################################################################
 # hwloc
 ################################################################################
-
 find_package(HWLOC REQUIRED)
 
 ################################################################################
 # MPI
 ################################################################################
 find_package(MPI REQUIRED)
+
+################################################################################
+# FFTW
+################################################################################
+find_package(FFTW3 REQUIRED true)
+
+################################################################################
+# NUMA
+################################################################################
+find_library(NUMA_LIBRARY NAMES numa)
 
 ################################################################################
 # library

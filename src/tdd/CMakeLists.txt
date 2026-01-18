@@ -1,3 +1,9 @@
+set_source_files_properties(
+    dedisperse/TDDKernel.cu
+    unpack/unpack.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
+
 add_library(
     tdd SHARED
     TDDPlan.cpp
@@ -16,7 +22,7 @@ target_link_libraries(
 target_include_directories(
     tdd
     PRIVATE ${CMAKE_SOURCE_DIR}/src
-    PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+    PUBLIC ${GPU_INCLUDE_DIRS}
 )
 
 set_target_properties(

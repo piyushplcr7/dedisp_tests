@@ -2,11 +2,8 @@ add_library(cu
     CU.cpp
 )
 
-#find_package(CUDAnvToolsExt REQUIRED)
-#find_package(CUDAToolkit REQUIRED)
-
 target_link_libraries(cu
-    CUDA::cudart
-    CUDA::nvToolsExt
-    CUDA::cufft
+    ${GPU_HOST_RUNTIME_LIBS}
+    ${GPU_TRACER_LIBS}
+    ${GPU_FFT_LIBS}
 )

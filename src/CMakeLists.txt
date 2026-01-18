@@ -17,8 +17,8 @@ add_subdirectory(numa)
 ################################################################################
 add_library(plan OBJECT Plan.cpp GPUPlan.cpp)
 include(CMakePrintHelpers)
-cmake_print_variables(CUDAToolkit_INCLUDE_DIRS)
-target_include_directories(plan PUBLIC ${CUDAToolkit_INCLUDE_DIRS})
+cmake_print_variables(GPU_INCLUDE_DIRS)
+target_include_directories(plan PUBLIC ${GPU_INCLUDE_DIRS})
 
 
 ################################################################################
