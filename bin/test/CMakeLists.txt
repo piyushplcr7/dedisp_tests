@@ -24,17 +24,15 @@ add_executable(testdedisp
 
 target_include_directories(testdedisp 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
-    #PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
-    #PRIVATE ${MPI_CXX_INCLUDE_DIRS}
     PRIVATE ${CFITSIO_INCLUDE_DIR}
-    PRIVATE ${NCCL_INCLUDE_DIR}
+    PRIVATE ${GPU_XCCL_INCLUDE_DIR}
 )
 
 target_link_libraries(testdedisp 
     fdd_gpu_clig 
     fdd 
     ${CFITSIO_LIBRARY} 
-    ${NCCL_LIBRARY} 
+    ${GPU_XCCL}
     #MPI::MPI_CXX
 )
 
@@ -48,13 +46,14 @@ add_executable(testdedispold
 target_include_directories(testdedispold 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
     PRIVATE ${CFITSIO_INCLUDE_DIR}
-    PRIVATE ${NCCL_INCLUDE_DIR}
+    PRIVATE ${GPU_XCCL_INCLUDE_DIR}
 )
 
 target_link_libraries(testdedispold 
     fdd_gpu_clig 
     dedisp
     ${CFITSIO_LIBRARY} 
+    ${GPU_XCCL}
 )
 
 ################################################################################
