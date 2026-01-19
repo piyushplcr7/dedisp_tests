@@ -20,6 +20,9 @@ add_library(
     $<TARGET_OBJECTS:clib>
 )
 
+target_include_directories(dedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(dedisp PRIVATE ${GPU_DEFINITIONS})
+
 target_link_libraries(
     dedisp
     cu

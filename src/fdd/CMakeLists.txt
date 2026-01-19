@@ -15,6 +15,9 @@ add_library(fdd SHARED
     $<TARGET_OBJECTS:external>
 )
 
+target_include_directories(fdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(fdd PRIVATE ${GPU_DEFINITIONS})
+
 ##############################
 # CLIG INTERFACE
 ##############################

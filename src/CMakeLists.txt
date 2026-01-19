@@ -18,8 +18,8 @@ add_subdirectory(numa)
 add_library(plan OBJECT Plan.cpp GPUPlan.cpp)
 include(CMakePrintHelpers)
 cmake_print_variables(GPU_INCLUDE_DIRS)
-target_include_directories(plan PUBLIC ${GPU_INCLUDE_DIRS})
-
+target_include_directories(plan PUBLIC ${GPU_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(plan PRIVATE ${GPU_DEFINITIONS})
 
 ################################################################################
 # dedisp c-library

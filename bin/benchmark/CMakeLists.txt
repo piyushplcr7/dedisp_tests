@@ -9,6 +9,9 @@ target_include_directories(benchdedisp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
+target_include_directories(benchdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(benchdedisp PRIVATE ${GPU_DEFINITIONS})
+
 target_link_libraries(benchdedisp dedisp)
 
 
@@ -22,6 +25,9 @@ add_executable(benchtdd
 target_include_directories(benchtdd PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+
+target_include_directories(benchtdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(benchtdd PRIVATE ${GPU_DEFINITIONS})
 
 target_link_libraries(benchtdd tdd)
 

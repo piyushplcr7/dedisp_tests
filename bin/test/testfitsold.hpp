@@ -30,7 +30,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include "gpu_runtime.hpp"
 
 #include "fdd/helper.h"
 
@@ -60,7 +60,6 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
 
 #include "fdd/helper.h"
 #include "FDDGPUPlan.hpp"

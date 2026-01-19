@@ -15,9 +15,6 @@
 #include "fdd_gpu.h"
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
-
-#include "fdd/helper.h"
 
 dedisp_float maxval_data = std::numeric_limits<float>::lowest();
 dedisp_float minval_data = std::numeric_limits<float>::max();

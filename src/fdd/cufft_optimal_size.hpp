@@ -1,3 +1,4 @@
+#include "gpu_runtime.hpp"
 #include <iostream>
 #include <vector>
 #include <algorithm>

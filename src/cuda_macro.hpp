@@ -2,20 +2,20 @@
 #ifndef CUDAMACROHPP
 #define CUDAMACROHPP
 
-#include <cuda_runtime.h>
+#include "gpu_runtime.hpp"
 
 #define CUDA_CHECK(call)                                \
     do                                                  \
     {                                                   \
-        const cudaError_t error_code = call;            \
-        if (error_code != cudaSuccess)                  \
+        const gpuError_t error_code = call;            \
+        if (error_code != gpuSuccess)                  \
         {                                               \
             printf("CUDA Error:\n");                    \
             printf("    File:       %s\n", __FILE__);   \
             printf("    Line:       %d\n", __LINE__);   \
             printf("    Error code: %d\n", error_code); \
             printf("    Error text: %s\n",              \
-                   cudaGetErrorString(error_code));     \
+                   gpuGetErrorString(error_code));     \
             exit(1);                                    \
         }                                               \
     } while (0)

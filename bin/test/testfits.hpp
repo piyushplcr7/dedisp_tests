@@ -30,7 +30,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include "gpu_runtime.hpp"
 
 #include "fdd/helper.h"
 
@@ -60,7 +60,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include "gpu_fft.hpp"
 
 #include "fdd/helper.h"
 #include "FDDGPUPlan.hpp"
@@ -310,14 +310,14 @@ int run(int argc, char **argv) {
 
   // Launch a background thread to allocate pinned memory
   /* std::thread host_alloc_thread([&]() {
-      cudaError_t err = cudaHostAlloc(
+      gpuError_t err = gpuHostAlloc(
           (void**)&pinned_input,
           allocation_size * sizeof(float),
-          cudaHostAllocDefault);
+          gpuHostMallocDefault);
 
-      if (err != cudaSuccess) {
-          std::cerr << "cudaHostAlloc failed: "
-                    << cudaGetErrorString(err) << std::endl;
+      if (err != gpuSuccess) {
+          std::cerr << "gpuHostAlloc failed: "
+                    << gpuGetErrorString(err) << std::endl;
       } else {
           std::cout << "Pinned host memory allocated (" 
                     << allocation_size * sizeof(float) / (1024.0 * 1024.0)
@@ -361,14 +361,8 @@ int run(int argc, char **argv) {
 
   mpi_nccl_init.end();
 
-  cudaError_t err = cudaGetDeviceCount(&numGPUsLocal);
+  gpuGetDeviceCount(&numGPUsLocal);
   
-  if (err != cudaSuccess) {
-      std::cerr << "Error detecting CUDA devices: " 
-                << cudaGetErrorString(err) << std::endl;
-      return 1;
-  }
-
   std::cout << "Number of CUDA devices: " << numGPUsLocal << std::endl;
 
   cu::Marker context_init("CUDA/Cufft context initialization");
@@ -382,11 +376,11 @@ int run(int argc, char **argv) {
 
   #pragma omp parallel for num_threads(numGPUsLocal) schedule(static)
   for (int i = 0; i < numGPUsLocal; ++i) {
-      cudaSetDevice(i);
-      cudaFree(0);                 // warm up context
-      cufftHandle tmp;
-      cufftPlan1d(&tmp, 16, CUFFT_R2C, 1);  // warm up cuFFT modules
-      cufftDestroy(tmp);
+      gpuSetDevice(i);
+      gpuFree(0);                 // warm up context
+      gpufftHandle tmp;
+      gpufftPlan1d(&tmp, 16, GPUFFT_R2C, 1);  // warm up cuFFT modules
+      gpufftDestroy(tmp);
   }
   context_init.end();
 
@@ -396,7 +390,7 @@ int run(int argc, char **argv) {
   // Parallel NCCL init. Doesn't work! hangs!
   #pragma omp parallel for num_threads(numGPUsLocal) schedule(static)
   for (int i=0; i<numGPUsLocal; ++i) {
-    cudaSetDevice(i);                 // context already warmed
+    gpuSetDevice(i);                 // context already warmed
     NCCLCHECK(ncclCommInitRank(&comms[i],
                     world_size*numGPUsLocal,
                     nccl_unique_id,
@@ -406,7 +400,7 @@ int run(int argc, char **argv) {
   // Using the group semantics for NCCL here because of a single thread
   /* NCCLCHECK(ncclGroupStart());
   for (int i=0; i<numGPUsLocal; i++) {
-     CUDA_CHECK(cudaSetDevice(i));
+     CUDA_CHECK(gpuSetDevice(i));
      NCCLCHECK(ncclCommInitRank(comms+i, world_size*numGPUsLocal, nccl_unique_id, world_rank*numGPUsLocal + i));
   }
   NCCLCHECK(ncclGroupEnd()); */
@@ -415,23 +409,19 @@ int run(int argc, char **argv) {
 
   cu::Marker host_alloc("Pinned host memory allocation");
   host_alloc.start();
-  /* cudaError_t err = cudaHostAlloc(
+  /* gpuError_t err = gpuHostAlloc(
           (void**)&pinned_input,
           allocation_size * sizeof(float),
-          cudaHostAllocDefault); */
+          gpuHostMallocDefault); */
 
-  cudaError_t err1 = cudaMallocHost(
+  gpuMallocHost(
           (void**)&pinned_input,
           allocation_size * sizeof(float));
 
-  if (err1 != cudaSuccess) {
-      std::cerr << "cudaHostAlloc failed: "
-                << cudaGetErrorString(err1) << std::endl;
-  } else {
-      std::cout << "Pinned host memory allocated (" 
-                << allocation_size * sizeof(float) / (1024.0 * 1024.0)
-                << " MB)" << std::endl;
-  }
+  std::cout << "Pinned host memory allocated (" 
+            << allocation_size * sizeof(float) / (1024.0 * 1024.0)
+            << " MB)" << std::endl;
+  
   host_alloc.end();
 
 
@@ -1028,7 +1018,7 @@ int run(int argc, char **argv) {
   /* auto GPURunfunctor = [&](int dev_idx) {
     pin_thread_to_core(dev_idx + numGPUsLocal);
     // Set the GPU
-    cudaSetDevice(dev_idx);
+    gpuSetDevice(dev_idx);
 
     // Create the plan
     FDDGPUPlan &plan = plans[dev_idx];
@@ -1062,7 +1052,7 @@ int run(int argc, char **argv) {
   #pragma omp parallel for num_threads(numGPUsLocal)
   for (int dev_idx = 0; dev_idx < numGPUsLocal; ++dev_idx) {
       pin_thread_to_core(dev_idx);
-      cudaSetDevice(dev_idx);
+      gpuSetDevice(dev_idx);
 
       FDDGPUPlan &plan = plans[dev_idx];
 
@@ -1171,7 +1161,7 @@ int run(int argc, char **argv) {
 // free(input);
 #ifdef READFROMFILE
   //free(rawdata);
-  cudaFreeHost(pinned_input);
+  gpuHostFree(pinned_input);
 #endif
   free(plans);
   printf("Dedispersion successful.\n");

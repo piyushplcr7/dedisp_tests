@@ -22,6 +22,9 @@ add_executable(testdedisp
     testdedisp.cpp
 )
 
+target_include_directories(testdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(testdedisp PRIVATE ${GPU_DEFINITIONS})
+
 target_include_directories(testdedisp 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
     PRIVATE ${CFITSIO_INCLUDE_DIR}
@@ -48,6 +51,9 @@ target_include_directories(testdedispold
     PRIVATE ${CFITSIO_INCLUDE_DIR}
     PRIVATE ${GPU_XCCL_INCLUDE_DIR}
 )
+
+target_include_directories(testdedispold PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(testdedispold PRIVATE ${GPU_DEFINITIONS})
 
 target_link_libraries(testdedispold 
     fdd_gpu_clig 
@@ -153,10 +159,17 @@ target_include_directories(numatests PRIVATE
 target_link_libraries(numatests fits ${CFITSIO_LIBRARY})
 
 ################################################################################
+set_source_files_properties(
+    numa_gpu_bw.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
 
 add_executable(numa_gpu_bw
     numa_gpu_bw.cu
 )
+
+target_include_directories(numa_gpu_bw PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(numa_gpu_bw PRIVATE ${GPU_DEFINITIONS})
 
 target_include_directories(numa_gpu_bw PRIVATE
     ${CMAKE_SOURCE_DIR}/src 
@@ -165,13 +178,21 @@ target_include_directories(numa_gpu_bw PRIVATE
 target_link_libraries(numa_gpu_bw hwlocutils)
 
 ################################################################################
+set_source_files_properties(
+    numa_mul_gpu_bw.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
 
 add_executable(numa_mul_gpu_bw
     numa_mul_gpu_bw.cu
 )
 
+target_include_directories(numa_mul_gpu_bw PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(numa_mul_gpu_bw PRIVATE ${GPU_DEFINITIONS})
+
 target_include_directories(numa_mul_gpu_bw PRIVATE
     ${CMAKE_SOURCE_DIR}/src 
+    ${CMAKE_SOURCE_DIR}/src/gpu_macros
 )
 
 target_link_libraries(numa_mul_gpu_bw hwlocutils)
@@ -203,6 +224,9 @@ target_link_libraries(parFitsLoad fits hwloc::hwloc numa)
 add_executable(testtdd
     testtdd.cpp
 )
+
+target_include_directories(testtdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(testtdd PRIVATE ${GPU_DEFINITIONS})
 
 target_include_directories(testtdd PRIVATE
     ${CMAKE_SOURCE_DIR}/src

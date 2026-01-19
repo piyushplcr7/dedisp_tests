@@ -9,6 +9,9 @@ target_include_directories(dedisp_fil PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
+target_include_directories(dedisp_fil PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(dedisp_fil PRIVATE ${GPU_DEFINITIONS})
+
 target_link_libraries(dedisp_fil dedisp)
 
 
@@ -22,6 +25,9 @@ add_executable(tdd_fil
 target_include_directories(tdd_fil PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+
+target_include_directories(tdd_fil PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(tdd_fil PRIVATE ${GPU_DEFINITIONS})
 
 target_link_libraries(tdd_fil tdd)
 

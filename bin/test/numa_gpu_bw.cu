@@ -1,19 +1,10 @@
 #include <iostream>
 #include <hwloc.h>
-#include <cuda_runtime.h>
+#include "gpu_runtime.hpp"
 #include <numa.h>
 #include <vector>
 #include "numa/hwloc_utils.hpp"
 #include "numa/numa_mem.hpp"
-
-#define CUDA_CHECK(call) do { \
-    cudaError_t err = call; \
-    if (err != cudaSuccess) { \
-        std::cerr << "CUDA error: " \
-                  << cudaGetErrorString(err) << std::endl; \
-        std::abort(); \
-    } \
-} while (0)
 
 hwlocUtils hwlocobj{};
 
@@ -42,7 +33,7 @@ int main(int argc, char** argv)
     hwlocobj.bindThreadToNUMA(mem_node);
     hwlocobj.bindMemToNUMA(mem_node);
 
-    CUDA_CHECK(cudaSetDevice(cuda_dev));
+    gpuSetDevice(cuda_dev);
 
     size_t gigabytes = 15;
     const size_t bytes = gigabytes * 1024 * 1024 * 1024;
@@ -56,68 +47,68 @@ int main(int argc, char** argv)
     h2dmem.touchPages();
     d2hmem.touchPages();
 
-    CUDA_CHECK(cudaHostRegister(hptr_h2d, bytes, cudaHostRegisterPortable));
-    CUDA_CHECK(cudaHostRegister(hptr_d2h, bytes, cudaHostRegisterPortable));
+    gpuHostRegister(hptr_h2d, bytes, gpuHostRegisterPortable);
+    gpuHostRegister(hptr_d2h, bytes, gpuHostRegisterPortable);
 
     void* dptr_h2d;
     void* dptr_d2h;
-    CUDA_CHECK(cudaMalloc(&dptr_h2d, bytes));
-    CUDA_CHECK(cudaMalloc(&dptr_d2h, bytes));
+    gpuMalloc(&dptr_h2d, bytes);
+    gpuMalloc(&dptr_d2h, bytes);
 
     int trials = 10;
 
-    std::vector<cudaEvent_t> starth2d(trials), stoph2d(trials);
-    std::vector<cudaEvent_t> startd2h(trials), stopd2h(trials);
+    std::vector<gpuEvent_t> starth2d(trials), stoph2d(trials);
+    std::vector<gpuEvent_t> startd2h(trials), stopd2h(trials);
 
     for (int i = 0 ; i < trials ; ++i) {
-        cudaEventCreate(&starth2d[i]);
-        cudaEventCreate(&stoph2d[i]);
-        
-        cudaEventCreate(&startd2h[i]);
-        cudaEventCreate(&stopd2h[i]);
+        gpuEventCreate(&starth2d[i]);
+        gpuEventCreate(&stoph2d[i]);
+
+        gpuEventCreate(&startd2h[i]);
+        gpuEventCreate(&stopd2h[i]);
     }
     
 
     // ---------------- Streams ----------------
-    cudaStream_t streamH2D, streamD2H;
-    CUDA_CHECK(cudaStreamCreate(&streamH2D));
+    gpuStream_t streamH2D, streamD2H;
+    gpuStreamCreate(&streamH2D);
 
     if (concurrent) {
-        CUDA_CHECK(cudaStreamCreate(&streamD2H));
+        gpuStreamCreate(&streamD2H);
     }
     else {
         streamD2H = streamH2D;
     }
 
     // Warmup
-    CUDA_CHECK(cudaMemset(dptr_h2d, 0, bytes));
-    CUDA_CHECK(cudaMemset(dptr_d2h, 0, bytes));
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpyAsync(dptr_h2d, hptr_h2d, bytes, cudaMemcpyHostToDevice, streamH2D));
-    CUDA_CHECK(cudaMemcpyAsync(hptr_d2h, dptr_d2h, bytes, cudaMemcpyDeviceToHost, streamD2H));
-    CUDA_CHECK(cudaDeviceSynchronize());
+    gpuMemset(dptr_h2d, 0, bytes);
+    gpuMemset(dptr_d2h, 0, bytes);
+    gpuDeviceSynchronize();
+    gpuMemcpyAsync(dptr_h2d, hptr_h2d, bytes, gpuMemcpyHostToDevice, streamH2D);
+    gpuMemcpyAsync(hptr_d2h, dptr_d2h, bytes, gpuMemcpyDeviceToHost, streamD2H);
+    gpuDeviceSynchronize();
 
 
     for (int i = 0 ; i < trials ; ++i) {
-        CUDA_CHECK(cudaEventRecord(starth2d[i], streamH2D));
-        CUDA_CHECK(cudaMemcpyAsync(dptr_h2d, hptr_h2d, bytes, cudaMemcpyHostToDevice, streamH2D));
-        CUDA_CHECK(cudaEventRecord(stoph2d[i], streamH2D));
+        gpuEventRecord(starth2d[i], streamH2D);
+        gpuMemcpyAsync(dptr_h2d, hptr_h2d, bytes, gpuMemcpyHostToDevice, streamH2D);
+        gpuEventRecord(stoph2d[i], streamH2D);
 
-        CUDA_CHECK(cudaEventRecord(startd2h[i], streamD2H));
-        CUDA_CHECK(cudaMemcpyAsync(hptr_d2h, dptr_d2h, bytes, cudaMemcpyDeviceToHost, streamD2H));
-        CUDA_CHECK(cudaEventRecord(stopd2h[i], streamD2H));
+        gpuEventRecord(startd2h[i], streamD2H);
+        gpuMemcpyAsync(hptr_d2h, dptr_d2h, bytes, gpuMemcpyDeviceToHost, streamD2H);
+        gpuEventRecord(stopd2h[i], streamD2H);
     }
     
-    CUDA_CHECK(cudaStreamSynchronize(streamH2D));
-    CUDA_CHECK(cudaStreamSynchronize(streamD2H));
+    gpuStreamSynchronize(streamH2D);
+    gpuStreamSynchronize(streamD2H);
     
     float totmsh2d=0., totmsd2h=0.;
     float ms;
     for (int i = 0 ; i < trials ; ++i) {
-        CUDA_CHECK(cudaEventElapsedTime(&ms, starth2d[i], stoph2d[i]));
+        gpuEventElapsedTime(&ms, starth2d[i], stoph2d[i]);
         totmsh2d += ms;
 
-        CUDA_CHECK(cudaEventElapsedTime(&ms, startd2h[i], stopd2h[i]));
+        gpuEventElapsedTime(&ms, startd2h[i], stopd2h[i]);
         totmsd2h += ms;
     }
     
@@ -130,20 +121,20 @@ int main(int argc, char** argv)
 
     // ---------------- Cleanup ----------------
     for (int i = 0 ; i < trials ; ++i) {
-        CUDA_CHECK(cudaEventDestroy(starth2d[i]));
-        CUDA_CHECK(cudaEventDestroy(stoph2d[i]));
-        CUDA_CHECK(cudaEventDestroy(startd2h[i]));
-        CUDA_CHECK(cudaEventDestroy(stopd2h[i]));
+        gpuEventDestroy(starth2d[i]);
+        gpuEventDestroy(stoph2d[i]);
+        gpuEventDestroy(startd2h[i]);
+        gpuEventDestroy(stopd2h[i]);
     }
-    CUDA_CHECK(cudaStreamDestroy(streamH2D));
+    gpuStreamDestroy(streamH2D);
     if (concurrent)
-        CUDA_CHECK(cudaStreamDestroy(streamD2H));
+        gpuStreamDestroy(streamD2H);
 
-    cudaFree(dptr_h2d);
-    cudaFree(dptr_d2h);
+    gpuFree(dptr_h2d);
+    gpuFree(dptr_d2h);
 
-    CUDA_CHECK(cudaHostUnregister(hptr_h2d));
-    CUDA_CHECK(cudaHostUnregister(hptr_d2h));
+    gpuHostUnregister(hptr_h2d);
+    gpuHostUnregister(hptr_d2h);
     
     return 0;
 }

@@ -6,7 +6,7 @@
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
 #include <nccl.h>
-#include <cufft.h>
+#include "gpu_fft.hpp"
 #include <pthread.h>
 #include <sched.h>
 #include <numaif.h>       // get_mempolicy()
@@ -166,8 +166,8 @@ private:
     size_t sizeof_data_x_nu;
     size_t sizeof_data_x_dm;
 
-    cufftHandle plan_r2c;
-    cufftHandle plan_c2r;
+    gpufftHandle plan_r2c;
+    gpufftHandle plan_c2r;
 };
 
 } // end namespace dedisp

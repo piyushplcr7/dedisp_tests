@@ -9,6 +9,7 @@
 #include "common/dedisp_error.hpp"
 #include "common/cuda/CU.h"
 #include <iostream>
+#include "gpu_runtime.hpp"
 
 namespace dedisp
 {
@@ -102,7 +103,7 @@ void Plan::set_killmask(
 
 void Plan::sync()
 {
-    cu::checkError(cudaDeviceSynchronize());
+    gpuDeviceSynchronize();
 }
 
 // Private helper functions
