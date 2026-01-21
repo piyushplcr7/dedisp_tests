@@ -42,7 +42,7 @@ target_link_libraries(testdedisp PRIVATE
     fdd 
     ${CFITSIO_LIBRARY} 
     ${GPU_FFT_LIBS}
-    #MPI::MPI_CXX
+    MPI::MPI_CXX
 )
 
 ################################################################################
