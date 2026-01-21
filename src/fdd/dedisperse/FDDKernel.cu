@@ -1,6 +1,6 @@
 // Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include <cuda.h>
+#include "gpu_runtime.hpp"
 #include "FDDKernel.hpp"
 #include "fdd_kernel.cuh"
 #include "common/cuda/CU.h"
@@ -12,14 +12,13 @@ void FDDKernel::copy_delay_table(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream)
+    gpuStream_t stream)
 {
-    cu::checkError(cudaMemcpyToSymbolAsync(
-        c_delay_table,
+    gpuMemcpyToSymbolAsync(gpuSymbol(
+        c_delay_table),
         src,
         count, offset,
-        cudaMemcpyDeviceToDevice, stream)
-    );
+        gpuMemcpyDeviceToDevice, stream);
 }
 
 unsigned long div_round_up(unsigned long a, unsigned long b) {
@@ -44,7 +43,7 @@ void FDDKernel::launch(
     unsigned int         idm_start,
     unsigned int         idm_end,
     unsigned int         ichan_start,
-    cudaStream_t         stream)
+    gpuStream_t         stream)
 {
     // Define thread decomposition
     unsigned grid_x = std::max((int) ((ndm + NDM_BATCH_GRID) / NDM_BATCH_GRID), 1);
@@ -96,7 +95,7 @@ void FDDKernel::scale(
     dedisp_size   stride,
     dedisp_float  scale,
     dedisp_float* d_data,
-    cudaStream_t  stream)
+    gpuStream_t  stream)
 {
     // Define thread decomposition
     dim3 grid(height);

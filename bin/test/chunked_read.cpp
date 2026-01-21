@@ -24,9 +24,7 @@
 #include <cstring>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
-
-#include "fdd/helper.h"
+#include <omp.h>
 
 static int rows = 200;
 static long bytes_per_row = 123002956;

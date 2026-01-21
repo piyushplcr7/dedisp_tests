@@ -1,3 +1,9 @@
+set_source_files_properties(
+    dedisperse/FDDKernel.cu
+    unpack/unpack.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
+
 add_library(fdd SHARED
     FDDGPUPlan.cpp
     FDDCPUPlan.cpp
@@ -9,24 +15,31 @@ add_library(fdd SHARED
     $<TARGET_OBJECTS:external>
 )
 
+target_include_directories(fdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros ${CMAKE_SOURCE_DIR}/src/numa)
+target_compile_definitions(fdd PRIVATE ${GPU_DEFINITIONS})
+target_link_libraries(fdd PRIVATE GPU_TRACER_LIBS hwlocutils)
+
 ##############################
 # CLIG INTERFACE
 ##############################
 add_library(fdd_gpu_clig fdd_gpu.c)
 
-find_package(FFTW3 REQUIRED true)
-
-target_link_libraries(fdd
+target_link_libraries(fdd PRIVATE
     ${FFTW3F_LIBRARY}
     cu
     fdd_gpu_clig
+    MPI::MPI_CXX
+    GPU_XCCL
+    ${NUMA_LIBRARY}
 )
 
 target_include_directories(fdd
    PRIVATE ${CMAKE_SOURCE_DIR}/src
    PRIVATE ${CMAKE_SOURCE_DIR}/src/fdd
    PRIVATE ${FFTW3_INCLUDE_DIR}
-   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+   PRIVATE ${NCCL_INCLUDE_DIR}
+   PRIVATE ${MPI_CXX_INCLUDE_DIRS}
+   PUBLIC ${GPU_INCLUDE_DIRS}
 )
 
 set_target_properties(fdd PROPERTIES
@@ -34,6 +47,7 @@ set_target_properties(fdd PROPERTIES
     PUBLIC_HEADER FDDGPUPlan.hpp
     VERSION ${DEDISP_VERSION}
     SOVERSION ${DEDISP_VERSION_MAJOR}
+    CXX_STANDARD 20
 )
 
 install(

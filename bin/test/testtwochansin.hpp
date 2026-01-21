@@ -18,7 +18,7 @@
 #include <random>
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
+#include "gpu_runtime.hpp"
 
 // Debug options
 #define WRITE_INPUT_DATA 0
@@ -28,27 +28,27 @@ dedisp_float maxval_data = std::numeric_limits<float>::lowest();
 dedisp_float minval_data = std::numeric_limits<float>::max();
 
 struct aa_gpu_timer {
-  cudaEvent_t start;
-  cudaEvent_t stop;
+  gpuEvent_t start;
+  gpuEvent_t stop;
 
   aa_gpu_timer() {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    gpuEventCreate(&start);
+    gpuEventCreate(&stop);
   }
 
   ~aa_gpu_timer() {
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    gpuEventDestroy(start);
+    gpuEventDestroy(stop);
   }
 
-  void Start() { cudaEventRecord(start, 0); }
+  void Start() { gpuEventRecord(start, 0); }
 
-  void Stop() { cudaEventRecord(stop, 0); }
+  void Stop() { gpuEventRecord(stop, 0); }
 
   float Elapsed() {
     float elapsed = 0.0;
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsed, start, stop);
+    gpuEventSynchronize(stop);
+    gpuEventElapsedTime(&elapsed, start, stop);
     return elapsed / 1000.0f;
   }
 };

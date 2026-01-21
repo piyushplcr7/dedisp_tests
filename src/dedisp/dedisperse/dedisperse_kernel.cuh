@@ -1,6 +1,4 @@
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <texture_fetch_functions.h>
+#include "gpu_runtime.hpp"
 
 // Texture reference for input data
 //texture<dedisp_word, 1, cudaReadModeElementType> t_in;
@@ -119,7 +117,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                        dedisp_size         batch_dm_stride,
                        dedisp_size         batch_chan_stride,
                        dedisp_size         batch_out_stride,
-                       cudaTextureObject_t t_in)
+                       gpuTextureObject_t t_in)
 {
     // Compute compile-time constants
     enum {

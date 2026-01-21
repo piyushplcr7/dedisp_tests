@@ -5,6 +5,8 @@
  * NVIDIA CUDA SDK.
  */
 
+ #include "gpu_runtime.hpp"
+
 #pragma once
 
 #include "transpose_kernel.cuh"
@@ -22,11 +24,11 @@ struct Transpose {
                    size_t width, size_t height,
                    size_t in_stride, size_t out_stride,
                    T* out,
-                   cudaStream_t stream=0);
+                   gpuStream_t stream=0);
     void transpose(const T* in,
                    size_t width, size_t height,
                    T* out,
-                   cudaStream_t stream=0) {
+                   gpuStream_t stream=0) {
         transpose(in, width, height, width, height, out, stream);
     }
 private:
@@ -73,7 +75,7 @@ void Transpose<T>::transpose(const T* in,
                              size_t width, size_t height,
                              size_t in_stride, size_t out_stride,
                              T* out,
-                             cudaStream_t stream)
+                             gpuStream_t stream)
 {
     // Parameter checks
     // TODO: Implement some sort of error returning!

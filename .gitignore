@@ -10,3 +10,5 @@ build/
 *.bin
 *.fft
 *.py
+conference_timing_outputs/
+timing_outputs/

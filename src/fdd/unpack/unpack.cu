@@ -1,3 +1,4 @@
+#include "gpu_runtime.hpp"
 // Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <algorithm>
@@ -25,7 +26,7 @@ void transpose_unpack(
     float* d_out,
     dedisp_size in_nbits, dedisp_size out_nbits,
     float scale,
-    cudaStream_t stream)
+    gpuStream_t stream)
 {
     // Specify thread decomposition (uses up-rounded divisions)
     dim3 tot_block_count((width-1)  / TILE_DIM + 1,

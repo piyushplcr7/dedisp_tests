@@ -1,6 +1,6 @@
 // Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 // SPDX-License-Identifier: GPL-3.0-or-later
-
+#include "gpu_asm.hpp"
 // Constant reference for input data
 // This value is set according to the constant memory size
 // for all NVIDIA GPUs to date, which is 64 KB and sizeof(dedisp_float) = 4
@@ -28,10 +28,14 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
  // Multiply two float2 operands
 inline __device__ float2 operator*(float2 a, float2 b) {
     float2 c;
-    asm ("mul.f32 %0,%1,%2;" : "=f"(c.x) : "f"(a.x), "f"(b.x));
-    asm ("mul.f32 %0,%1,%2;" : "=f"(c.y) : "f"(a.x), "f"(b.y));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.x) : "f"(-a.y), "f"(b.y), "f"(c.x));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.y) : "f"( a.y), "f"(b.x), "f"(c.y));
+    //asm ("mul.f32 %0,%1,%2;" : "=f"(c.x) : "f"(a.x), "f"(b.x));
+    gpu_fmul_rn(c.x, a.x, b.x);
+    //asm ("mul.f32 %0,%1,%2;" : "=f"(c.y) : "f"(a.x), "f"(b.y));
+    gpu_fmul_rn(c.y, a.x, b.y);
+    //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.x) : "f"(-a.y), "f"(b.y), "f"(c.x));
+    gpu_fma_rn_ftz(c.x, -a.y, b.y, c.x);
+    //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(c.y) : "f"( a.y), "f"(b.x), "f"(c.y));
+    gpu_fma_rn_ftz(c.y, a.y, b.x, c.y);
     return c;
 }
 
@@ -51,17 +55,22 @@ inline __device__ void operator*=(float2 &a, float2 b) {
 // Multiply-and-accumulate (MAC) for complex operands
 inline __device__ void cmac(float2 &a, float2 b, float2 c)
 {
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.x), "f"(c.y), "f"(a.y));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(-b.y), "f"(c.y), "f"(a.x));
-    asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.y), "f"(c.x), "f"(a.y));
+    //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
+    gpu_fma_rn_ftz(a.x, b.x, c.x, a.y);
+    //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.x), "f"(c.y), "f"(a.y));
+    gpu_fma_rn_ftz(a.y, b.x, c.y, a.y);
+    //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(-b.y), "f"(c.y), "f"(a.x));
+    gpu_fma_rn_ftz(a.x, -b.y, c.y, a.x);
+    //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.y), "f"(c.x), "f"(a.y));
+    gpu_fma_rn_ftz(a.y, b.y, c.x, a.y);
 }
 
 // Use the Special Function Unit (SFU) for the sine evaluation
 inline __device__ float raw_sin(float a)
 {
     float r;
-    asm ("sin.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    //asm ("sin.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    gpu_sin(r,a);
     return r;
 }
 
@@ -69,7 +78,8 @@ inline __device__ float raw_sin(float a)
 inline __device__ float raw_cos(float a)
 {
     float r;
-    asm ("cos.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    //asm ("cos.approx.ftz.f32 %0,%1;" : "=f"(r) : "f"(a));
+    gpu_cos(r,a);
     return r;
 }
 

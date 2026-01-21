@@ -1,3 +1,9 @@
+set_source_files_properties(
+    dedisperse/TDDKernel.cu
+    unpack/unpack.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
+
 add_library(
     tdd SHARED
     TDDPlan.cpp
@@ -8,15 +14,19 @@ add_library(
     $<TARGET_OBJECTS:external>
 )
 
+target_include_directories(tdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(tdd PRIVATE ${GPU_DEFINITIONS})
+target_link_libraries(tdd PRIVATE GPU_TRACER_LIBS)
+
 target_link_libraries(
-    tdd
+    tdd PRIVATE
     cu
 )
 
 target_include_directories(
     tdd
     PRIVATE ${CMAKE_SOURCE_DIR}/src
-    PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+    PUBLIC ${GPU_INCLUDE_DIRS}
 )
 
 set_target_properties(

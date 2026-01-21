@@ -11,6 +11,7 @@
 #include <sstream>
 #include <cstring>
 #include <cassert>
+#include "gpu_runtime.hpp"
 
 #define assertCudaCall(val) __assertCudaCall(val, #val, __FILE__, __LINE__)
 #define checkCudaCall(val)  __checkCudaCall(val, #val, __FILE__, __LINE__)
@@ -21,42 +22,42 @@ namespace cu {
         Error checking
     */
     inline void __assertCudaCall(
-        cudaError_t result,
+        gpuError_t result,
         char const *const func,
         const char *const file,
         int const line)
     {
-        if (result != cudaSuccess) {
+        if (result != gpuSuccess) {
             const char *msg;
-            msg = cudaGetErrorString(result);
+            msg = gpuGetErrorString(result);
             std::cerr << "CUDA Error at " << file;
             std::cerr << ":" << line;
             std::cerr << " in function " << func;
             std::cerr << ": " << msg;
             std::cerr << std::endl;
-            throw Error<cudaError_t>(result);
+            throw Error<gpuError_t>(result);
         }
     }
 
     inline void __checkCudaCall(
-        cudaError_t result,
+        gpuError_t result,
         char const *const func,
         const char *const file,
         int const line)
     {
         try {
             __assertCudaCall(result, func, file, line);
-        } catch (Error<cudaError_t>& error) {
+        } catch (Error<gpuError_t>& error) {
             std::cout << error.what() << std::endl;
         }
     }
 
     void checkError()
     {
-        assertCudaCall(cudaGetLastError());
+        gpuGetLastError();
     }
 
-    void checkError(cudaError_t error)
+    void checkError(gpuError_t error)
     {
         assertCudaCall(error);
     }
@@ -67,33 +68,33 @@ namespace cu {
     */
     Device::Device(int device) {
         m_device = device;
-        checkCudaCall(cudaSetDevice(device));
+        gpuSetDevice(device);
     }
 
     unsigned int Device::get_capability() {
-        cudaDeviceProp device_props;
-        cudaGetDeviceProperties(&device_props, m_device);
+        gpuDeviceProp_t device_props;
+        gpuGetDeviceProperties(&device_props, m_device);
         return 10 * device_props.major +
                     device_props.minor;
     }
 
     size_t Device::get_total_const_memory() const {
-        cudaDeviceProp device_props;
-        cudaGetDeviceProperties(&device_props, m_device);
+        gpuDeviceProp_t device_props;
+        gpuGetDeviceProperties(&device_props, m_device);
         return device_props.totalConstMem;
     }
 
     size_t Device::get_free_memory() const {
         size_t free;
         size_t total;
-        cudaMemGetInfo(&free, &total);
+        gpuMemGetInfo(&free, &total);
         return free;
     }
 
     size_t Device::get_total_memory() const {
         size_t free;
         size_t total;
-        cudaMemGetInfo(&free, &total);
+        gpuMemGetInfo(&free, &total);
         return total;
     }
 
@@ -105,7 +106,7 @@ namespace cu {
         m_capacity = size;
         m_size = size;
         m_flags = flags;
-        assertCudaCall(cudaHostAlloc(&m_ptr, size, m_flags));
+        gpuHostAlloc(&m_ptr, size, m_flags);
     }
 
     HostMemory::~HostMemory() {
@@ -117,13 +118,13 @@ namespace cu {
         m_size = size;
         if (size > m_capacity) {
             release();
-            assertCudaCall(cudaHostAlloc(&m_ptr, size, m_flags));
+            gpuHostAlloc(&m_ptr, size, m_flags);
             m_capacity = size;
         }
     }
 
     void HostMemory::release() {
-        assertCudaCall(cudaFreeHost(m_ptr));
+        gpuHostFree(m_ptr);
     }
 
     void HostMemory::zero() {
@@ -138,7 +139,7 @@ namespace cu {
         m_capacity = size;
         m_size = size;
         if (size) {
-            assertCudaCall(cudaMalloc(&m_ptr, size));
+            gpuMalloc(&m_ptr, size);
         }
     }
 
@@ -151,24 +152,44 @@ namespace cu {
         m_size = size;
         if (size > m_capacity) {
             release();
-            assertCudaCall(cudaMalloc(&m_ptr, size));
+            gpuMalloc(&m_ptr, size);
+            m_capacity = size;
+        }
+    }
+
+    DeviceMemory::DeviceMemory(size_t size, int dev_id) {
+        m_capacity = size;
+        m_size = size;
+        if (size) {
+            gpuSetDevice(dev_id);                  // set device for this thread
+            gpuMalloc(&m_ptr, size);
+        }
+    }
+
+    void DeviceMemory::resize(size_t size, int dev_id) {
+        assert(size > 0);
+        m_size = size;
+        if (size > m_capacity) {
+            release();
+            gpuSetDevice(dev_id);                  // ensure allocation goes to correct device
+            gpuMalloc(&m_ptr, size);
             m_capacity = size;
         }
     }
 
     void DeviceMemory::release() {
         if (m_capacity) {
-            assertCudaCall(cudaFree(m_ptr));
+            gpuFree(m_ptr);
         }
     }
 
-    void DeviceMemory::zero(cudaStream_t stream) {
+    void DeviceMemory::zero(gpuStream_t stream) {
         if (m_size)
         {
             if (stream != NULL) {
-                assertCudaCall(cudaMemsetAsync(m_ptr, 0, m_size, stream));
+                gpuMemsetAsync(m_ptr, 0, m_size, stream);
             } else {
-                assertCudaCall(cudaMemset(m_ptr, 0, m_size));
+                gpuMemset(m_ptr, 0, m_size);
             }
         }
     }
@@ -178,24 +199,24 @@ namespace cu {
         Event
     */
     Event::Event(int flags) {
-        assertCudaCall(cudaEventCreate(&m_event, flags));
+        gpuEventCreateWithFlags(&m_event, flags);
     }
 
     Event::~Event() {
-        assertCudaCall(cudaEventDestroy(m_event));
+        gpuEventDestroy(m_event);
     }
 
     void Event::synchronize() {
-        assertCudaCall(cudaEventSynchronize(m_event));
+        gpuEventSynchronize(m_event);
     }
 
     float Event::elapsedTime(Event &second) {
         float ms;
-        assertCudaCall(cudaEventElapsedTime(&ms, second, m_event));
+        gpuEventElapsedTime(&ms, second, m_event);
         return ms;
     }
 
-    Event::operator cudaEvent_t() {
+    Event::operator gpuEvent_t() {
         return m_event;
     }
 
@@ -204,23 +225,23 @@ namespace cu {
         Stream
     */
     Stream::Stream(int flags) {
-        assertCudaCall(cudaStreamCreateWithFlags(&m_stream, flags));
+        gpuStreamCreateWithFlags(&m_stream, flags);
     }
 
     Stream::~Stream() {
-        assertCudaCall(cudaStreamDestroy(m_stream));
+        gpuStreamDestroy(m_stream);
     }
 
     void Stream::memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size) {
-        assertCudaCall(cudaMemcpyAsync(devPtr, hostPtr, size, cudaMemcpyHostToDevice, m_stream));
+        gpuMemcpyAsync(devPtr, hostPtr, size, gpuMemcpyHostToDevice, m_stream);
     }
 
     void Stream::memcpyDtoHAsync(void *hostPtr, void *devPtr, size_t size) {
-        assertCudaCall(cudaMemcpyAsync(hostPtr, devPtr, size, cudaMemcpyDeviceToHost, m_stream));
+        gpuMemcpyAsync(hostPtr, devPtr, size, gpuMemcpyDeviceToHost, m_stream);
     }
 
     void Stream::memcpyDtoDAsync(void *dstPtr, void *srcPtr, size_t size) {
-        assertCudaCall(cudaMemcpyAsync(dstPtr, srcPtr, size, cudaMemcpyDeviceToDevice, m_stream));
+        gpuMemcpyAsync(dstPtr, srcPtr, size, gpuMemcpyDeviceToDevice, m_stream);
     }
 
     void Stream::memcpyHtoD2DAsync(
@@ -228,12 +249,12 @@ namespace cu {
         const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height)
     {
-        assertCudaCall(cudaMemcpy2DAsync(
+        gpuMemcpy2DAsync(
             dstPtr, dstWidth,
             srcPtr, srcWidth,
             widthBytes, height,
-            cudaMemcpyHostToDevice,
-            m_stream));
+            gpuMemcpyHostToDevice,
+            m_stream);
     }
 
     void Stream::memcpyDtoH2DAsync(
@@ -241,12 +262,12 @@ namespace cu {
         const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height)
     {
-        assertCudaCall(cudaMemcpy2DAsync(
+        gpuMemcpy2DAsync(
             dstPtr, dstWidth,
             srcPtr, srcWidth,
             widthBytes, height,
-            cudaMemcpyDeviceToHost,
-            m_stream));
+            gpuMemcpyDeviceToHost,
+            m_stream);
     }
 
     void Stream::memcpyHtoH2DAsync(
@@ -254,12 +275,12 @@ namespace cu {
         const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height)
     {
-        assertCudaCall(cudaMemcpy2DAsync(
+        gpuMemcpy2DAsync(
             dstPtr, dstWidth,
             srcPtr, srcWidth,
             widthBytes, height,
-            cudaMemcpyHostToHost,
-            m_stream));
+            gpuMemcpyHostToHost,
+            m_stream);
     }
 
     void Stream::memcpyDtoD2DAsync(
@@ -267,31 +288,31 @@ namespace cu {
         const void *srcPtr, size_t srcWidth,
         size_t widthBytes, size_t height)
     {
-        assertCudaCall(cudaMemcpy2DAsync(
+        gpuMemcpy2DAsync(
             dstPtr, dstWidth,
             srcPtr, srcWidth,
             widthBytes, height,
-            cudaMemcpyDeviceToDevice,
-            m_stream));
+            gpuMemcpyDeviceToDevice,
+            m_stream);
     }
 
     void Stream::synchronize() {
-        assertCudaCall(cudaStreamSynchronize(m_stream));
+        gpuStreamSynchronize(m_stream);
     }
 
     void Stream::waitEvent(Event &event) {
-        assertCudaCall(cudaStreamWaitEvent(m_stream, event, 0));
+        gpuStreamWaitEvent(m_stream, event, 0);
     }
 
     void Stream::record(Event &event) {
-        assertCudaCall(cudaEventRecord(event, m_stream));
+        gpuEventRecord(event, m_stream);
     }
 
     void Stream::zero(void *ptr, size_t size) {
-        assertCudaCall(cudaMemsetAsync(ptr, 0, size, m_stream));
+        gpuMemsetAsync(ptr, 0, size, m_stream);
     }
 
-    Stream::operator cudaStream_t() {
+    Stream::operator gpuStream_t() {
         return m_stream;
     }
 
@@ -303,22 +324,36 @@ namespace cu {
       const char *message,
       Color color)
     {
+#ifdef USE_CUDA
       _attributes.version       = NVTX_VERSION;
       _attributes.size          = NVTX_EVENT_ATTRIB_STRUCT_SIZE;
       _attributes.colorType     = NVTX_COLOR_ARGB;
       _attributes.color         = convert(color);
       _attributes.messageType   = NVTX_MESSAGE_TYPE_ASCII;
       _attributes.message.ascii = message;
+#endif
     }
 
     void Marker::start()
     {
+#ifdef USE_CUDA
       _id = nvtxRangeStartEx(&_attributes);
+#endif
+
+#ifdef USE_HIP
+      roctracer_start();
+#endif
     }
 
     void Marker::end()
     {
+#ifdef USE_CUDA
       nvtxRangeEnd(_id);
+#endif
+
+#ifdef USE_HIP
+      roctracer_stop();
+#endif
     }
 
     void Marker::start(
@@ -356,12 +391,24 @@ namespace cu {
       Color color) :
       Marker(message, color)
       {
+#ifdef USE_CUDA
         _id = nvtxRangeStartEx(&_attributes);
+#endif
+
+#ifdef USE_HIP
+        roctracer_start();
+#endif
       };
 
     ScopedMarker::~ScopedMarker()
     {
+#ifdef USE_CUDA
       nvtxRangeEnd(_id);
+#endif
+
+#ifdef USE_HIP
+      roctracer_stop();
+#endif
     }
 
 } // end namespace cu

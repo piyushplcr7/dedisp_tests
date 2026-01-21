@@ -1,3 +1,4 @@
+#include "gpu_runtime.hpp"
 #include "dedisperse.h"
 #include "dedisperse_kernel.cuh"
 
@@ -13,9 +14,9 @@
 bool check_use_texture_mem() {
     // Decides based on GPU architecture
     int device_idx;
-    cudaGetDevice(&device_idx);
-    cudaDeviceProp device_props;
-    cudaGetDeviceProperties(&device_props, device_idx);
+    gpuGetDevice(&device_idx);
+    gpuDeviceProp_t device_props;
+    gpuGetDeviceProperties(&device_props, device_idx);
     // Fermi runs worse with texture mem
     bool use_texture_mem = (device_props.major < 2);
     return use_texture_mem;
@@ -25,15 +26,15 @@ void copy_delay_table(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream)
+    gpuStream_t stream)
 {
-    cudaMemcpyToSymbolAsync(c_delay_table,
+    gpuMemcpyToSymbolAsync(gpuSymbol(c_delay_table),
                             src,
                             count, offset,
-                            cudaMemcpyDeviceToDevice, stream);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
+                            gpuMemcpyDeviceToDevice, stream);
+    gpuDeviceSynchronize();
+    gpuError_t error = gpuGetLastError();
+    if( error != gpuSuccess ) {
         throw_error(DEDISP_MEM_COPY_FAILED);
     }
 }
@@ -42,15 +43,15 @@ void copy_killmask(
     const void* src,
     size_t count,
     size_t offset,
-    cudaStream_t stream)
+    gpuStream_t stream)
 {
-    cudaMemcpyToSymbolAsync(c_killmask,
+    gpuMemcpyToSymbolAsync(gpuSymbol(c_killmask),
                             src,
                             count, offset,
-                            cudaMemcpyDeviceToDevice, stream);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if( error != cudaSuccess ) {
+                            gpuMemcpyDeviceToDevice, stream);
+    gpuDeviceSynchronize();
+    gpuError_t error = gpuGetLastError();
+    if( error != gpuSuccess ) {
         throw_error(DEDISP_MEM_COPY_FAILED);
     }
 }
@@ -91,7 +92,7 @@ bool dedisperse(const dedisp_word*  d_in,
     bool use_texture_mem = check_use_texture_mem();
 
     // Create texture object
-    cudaTextureObject_t t_in = 0;
+    gpuTextureObject_t t_in = 0;
 
     if( use_texture_mem ) {
         dedisp_size chans_per_word = sizeof(dedisp_word)*BITS_PER_BYTE / in_nbits;
@@ -104,44 +105,44 @@ bool dedisperse(const dedisp_word*  d_in,
         }
         
         // Still usable in later cuda versions
-        cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc<dedisp_word>();
-        // Need to use cudaArray_t based on the example in Nvidia doc
-        cudaArray_t cuArray;
+        gpuChannelFormatDesc channel_desc = gpuCreateChannelDesc<dedisp_word>();
+        // Need to use gpuArray_t based on the example in Nvidia doc
+        gpuArray_t cuArray;
         // Allocating memory for cuArray
-        cudaMallocArray(&cuArray, &channel_desc, input_words, 1);
+        gpuMallocArray(&cuArray, &channel_desc, input_words, 1);
 
         // Copy data from d_in to CUDA array. Redundant, should be improved!
-        //cudaMemcpyToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), cudaMemcpyDeviceToDevice);
-        cudaMemcpy2DToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), input_words * sizeof(dedisp_word), 1, cudaMemcpyDeviceToDevice);
+        //gpuMemcpyToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), gpuMemcpyDeviceToDevice);
+        gpuMemcpy2DToArray(cuArray, 0, 0, d_in, input_words * sizeof(dedisp_word), input_words * sizeof(dedisp_word), 1, gpuMemcpyDeviceToDevice);
 
         // Specify texture
-        struct cudaResourceDesc resDesc;
+        struct gpuResourceDesc resDesc;
         memset(&resDesc, 0, sizeof(resDesc));
-        resDesc.resType = cudaResourceTypeArray;
+        resDesc.resType = gpuResourceTypeArray;
         resDesc.res.array.array = cuArray;
 
         // Specify texture object parameters
-        struct cudaTextureDesc texDesc;
+        struct gpuTextureDesc texDesc;
         memset(&texDesc, 0, sizeof(texDesc)); // Clear the structure
-        texDesc.addressMode[0] = cudaAddressModeClamp; // Specify address mode (clamp, wrap, etc.)
-        texDesc.addressMode[1] = cudaAddressModeClamp; // Only for 2D, set 1D to clamp
-        texDesc.filterMode = cudaFilterModePoint; // Set filter mode (linear, point, etc.)
-        texDesc.readMode = cudaReadModeElementType; // Set read mode (element type)
+        texDesc.addressMode[0] = gpuAddressModeClamp; // Specify address mode (clamp, wrap, etc.)
+        texDesc.addressMode[1] = gpuAddressModeClamp; // Only for 2D, set 1D to clamp
+        texDesc.filterMode = gpuFilterModePoint; // Set filter mode (linear, point, etc.)
+        texDesc.readMode = gpuReadModeElementType; // Set read mode (element type)
         texDesc.normalizedCoords = 0; // Use unnormalized coordinates (1D texture)
 
         // Create texture object
-        //cudaTextureObject_t t_in = 0;
-        cudaCreateTextureObject(&t_in, &resDesc, &texDesc, NULL);
+        //gpuTextureObject_t t_in = 0;
+        gpuCreateTextureObject(&t_in, &resDesc, &texDesc, NULL);
 
         // Bind the texture memory
-        /* cu::checkError(cudaBindTexture(
+        /* cu::checkError(gpuBindTexture(
             0, t_in, d_in, channel_desc,
             input_words * sizeof(dedisp_word))
         ); */
 
 #ifdef DEDISP_DEBUG
-        cudaError_t cuda_error = cudaGetLastError();
-        if( cuda_error != cudaSuccess ) {
+        gpuError_t cuda_error = gpuGetLastError();
+        if( cuda_error != gpuSuccess ) {
             return false;
         }
 #endif // DEDISP_DEBUG
@@ -173,7 +174,7 @@ bool dedisperse(const dedisp_word*  d_in,
     // Divide and round up
     dedisp_size nsamps_reduced = (nsamps - 1) / DEDISP_SAMPS_PER_THREAD + 1;
 
-    cudaStream_t stream = 0;
+    gpuStream_t stream = 0;
 
     // Execute the kernel
 #define DEDISP_CALL_KERNEL(NBITS, USE_TEXTURE_MEM)						\
@@ -225,10 +226,10 @@ bool dedisperse(const dedisp_word*  d_in,
 
     // Check for kernel errors
 #ifdef DEDISP_DEBUG
-    //cudaStreamSynchronize(stream);
-    cudaDeviceSynchronize();
-    cudaError_t cuda_error = cudaGetLastError();
-    if( cuda_error != cudaSuccess ) {
+    //gpuStreamSynchronize(stream);
+    gpuDeviceSynchronize();
+    gpuError_t cuda_error = gpuGetLastError();
+    if( cuda_error != gpuSuccess ) {
         return false;
     }
 #endif // DEDISP_DEBUG

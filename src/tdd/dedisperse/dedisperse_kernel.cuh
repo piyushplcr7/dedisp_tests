@@ -1,6 +1,4 @@
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <texture_fetch_functions.h>
+#include "gpu_runtime.hpp"
 
 /*
 * Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
@@ -113,7 +111,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
                        dedisp_size         out_nbits,
                        dedisp_size         out_stride,
                        const dedisp_float* d_dm_list,
-                       cudaTextureObject_t t_in)
+                       gpuTextureObject_t t_in)
 {
     // Compute compile-time constants
     enum {
