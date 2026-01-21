@@ -31,7 +31,12 @@ if(GPU_BACKEND STREQUAL "CUDA")
     # abstracted vars
     set(GPU_INCLUDE_DIRS ${CUDAToolkit_INCLUDE_DIRS})
     set(GPU_HOST_RUNTIME_LIBS CUDA::cudart)
-    set(GPU_TRACER_LIBS CUDA::nvToolsExt)
+    add_library(GPU_TRACER_LIBS INTERFACE)
+
+    target_link_libraries(GPU_TRACER_LIBS
+        INTERFACE
+        CUDA::nvToolsExt
+    )
     set(GPU_LIBRARIES ${CUDAToolkit_LIBRARIES})
     set(GPU_FFT_LIBS CUDA::cufft)
     set(GPU_DEFINITIONS USE_CUDA)

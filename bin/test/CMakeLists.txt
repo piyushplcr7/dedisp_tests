@@ -30,6 +30,7 @@ target_compile_definitions(testdedisp PRIVATE ${GPU_DEFINITIONS})
 target_link_libraries(testdedisp PRIVATE GPU_TRACER_LIBS)
 target_link_libraries(testdedisp PRIVATE GPU_XCCL)
 target_link_libraries(testdedisp PRIVATE hwlocutils)
+target_link_libraries(testdedisp PRIVATE ${GPU_HOST_RUNTIME_LIBS})
 
 target_include_directories(testdedisp 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
