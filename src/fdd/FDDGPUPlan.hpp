@@ -5,11 +5,10 @@
 
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
-#include <nccl.h>
+#include "gpu_xccl.hpp"
 #include "gpu_fft.hpp"
 #include <pthread.h>
 #include <sched.h>
-#include <numaif.h>       // get_mempolicy()
 
 // #define USECUFILE
 
@@ -22,15 +21,6 @@ extern size_t nsamps_computed;
 extern size_t nsamp_padded;
 extern int numGPUsLocal;
 extern int total_cores;
-
-int get_node(void* addr) {
-    int node = -1;
-    long status = get_mempolicy(&node, NULL, 0, addr, MPOL_F_NODE | MPOL_F_ADDR);
-    if (status != 0) {
-        perror("get_mempolicy");
-    }
-    return node;
-}
 
 #ifdef CUFILE
 // Check cuFile API calls that return CUfileError_t

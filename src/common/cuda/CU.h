@@ -11,7 +11,7 @@
 #include <stdexcept>
 
 #include "gpu_runtime.hpp"
-#include <nvToolsExt.h>
+#include "gpu_tracer_tools.hpp"
 
 namespace cu {
 
@@ -164,8 +164,8 @@ namespace cu {
           unsigned int convert(Color color);
 
         protected:
-          nvtxEventAttributes_t _attributes;
-          nvtxRangeId_t _id;
+          gpuEventAttributes_t _attributes;
+          gpuRangeId_t _id;
     };
 
     class ScopedMarker : public Marker {

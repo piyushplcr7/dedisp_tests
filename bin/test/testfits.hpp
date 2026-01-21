@@ -71,6 +71,9 @@
 #include "mpi_macro.hpp"
 #include "cuda_macro.hpp"
 #include <thread>
+#include "hwloc_utils.hpp"
+
+hwlocUtils hwlocobj{};
 
 // Debug options
 #define WRITE_INPUT_DATA 0
@@ -996,7 +999,8 @@ int run(int argc, char **argv) {
 
   // print the numa node for the output buffer
   std::cout << "==================================" << std::endl;
-  std::cout << "Output buffer on NUMA node " << get_node(output) << std::endl;
+  std::cout << "Output buffer on NUMA node " << std::endl;
+  hwlocobj.verifyNumaPlacement(output, nsamps_computed * dm_count * out_nbits / 8);
   std::cout << "==================================" << std::endl;
 
   printf("\n");

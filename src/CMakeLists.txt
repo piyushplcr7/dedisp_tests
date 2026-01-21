@@ -21,6 +21,8 @@ cmake_print_variables(GPU_INCLUDE_DIRS)
 target_include_directories(plan PUBLIC ${GPU_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/src/gpu_macros)
 target_compile_definitions(plan PRIVATE ${GPU_DEFINITIONS})
 
+target_link_libraries(plan PRIVATE GPU_TRACER_LIBS)
+
 ################################################################################
 # dedisp c-library
 ################################################################################

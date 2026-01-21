@@ -1,5 +1,5 @@
-#ifndef __GPUXCCL_H__
-#define __GPUXCCL_H__
+#ifndef GPUXCCL_H
+#define GPUXCCL_H
 
 #ifdef USE_CUDA
   // NVIDIA / CUFFT :
@@ -8,6 +8,7 @@
 
 #ifdef USE_HIP
   // AMD / HIP :
+  #include <rccl.h>
   
 #endif
 

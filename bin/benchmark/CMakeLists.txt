@@ -12,7 +12,8 @@ target_include_directories(benchdedisp PRIVATE
 target_include_directories(benchdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
 target_compile_definitions(benchdedisp PRIVATE ${GPU_DEFINITIONS})
 
-target_link_libraries(benchdedisp dedisp)
+target_link_libraries(benchdedisp PRIVATE dedisp)
+target_link_libraries(benchdedisp PRIVATE GPU_TRACER_LIBS)
 
 
 ################################################################################
@@ -29,7 +30,8 @@ target_include_directories(benchtdd PRIVATE
 target_include_directories(benchtdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
 target_compile_definitions(benchtdd PRIVATE ${GPU_DEFINITIONS})
 
-target_link_libraries(benchtdd tdd)
+target_link_libraries(benchtdd PRIVATE tdd)
+target_link_libraries(benchtdd PRIVATE GPU_TRACER_LIBS)
 
 
 ################################################################################

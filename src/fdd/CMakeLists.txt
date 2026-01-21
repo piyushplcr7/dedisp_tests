@@ -15,20 +15,21 @@ add_library(fdd SHARED
     $<TARGET_OBJECTS:external>
 )
 
-target_include_directories(fdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_include_directories(fdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros ${CMAKE_SOURCE_DIR}/src/numa)
 target_compile_definitions(fdd PRIVATE ${GPU_DEFINITIONS})
+target_link_libraries(fdd PRIVATE GPU_TRACER_LIBS hwlocutils)
 
 ##############################
 # CLIG INTERFACE
 ##############################
 add_library(fdd_gpu_clig fdd_gpu.c)
 
-target_link_libraries(fdd
+target_link_libraries(fdd PRIVATE
     ${FFTW3F_LIBRARY}
     cu
     fdd_gpu_clig
     MPI::MPI_CXX
-    ${GPU_XCCL}
+    GPU_XCCL
     ${NUMA_LIBRARY}
 )
 

@@ -16,9 +16,10 @@ add_library(
 
 target_include_directories(tdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
 target_compile_definitions(tdd PRIVATE ${GPU_DEFINITIONS})
+target_link_libraries(tdd PRIVATE GPU_TRACER_LIBS)
 
 target_link_libraries(
-    tdd
+    tdd PRIVATE
     cu
 )
 

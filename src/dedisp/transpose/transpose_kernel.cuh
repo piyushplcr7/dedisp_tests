@@ -5,6 +5,8 @@
 #ifndef TRANSPOSE_KERNEL_H_INCLUDE_GUARD
 #define TRANSPOSE_KERNEL_H_INCLUDE_GUARD
 
+#include "gpu_runtime.hpp"
+
 //#if __CUDA_ARCH__ < 200
 #define TILE_DIM            32
 //#else

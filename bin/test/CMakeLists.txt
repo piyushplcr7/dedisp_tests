@@ -23,19 +23,24 @@ add_executable(testdedisp
 )
 
 target_include_directories(testdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_include_directories(testdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/numa)
+
 target_compile_definitions(testdedisp PRIVATE ${GPU_DEFINITIONS})
+
+target_link_libraries(testdedisp PRIVATE GPU_TRACER_LIBS)
+target_link_libraries(testdedisp PRIVATE GPU_XCCL)
+target_link_libraries(testdedisp PRIVATE hwlocutils)
 
 target_include_directories(testdedisp 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
     PRIVATE ${CFITSIO_INCLUDE_DIR}
-    PRIVATE ${GPU_XCCL_INCLUDE_DIR}
 )
 
-target_link_libraries(testdedisp 
+target_link_libraries(testdedisp PRIVATE
     fdd_gpu_clig 
     fdd 
     ${CFITSIO_LIBRARY} 
-    ${GPU_XCCL}
+    ${GPU_FFT_LIBS}
     #MPI::MPI_CXX
 )
 
@@ -52,14 +57,16 @@ target_include_directories(testdedispold
     PRIVATE ${GPU_XCCL_INCLUDE_DIR}
 )
 
+target_link_libraries(testdedispold PRIVATE GPU_TRACER_LIBS)
+target_link_libraries(testdedispold PRIVATE GPU_XCCL)
+
 target_include_directories(testdedispold PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
 target_compile_definitions(testdedispold PRIVATE ${GPU_DEFINITIONS})
 
-target_link_libraries(testdedispold 
+target_link_libraries(testdedispold  PRIVATE
     fdd_gpu_clig 
     dedisp
     ${CFITSIO_LIBRARY} 
-    ${GPU_XCCL}
 )
 
 ################################################################################
@@ -232,7 +239,8 @@ target_include_directories(testtdd PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(testtdd tdd)
+target_link_libraries(testtdd PRIVATE tdd)
+target_link_libraries(testtdd PRIVATE GPU_TRACER_LIBS)
 
 
 ################################################################################

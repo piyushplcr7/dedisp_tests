@@ -199,7 +199,7 @@ namespace cu {
         Event
     */
     Event::Event(int flags) {
-        gpuEventCreate(&m_event, flags);
+        gpuEventCreateWithFlags(&m_event, flags);
     }
 
     Event::~Event() {
@@ -324,22 +324,36 @@ namespace cu {
       const char *message,
       Color color)
     {
+#ifdef USE_CUDA
       _attributes.version       = NVTX_VERSION;
       _attributes.size          = NVTX_EVENT_ATTRIB_STRUCT_SIZE;
       _attributes.colorType     = NVTX_COLOR_ARGB;
       _attributes.color         = convert(color);
       _attributes.messageType   = NVTX_MESSAGE_TYPE_ASCII;
       _attributes.message.ascii = message;
+#endif
     }
 
     void Marker::start()
     {
+#ifdef USE_CUDA
       _id = nvtxRangeStartEx(&_attributes);
+#endif
+
+#ifdef USE_HIP
+      roctracer_start();
+#endif
     }
 
     void Marker::end()
     {
+#ifdef USE_CUDA
       nvtxRangeEnd(_id);
+#endif
+
+#ifdef USE_HIP
+      roctracer_stop();
+#endif
     }
 
     void Marker::start(
@@ -377,12 +391,24 @@ namespace cu {
       Color color) :
       Marker(message, color)
       {
+#ifdef USE_CUDA
         _id = nvtxRangeStartEx(&_attributes);
+#endif
+
+#ifdef USE_HIP
+        roctracer_start();
+#endif
       };
 
     ScopedMarker::~ScopedMarker()
     {
+#ifdef USE_CUDA
       nvtxRangeEnd(_id);
+#endif
+
+#ifdef USE_HIP
+      roctracer_stop();
+#endif
     }
 
 } // end namespace cu

@@ -10,6 +10,8 @@
 
 #ifdef USE_CUDA
     #include <cuda_runtime.h>
+    #include <device_launch_parameters.h>
+    #include <texture_fetch_functions.h>
     #define gpuError_t cudaError_t
     #define gpuSuccess cudaSuccess
     #define gpuGetErrorString cudaGetErrorString
@@ -62,6 +64,7 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuStreamCreate(...) GPU_CHECK_ERROR(cudaStreamCreate(__VA_ARGS__))
 #define gpuStreamDestroy(...) GPU_CHECK_ERROR(cudaStreamDestroy(__VA_ARGS__))
 #define gpuEventCreate(...) GPU_CHECK_ERROR(cudaEventCreate(__VA_ARGS__))
+#define gpuEventCreateWithFlags(...) GPU_CHECK_ERROR(cudaEventCreateWithFlags(__VA_ARGS__))
 #define gpuGetDeviceCount(...) GPU_CHECK_ERROR(cudaGetDeviceCount(__VA_ARGS__))
 #define gpuGetLastError cudaGetLastError
 #define gpuGetDevice(...) GPU_CHECK_ERROR(cudaGetDevice(__VA_ARGS__))
@@ -75,7 +78,6 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuPeekAtLastError cudaPeekAtLastError
 #define gpuHostRegister(...) GPU_CHECK_ERROR(cudaHostRegister(__VA_ARGS__))
 #define gpuHostUnregister(...) GPU_CHECK_ERROR(cudaHostUnregister(__VA_ARGS__))
-#define gpuEventCreate(...) GPU_CHECK_ERROR(cudaEventCreate(__VA_ARGS__))
 #define gpuEventDestroy(...) GPU_CHECK_ERROR(cudaEventDestroy(__VA_ARGS__))
 #define gpuEventRecord(...) GPU_CHECK_ERROR(cudaEventRecord(__VA_ARGS__))
 #define gpuEventSynchronize(...) GPU_CHECK_ERROR(cudaEventSynchronize(__VA_ARGS__))
@@ -140,6 +142,7 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuStreamCreate(...) GPU_CHECK_ERROR(hipStreamCreate(__VA_ARGS__))
 #define gpuStreamDestroy(...) GPU_CHECK_ERROR(hipStreamDestroy(__VA_ARGS__))
 #define gpuEventCreate(...) GPU_CHECK_ERROR(hipEventCreate(__VA_ARGS__))
+#define gpuEventCreateWithFlags(...) GPU_CHECK_ERROR(hipEventCreateWithFlags(__VA_ARGS__))
 #define gpuGetDeviceCount(...) GPU_CHECK_ERROR(hipGetDeviceCount(__VA_ARGS__))
 #define gpuGetLastError hipGetLastError
 #define gpuGetDevice(...) GPU_CHECK_ERROR(hipGetDevice(__VA_ARGS__))
@@ -153,7 +156,6 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuPeekAtLastError hipPeekAtLastError
 #define gpuHostRegister(...) GPU_CHECK_ERROR(hipHostRegister(__VA_ARGS__))
 #define gpuHostUnregister(...) GPU_CHECK_ERROR(hipHostUnregister(__VA_ARGS__))
-#define gpuEventCreate(...) GPU_CHECK_ERROR(hipEventCreate(__VA_ARGS__))
 #define gpuEventDestroy(...) GPU_CHECK_ERROR(hipEventDestroy(__VA_ARGS__))
 #define gpuEventRecord(...) GPU_CHECK_ERROR(hipEventRecord(__VA_ARGS__))
 #define gpuEventSynchronize(...) GPU_CHECK_ERROR(hipEventSynchronize(__VA_ARGS__))

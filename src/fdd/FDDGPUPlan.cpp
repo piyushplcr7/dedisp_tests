@@ -41,7 +41,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <nvToolsExt.h>
+#include "gpu_tracer_tools.hpp"
+#include "hwloc_utils.hpp"
 
 size_t nsamp_fft = 0;
 size_t nsamps_computed = 0;
@@ -282,7 +283,7 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
   // This function just allocates the host/device memory required for the execute step
   // The memory to be allocated is calculated based on a few parameters
   gpuSetDevice(local_gpu_id);
-
+  hwlocUtils hwlocobj{};
   
   int n[] = {(int)nsamp_fft};
   int rnembed[] = {(int)nsamp_padded};     // width in real elements
@@ -378,7 +379,8 @@ void FDDGPUPlan::allocateMem(size_t nsamps) {
     if (local_gpu_id == 0) {
       h_data_t_dm_[i].resize(sizeof_data_x_dm);
       std::cout << "==================================" << std::endl;
-      std::cout << "h_data_t_dm buffer #" << i << " on NUMA node " << get_node(h_data_t_dm_[i].data()) << std::endl;
+      std::cout << "h_data_t_dm buffer #" << i << " on NUMA node " << std::endl;
+      hwlocobj.verifyNumaPlacement(h_data_t_dm_[i].data(), sizeof_data_x_dm);
       std::cout << "==================================" << std::endl;
     }
     d_data_x_dm_[i].resize(sizeof_data_x_dm);

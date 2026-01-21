@@ -32,21 +32,32 @@ if(GPU_BACKEND STREQUAL "CUDA")
     set(GPU_INCLUDE_DIRS ${CUDAToolkit_INCLUDE_DIRS})
     set(GPU_HOST_RUNTIME_LIBS CUDA::cudart)
     set(GPU_TRACER_LIBS CUDA::nvToolsExt)
-    set(GPU_LIBRARIES ${CUDAToolkit_LIBRARIES} ${NCCL_LIBRARIES})
+    set(GPU_LIBRARIES ${CUDAToolkit_LIBRARIES})
     set(GPU_FFT_LIBS CUDA::cufft)
     set(GPU_DEFINITIONS USE_CUDA)
-    set(GPU_XCCL ${NCCL_LIBRARY})
-    set(GPU_XCCL_INCLUDE_DIR ${NCCL_INCLUDE_DIR})
     set(GPU_LANG CUDA)
 
-elseif(GPU_BACKEND STREQUAL "HIP")
-    enable_language(HIP)
-    find_package(hip REQUIRED)
-    find_package(hipfft REQUIRED)
-    find_package(rocFFT REQUIRED)
-    find_package(rccl REQUIRED)
+    add_library(GPU_XCCL INTERFACE)
+    target_include_directories(GPU_XCCL INTERFACE ${NCCL_INCLUDE_DIR})
+    target_link_libraries(GPU_XCCL INTERFACE ${NCCL_LIBRARY})
 
+elseif(GPU_BACKEND STREQUAL "HIP")
+
+    if(NOT DEFINED ENV{ROCM_PATH})
+        message(FATAL_ERROR "ROCM_PATH environment variable not set. Please load the ROCm module first.")
+    endif()
+    set(ROCM_PATH $ENV{ROCM_PATH})
+
+    list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH})
     set(CMAKE_HIP_ARCHITECTURES "gfx906;gfx908;gfx90a")
+    set(GPU_TARGETS "gfx906;gfx908;gfx90a")
+
+    enable_language(HIP)
+    find_package(HIP REQUIRED)
+    find_package(hipFFT REQUIRED)
+    find_package(rocFFT REQUIRED)
+    find_package(RCCL REQUIRED)
+
     add_definitions(-D__HIP_PLATFORM_AMD__)
 
     # abstracted vars
@@ -63,10 +74,45 @@ elseif(GPU_BACKEND STREQUAL "HIP")
         NO_DEFAULT_PATH
     )
 
-    set(GPU_TRACER_LIBS ${ROCTRACERLIB})
-    set(GPU_XCCL rccl)
-    set(GPU_XCCL_INCLUDE_DIR ${GPU_INCLUDE_DIRS})
+    set(RCCL_INCLUDE_DIRS
+        ${ROCM_PATH}/include/rccl/
+    )
+
+    set(RCCL_LIB 
+        ${ROCM_PATH}/lib/librccl.so
+    )
+
+    add_library(GPU_XCCL INTERFACE)
+    target_include_directories(GPU_XCCL INTERFACE ${RCCL_INCLUDE_DIRS})
+    target_link_libraries(GPU_XCCL INTERFACE ${RCCL_LIB})
+
+    #set(GPU_XCCL rccl)
+    #set(GPU_XCCL_INCLUDE_DIR ${GPU_INCLUDE_DIRS})
     set(GPU_LANG HIP)
+
+    set(ROCTX_INCLUDE_DIRS
+        ${ROCM_PATH}/include/rocprofiler-sdk-roctx
+        ${ROCM_PATH}/include/roctracer
+    )
+
+    set(ROCTX_LIBRARIES ${ROCM_PATH}/lib/libroctx64.so)
+
+    # Define an interface library that wraps GPU_TRACER_LIBS
+    add_library(GPU_TRACER_LIBS INTERFACE)
+
+    # Include directories (ROCTX)
+    target_include_directories(GPU_TRACER_LIBS INTERFACE
+        ${ROCTX_INCLUDE_DIRS}
+    )
+
+    # Link libraries (ROCTRACER + ROCTX)
+    target_link_libraries(GPU_TRACER_LIBS INTERFACE
+        ${ROCTRACERLIB}    # roctracer64
+        ${ROCTX_LIBRARIES} # libroctx64.so
+    )
+
+    message("ROCTX_INCLUDE_DIRS: ${ROCTX_INCLUDE_DIRS}")
+    message("ROCTX_LIBRARIES: ${ROCTX_LIBRARIES}" )
 
 else()
     message(FATAL_ERROR
