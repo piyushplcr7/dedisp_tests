@@ -56,7 +56,7 @@ inline __device__ void operator*=(float2 &a, float2 b) {
 inline __device__ void cmac(float2 &a, float2 b, float2 c)
 {
     //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(b.x), "f"(c.x), "f"(a.x));
-    gpu_fma_rn_ftz(a.x, b.x, c.x, a.y);
+    gpu_fma_rn_ftz(a.x, b.x, c.x, a.x);
     //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.y) : "f"(b.x), "f"(c.y), "f"(a.y));
     gpu_fma_rn_ftz(a.y, b.x, c.y, a.y);
     //asm ("fma.rn.ftz.f32 %0,%1,%2,%3;" : "=f"(a.x) : "f"(-b.y), "f"(c.y), "f"(a.x));
