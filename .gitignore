@@ -12,3 +12,6 @@ build/
 *.py
 conference_timing_outputs/
 timing_outputs/
+logs/
+nsys_reports/
+scripts/
