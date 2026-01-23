@@ -1,7 +1,7 @@
 #ifndef DEDISP_KERNEL_H_INCLUDE_GUARD
 #define DEDISP_KERNEL_H_INCLUDE_GUARD
 
-#include <cuda.h>
+#include "gpu_runtime.hpp"
 
 #include "common/dedisp_types.h"
 //#include "common/dedisp_error.hpp"
@@ -13,13 +13,13 @@ class DedispKernel
             const void* src,
             size_t count,
             size_t offset,
-            cudaStream_t stream);
+            gpuStream_t stream);
 
         void copy_killmask(
             const void* src,
             size_t count,
             size_t offset,
-            cudaStream_t stream);
+            gpuStream_t stream);
 
         unsigned int get_nsamps_per_thread();
 
@@ -38,7 +38,7 @@ class DedispKernel
             dedisp_byte*        d_out,
             dedisp_size         out_stride,
             dedisp_size         out_nbits,
-            cudaStream_t        stream = 0);
+            gpuStream_t        stream = 0);
 
 
     private:

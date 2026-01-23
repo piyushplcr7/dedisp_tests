@@ -6,6 +6,7 @@
 * This kernel is a fused version of the original transpose and unpack kernels.
 * Thus requiring only a single pass over the data for the same operations.
 */
+#include "gpu_runtime.hpp"
 #include <algorithm>
 #include "dedisp_types.h"
 #include "unpack_kernel.cuh"
@@ -28,7 +29,7 @@ void transpose_unpack(
     size_t in_stride, size_t out_stride,
     dedisp_word* d_out,
     dedisp_size in_nbits, dedisp_size out_nbits,
-    cudaStream_t stream)
+    gpuStream_t stream)
 {
     // Specify thread decomposition (uses up-rounded divisions)
     dim3 tot_block_count((width-1)  / TILE_DIM + 1,

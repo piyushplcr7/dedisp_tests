@@ -5,6 +5,7 @@
 */
 #include "GPUPlan.hpp"
 #include <iostream>
+#include "gpu_runtime.hpp"
 
 namespace dedisp
 {
@@ -22,9 +23,9 @@ GPUPlan::GPUPlan(
     set_device(device_idx);
 
     // Initialize streams
-    htodstream.reset(new cu::Stream());
-    dtohstream.reset(new cu::Stream());
-    executestream.reset(new cu::Stream());
+    htodstream.reset(new cu::Stream(gpuStreamNonBlocking));
+    dtohstream.reset(new cu::Stream(gpuStreamNonBlocking));
+    executestream.reset(new cu::Stream(gpuStreamNonBlocking));
 
     // Initialize delay table
     d_delay_table.resize(nchans * sizeof(dedisp_float));

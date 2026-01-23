@@ -15,9 +15,6 @@
 #include "fdd_gpu.h"
 
 #include <Plan.hpp>
-#include <cuda_runtime.h>
-
-#include "fdd/helper.h"
 
 static long bytes_per_row = 123002956;
 

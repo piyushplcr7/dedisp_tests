@@ -6,5 +6,17 @@ add_library(
 target_include_directories(
    clib
    PRIVATE ${CMAKE_SOURCE_DIR}/src
-   PRIVATE ${CUDAToolkit_INCLUDE_DIRS}
+   PRIVATE ${GPU_INCLUDE_DIRS}
 )
+
+target_link_libraries(clib PRIVATE GPU_TRACER_LIBS)
+target_link_libraries(clib PRIVATE GPU_XCCL)
+
+target_include_directories(clib PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(clib PRIVATE ${GPU_DEFINITIONS})
+
+
+#target_link_libraries(
+#    clib
+#    ${GPU_FFT_LIBS}
+#)

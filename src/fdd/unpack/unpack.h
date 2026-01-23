@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "dedisp_types.h"
 
-#include "cuda_runtime.h"
+#include "gpu_runtime.hpp"
 
 void transpose_unpack(
     const float* d_in,
@@ -11,4 +11,4 @@ void transpose_unpack(
     float* d_out,
     dedisp_size in_nbits, dedisp_size out_nbits,
     float scale,
-    cudaStream_t stream);
+    gpuStream_t stream);

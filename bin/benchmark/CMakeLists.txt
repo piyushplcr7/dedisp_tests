@@ -9,7 +9,11 @@ target_include_directories(benchdedisp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(benchdedisp dedisp)
+target_include_directories(benchdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(benchdedisp PRIVATE ${GPU_DEFINITIONS})
+
+target_link_libraries(benchdedisp PRIVATE dedisp)
+target_link_libraries(benchdedisp PRIVATE GPU_TRACER_LIBS)
 
 
 ################################################################################
@@ -23,21 +27,25 @@ target_include_directories(benchtdd PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(benchtdd tdd)
+target_include_directories(benchtdd PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(benchtdd PRIVATE ${GPU_DEFINITIONS})
+
+target_link_libraries(benchtdd PRIVATE tdd)
+target_link_libraries(benchtdd PRIVATE GPU_TRACER_LIBS)
 
 
 ################################################################################
 # test for fdd library
 ################################################################################
-add_executable(benchfdd
-    benchfdd.cpp
-)
+#add_executable(benchfdd
+#    benchfdd.cpp
+#)
 
-target_include_directories(benchfdd PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
+#target_include_directories(benchfdd PRIVATE
+#    ${CMAKE_SOURCE_DIR}/src
+#)
 
-target_link_libraries(benchfdd fdd)
+#target_link_libraries(benchfdd fdd)
 
 
 ################################################################################
@@ -47,7 +55,7 @@ install(
     TARGETS
         benchdedisp
         benchtdd
-        benchfdd
+        #benchfdd
     RUNTIME
         DESTINATION bin
 )

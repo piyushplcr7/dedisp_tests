@@ -10,8 +10,8 @@
 
 #include <stdexcept>
 
-#include <cuda_runtime.h>
-#include <nvToolsExt.h>
+#include "gpu_runtime.hpp"
+#include "gpu_tracer_tools.hpp"
 
 namespace cu {
 
@@ -30,7 +30,7 @@ namespace cu {
     };
 
     void checkError();
-    void checkError(cudaError_t error);
+    void checkError(gpuError_t error);
 
 
     class Device {
@@ -63,7 +63,7 @@ namespace cu {
 
     class HostMemory : public virtual Memory {
         public:
-            HostMemory(size_t size = 0, int flags = cudaHostAllocPortable);
+            HostMemory(size_t size = 0, int flags = gpuHostAllocPortable);
             virtual ~HostMemory();
 
             void resize(size_t size) override;
@@ -78,10 +78,13 @@ namespace cu {
 
         public:
             DeviceMemory(size_t size = 0);
+            DeviceMemory(size_t size, int dev_id);
             ~DeviceMemory();
 
             void resize(size_t size);
-            void zero(cudaStream_t stream = NULL);
+            void resize(size_t size, int dev_id);
+            
+            void zero(gpuStream_t stream = NULL);
 
             template <typename T> operator T () {
                 return static_cast<T>(m_ptr);
@@ -93,21 +96,21 @@ namespace cu {
 
     class Event {
         public:
-            Event(int flags = cudaEventDefault);
+            Event(int flags = gpuEventDefault);
             ~Event();
 
             void synchronize();
             float elapsedTime(Event &second);
 
-            operator cudaEvent_t();
+            operator gpuEvent_t();
 
         private:
-            cudaEvent_t m_event;
+            gpuEvent_t m_event;
     };
 
     class Stream {
         public:
-            Stream(int flags = cudaStreamDefault);
+            Stream(int flags = gpuStreamNonBlocking);
             ~Stream();
 
             void memcpyHtoDAsync(void *devPtr, const void *hostPtr, size_t size);
@@ -134,10 +137,10 @@ namespace cu {
             void record(Event &event);
             void zero(void *ptr, size_t size);
 
-            operator cudaStream_t();
+            operator gpuStream_t();
 
         private:
-            cudaStream_t m_stream;
+            gpuStream_t m_stream;
     };
 
     class Marker {
@@ -161,8 +164,8 @@ namespace cu {
           unsigned int convert(Color color);
 
         protected:
-          nvtxEventAttributes_t _attributes;
-          nvtxRangeId_t _id;
+          gpuEventAttributes_t _attributes;
+          gpuRangeId_t _id;
     };
 
     class ScopedMarker : public Marker {

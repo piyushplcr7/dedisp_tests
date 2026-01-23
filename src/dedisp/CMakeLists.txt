@@ -1,6 +1,13 @@
 # include directory for common header files
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
+set_source_files_properties(
+    dedisperse/dedisperse.cu
+    unpack/unpack.cu
+    transpose/transpose.cu
+    PROPERTIES LANGUAGE ${GPU_LANG}
+)
+
 add_library(
     dedisp SHARED
     DedispPlan.cpp
@@ -13,8 +20,13 @@ add_library(
     $<TARGET_OBJECTS:clib>
 )
 
+target_include_directories(dedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
+target_compile_definitions(dedisp PRIVATE ${GPU_DEFINITIONS})
+
+target_link_libraries(dedisp PRIVATE GPU_TRACER_LIBS)
+
 target_link_libraries(
-    dedisp
+    dedisp PRIVATE
     cu
     tdd
     fdd
@@ -23,7 +35,7 @@ target_link_libraries(
 target_include_directories(
    dedisp
    PRIVATE ${CMAKE_SOURCE_DIR}/src
-   PUBLIC ${CUDAToolkit_INCLUDE_DIRS}
+   PUBLIC ${GPU_INCLUDE_DIRS}
 )
 
 set_target_properties(

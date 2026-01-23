@@ -5,30 +5,30 @@
 #define FDD_HELPER_H_INCLUDE_GUARD
 
 #include "common/helper.h"
-#include <cuda_runtime.h>
+#include "gpu_runtime.hpp"
 
 struct aa_gpu_timer {
-  cudaEvent_t start;
-  cudaEvent_t stop;
+  gpuEvent_t start;
+  gpuEvent_t stop;
 
   aa_gpu_timer() {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    gpuEventCreate(&start);
+    gpuEventCreate(&stop);
   }
 
   ~aa_gpu_timer() {
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    gpuEventDestroy(start);
+    gpuEventDestroy(stop);
   }
 
-  void Start() { cudaEventRecord(start, 0); }
+  void Start() { gpuEventRecord(start, 0); }
 
-  void Stop() { cudaEventRecord(stop, 0); }
+  void Stop() { gpuEventRecord(stop, 0); }
 
   float Elapsed() {
     float elapsed = 0.0;
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsed, start, stop);
+    gpuEventSynchronize(stop);
+    gpuEventElapsedTime(&elapsed, start, stop);
     return elapsed / 1000.0f;
   }
 };
