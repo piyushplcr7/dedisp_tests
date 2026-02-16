@@ -51,12 +51,55 @@ std::pair<std::vector<int>, std::vector<double>> calcDelaysAndVels(char rastring
 
   // Computing the differences in the topo and barycentric times.
   // The differences are converted to "bins" units.
-  // The differences are shifted such that the first differece at 
-  // 0 is equal to zero. This is to align the timeseries at the 
-  // left end
+  // The differences are shifted such that the first difference at 
+  // 0 is equal to zero. This is to align the  topo and bary 
+  // timeseries at the left end
   double dtmp = (btoa[0] - ttoa[0]);
   for (int ii = 0; ii < numbarypts; ii++)
     btoa[ii] = ((btoa[ii] - ttoa[ii]) - dtmp) * SECPERDAY / dt;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  // btoa now contains entries in units of number of bins. They can be fractional!
+  
+  // Assuming original series length = N
+  
+  // If the entries in btoa were calculated for all indices, and not
+  // just numbarypts indices, the entries in btoa would be
+  //               d_0, d_1, d_2, ...., d_{N-1}
+  // These entries represent the following map from topocentric bin indices
+  // to barycentric bin indices
+  //               i -> i + d_i
+  // that is, if the original topocentric series is
+  //              T_0, T_1, T_2, ......, T_{N-1}
+  // The same series in barycentric time is
+  //              B_0, B_{1+d_1}, B_{2+d_2}, ...., B_{N-1 + d_{N-1}}
+  // or 
+  //              T_i = B_{i + d_i}
+
+  // The differences d_i are fractional at this point and can be positive or 
+  // negative. The goal of barycentering is to have the series at regularly 
+  // spaced intervals in the barycentric time, that is going from 
+  //              B_0, B_{1+d_1}, B_{2+d_2}, ...., B_{N-1 + d_{N-1}}
+  // to
+  //              B_0, B_1, B_2, ....
+  
+  // What is actually done in this code is not computing the d values for all 
+  // points, but only for a small number of points "numbarypts". So the d values
+  // correspond to the shift in terms of bins at various points in the original 
+  // time series
+  //              T_0, T_1, T_2, ......, T_{N-1}
+  //              d_0        d_1        d_2 ....
+
+  // The code also makes another assumption about d values which is implicit:
+  // It assumes that d values are non increasing/decreasing
+
+  // Since d essentially tells the change in the timeseries size until that point
+  // we calculate the position where to make those changes. For example, let's say 
+  // d1 = 5. This means by that point, the barycentered timeseries is 5 bins longer
+  // . These 5 bins have to be added somewhere and the code below calculates that.
+  // Similarly for negative d values, the timeseries shrinks and the procedure below 
+  // calculates places where bins are to be eliminated. The changes are made at 
+  // topocentric bin positions where d values would be multiples of 0.5! 
 
   // Size difference between the two timeseries in terms of bins 
   int numdiffbins = labs(lrint(btoa[numbarypts - 1])) + 1;
