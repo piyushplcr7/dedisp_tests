@@ -37,6 +37,7 @@ typedef struct s_Cmdline {
   char dmstepP;
   double dmstep;
   int dmstepC;
+  int dmstepW;
   /***** -fftout: Output the FFT coefficients instead of time series data. */
   char fftoutP;
   /***** -multout: Output individual files containing time series or fft coefficients for different DM values. */

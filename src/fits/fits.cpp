@@ -13,6 +13,7 @@
 #include <string>
 #include <fstream>
 #include "matrix_view.hpp"
+#include "barycenter_presto_utils.h"
 
 Fits::Fits(const char* filename) {
   // assign the filename
@@ -102,31 +103,8 @@ Fits::Fits(const char* filename) {
   // TloTOA
   epoch_ = stt_imjd_ + ((stt_smjd_ + stt_offs_) / 86400.0);
 
-  if (verbose) {
-    printf("lo, hi freq = %.15f, %.15f\n", freqs_[0], freqs_[nchans_read_ - 1]);
-    printf("No. of HDUs = %d\n", num_hdus_);
-    printf("telescope name = %s \n", telescope_name_);
-    printf("instrument name = %s \n", instrument_);
-    printf("object name = %s \n", object_name_);
-    printf("right_ascension = %s \n", ra_);
-    printf("declination = %s \n", dec_ + 1);
-    printf("observer = %s \n", observer_);
-    printf("STT_IMJD = %d   (%s)\n", stt_imjd_, comment);
-    printf("STT_SMJD = %d   (%s)\n", stt_smjd_, comment);
-    printf("STT_OFFS = %.15f   (%s)\n", stt_offs_, comment);
-    printf("Computed epoch = %.15f\n", epoch_);
-    printf("projid = %s   (%s)\n", projid_, comment);
-    printf("dateobs = %s   (%s)\n", dateobs_, comment);
-    printf("read tbin = %f\n", tbin_);
-    printf("Nchans read = %d\n", nchans_read_);
-    printf("nsblk = %d\n", nsblk_);
-    printf("naxis1 = %d\n", naxis1_);
-    printf("nbin = %d\n", nbin_);
-    printf("npol = %d\n", npol_);
-    printf("data byte width = %ld\n", data_byte_width_);
-    printf("offs, scal width = %ld\n", scal_offs_width_);
-    printf("naxis2 = %d\n", naxis2_);
-  } 
+  telescope_to_tempocode(telescope_name_, outscope_, obs_);
+  getTempoStrings(ra_, dec_, rastring_, decstring_);
 
   fits_close_file(ffptr, &status);
 
@@ -167,6 +145,38 @@ Fits::Fits(const char* filename) {
 
 }
 
+void Fits::printInfo() const noexcept {
+  printf("------------------------------ FITS INFO  "
+         "----------------------------\n");
+  printf("filename         = %s\n", filename_);
+  printf("lo, hi freq      = %.15f, %.15f\n", freqs_[0], freqs_[nchans_read_ - 1]);
+  printf("No. of HDUs      = %d\n", num_hdus_);
+  printf("telescope name   = %s \n", telescope_name_);
+  printf("instrument name  = %s \n", instrument_);
+  printf("object name      = %s \n", object_name_);
+  printf("right_ascension  = %s \n", ra_);
+  printf("declination      = %s \n", dec_ + 1);
+  printf("observer         = %s \n", observer_);
+  printf("STT_IMJD         = %d  \n", stt_imjd_);
+  printf("STT_SMJD         = %d  \n", stt_smjd_);
+  printf("STT_OFFS         = %.15f \n", stt_offs_);
+  printf("epoch/tlotoa     = %.15f\n", epoch_);
+  printf("projid           = %s   \n", projid_);
+  printf("dateobs          = %s   \n", dateobs_);
+  printf("read tbin        = %f\n", tbin_);
+  printf("Nchans read      = %d\n", nchans_read_);
+  printf("nsblk            = %d\n", nsblk_);
+  printf("naxis1           = %d\n", naxis1_);
+  printf("nbin             = %d\n", nbin_);
+  printf("npol             = %d\n", npol_);
+  printf("data byte width  = %ld\n", data_byte_width_);
+  printf("offs, scal width = %ld\n", scal_offs_width_);
+  printf("naxis2           = %d\n", naxis2_);
+  printf("obs              = %s\n", obs_);
+  printf("rastring         = %s\n", rastring_);
+  printf("decstring        = %s\n", decstring_);
+}
+
 void Fits::extractDataDirect(size_t chunksize) {
   if (aligned_filesize_buffer_ == nullptr) {
     std::cerr << "Error: aligned_filesize_buffer_ is not set. Use setAlignedFileSizeBuffer() before calling extractDataDirect()." << std::endl;
@@ -187,14 +197,14 @@ void Fits::extractDataDirect(size_t chunksize) {
     exit(-1);
   }
 
-#ifdef DEDISP_BENCHMARK
+#ifdef TESTDEDISP_DEBUG
   auto start_time = std::chrono::high_resolution_clock::now();
 #endif
 
   long chunks =
       getDataFromRows(fd, aligned_filesize_buffer_, chunksize, file_size_, fd_nodirect);
 
-#ifdef DEDISP_BENCHMARK
+#ifdef TESTDEDISP_DEBUG
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
                     end_time - start_time)
@@ -225,7 +235,7 @@ void Fits::reduceData(int poln, unsigned int downsamp) {
     exit(-1);
   }
 
-#ifdef DEDISP_BENCHMARK
+#ifdef TESTDEDISP_DEBUG
   // Reducing the binary table to get the relevant data
   auto start_time = std::chrono::high_resolution_clock::now();
 #endif
@@ -239,13 +249,18 @@ void Fits::reduceData(int poln, unsigned int downsamp) {
     reduceBinaryTableDownSamp(aligned_filesize_buffer_, data_, poln, naxis1_, naxis2_,
                     nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
                     scal_offs_width_, downsamp);
+
+    size_t reducedDataLen = getNumElements(downsamp);
+    #pragma omp parallel for schedule(static)
+    for (size_t i = 0 ; i < reducedDataLen ; ++i) {
+      data_[i] /= downsamp;
+    }
   }
 
   // Create the data view for easy access
-  std::cout << "creating data view with " << (size_t)nsblk_ * naxis2_/downsamp << " rows and " << (size_t) nchans_read_ << " cols" << std::endl; 
   dataView_ = matrixView<float> (data_, (size_t)nsblk_ * naxis2_/downsamp , (size_t)nchans_read_);
   
-#ifdef DEDISP_BENCHMARK
+#ifdef TESTDEDISP_DEBUG
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
                     end_time - start_time)
@@ -359,13 +374,6 @@ void Fits::reduceBinaryTableDownSamp(unsigned char *full_binary_table, float *da
   // Skipping the header
   unsigned char *bin_table_start = full_binary_table + data_offset_from_start;
   size_t nchans_poln = nchans * poln;
-
-  // Check
-  if (nsblk % downsamp != 0) {
-    std::cerr << "Downsampling factor not allowed for reduction, choose something divisible by nsblk "
-     << downsamp << "! Please choose a different value" << std::endl; 
-     exit(-1);
-  }
 
 // Going over all the rows (subints) of the binary table
 #pragma omp parallel for schedule(static)

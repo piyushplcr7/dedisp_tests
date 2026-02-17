@@ -12,6 +12,8 @@ public:
     void bindThreadToNUMA(int node);
     void bindMemToNUMA(int node);
     void verifyNumaPlacement(void* ptr, size_t bytes);
+    int getNumNUMANodes();
+    size_t getTotalMemOnNUMA(int node);
 };
 
 #endif

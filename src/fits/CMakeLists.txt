@@ -10,11 +10,15 @@ add_library(fits SHARED
 target_link_libraries(fits
     ${CFITSIO_LIBRARY}
     MPI::MPI_CXX
+    hwlocutils
+    libpresto
 )
 
 target_include_directories(fits
    PRIVATE ${CFITSIO_INCLUDE_DIR}
    PRIVATE ${MPI_CXX_INCLUDE_DIRS}
+   PRIVATE ${CMAKE_SOURCE_DIR}/src/presto
+   PRIVATE ${CMAKE_SOURCE_DIR}/src/numa
 )
 
 set_target_properties(fits PROPERTIES

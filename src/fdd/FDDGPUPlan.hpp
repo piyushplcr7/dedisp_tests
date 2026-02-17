@@ -5,10 +5,8 @@
 
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
-
-extern size_t nsamp_fft;
-extern size_t nsamps_computed;
-extern size_t nsamp_padded;
+#include <memory>
+#include "fitscontainer.hpp"
 
 namespace dedisp
 {
@@ -23,6 +21,12 @@ public:
         float_type df,
         int device_idx = 0);
 
+    FDDGPUPlan(const fitsLoader& container, int device_idx = 0);
+
+    void writeOutput(char* outfile, int w);
+
+    void writeInfs(char* outfile, const Fits& fits, size_t nsamps, double dt, int w);
+
     // Destructor
     ~FDDGPUPlan();
 
@@ -34,6 +38,15 @@ public:
         byte_type*       out,
         size_type        out_nbits,
         unsigned         flags = 0) override;
+
+    void setOutputParams(
+        bool cleanout,
+        bool fftout,
+        bool multout,
+        size_t nsamps,
+        int out_nbits, double dt);
+
+    std::unique_ptr<float[]> output_buffer_;
 
 private:
     // Private interface for FDD on GPU
@@ -67,6 +80,15 @@ private:
     cu::DeviceMemory d_spin_frequencies; // type = dedisp_float
     std::vector<cu::DeviceMemory> d_data_t_nu_;
     std::vector<cu::DeviceMemory> d_data_x_dm_;
+
+    bool cleanout_;
+    bool fftout_;
+    bool multout_;
+
+    size_t nsamps_;
+    size_t nsamp_fft_;
+    size_t nsamps_computed_;
+    size_t nsamp_padded_;
 };
 
 } // end namespace dedisp

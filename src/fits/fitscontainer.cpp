@@ -4,6 +4,8 @@
 #include <memory>
 #include <mpi.h>
 #include "matrix_view.hpp"
+#include "hwloc_utils.hpp"
+#include <chrono>
 
 /*
  * Safe large MPI_Put
@@ -44,10 +46,7 @@ inline void MPI_Put_split_Float(
     }
 }
 
-fitsLoader::fitsLoader(std::vector<std::string>& listFitsNames, int world_rank, int world_size) { 
-    world_rank_ = world_rank;
-    world_size_ = world_size;
-
+fitsLoader::fitsLoader(std::vector<std::string>& listFitsNames, int world_rank, int world_size, int downsamp):world_rank_(world_rank), world_size_(world_size), downsamp_(downsamp) { 
     // Check if configuration is allowed
     if (listFitsNames.size() % world_size_ != 0) {
         std::cerr << "Number of fits files not divisible by MPI size! Aborting." << std::endl;
@@ -75,31 +74,91 @@ fitsLoader::fitsLoader(std::vector<std::string>& listFitsNames, int world_rank, 
         exit(-1);
     }
 
+    if (listFits_[0].nsblk() % downsamp != 0) {
+        std::cerr << "Downsampling factor not allowed, choose something divisible by nsblk "
+        << downsamp << "! Please choose a different value" << std::endl; 
+        exit(-1);
+    }
+
     channelChunkSize_ = nchans_ / world_size_;
 
     // length of assembled data: channel_chunk_size * dimTimeGlobal
-    contiguousChunkLen_ = channelChunkSize_ * listFits_[0].dimTime();
+    contiguousChunkLen_ = channelChunkSize_ * listFits_[0].dimTime(downsamp_);
     assembledDataLen_ = contiguousChunkLen_ * numGlobFits_;
-
-    assembledDataBuffer_ = std::make_unique<float[]>(assembledDataLen_);
-    assembledData_ = matrixView<float> 
-        (assembledDataBuffer_.get(),  
-        listFits_[0].dimTime() * numGlobFits_,
-        (size_t)channelChunkSize_
-        );
 
     start_chan_ = world_rank_ * channelChunkSize_;
     end_chan_ = start_chan_ + channelChunkSize_ ;
+
+#ifdef TESTDEDISP_DEBUG
+    if (world_rank_ == 0) {
+        listFits_[0].printInfo();
+    }
+#endif
 }
 
-void fitsLoader::ldSeq() {
+void fitsLoader::allocContiguousAssemblyBuf() {
+    assembledDataBuffer_ = std::make_unique<float[]>(assembledDataLen_);
+    assembledData_ = matrixView<float> 
+        (assembledDataBuffer_.get(),  
+        listFits_[0].dimTime(downsamp_) * numGlobFits_,
+        (size_t)channelChunkSize_
+        );
+}
+
+void fitsLoader::ldSeq(size_t chunksize, int poln) {
+#ifdef TESTDEDISP_DEBUG
+    auto start = std::chrono::high_resolution_clock::now();
+#endif
+
+    std::unique_ptr<unsigned char, void (*)(unsigned char*)> alignedBuf(
+        static_cast<unsigned char*>( ::operator new(listFits_[0].fileSizeAligned() , std::align_val_t(4096))),
+        [] (unsigned char* x) { ::operator delete(x, std::align_val_t(4096)); }
+    );
+
+#ifdef TESTDEDISP_DEBUG
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = end - start;
+    std::cout << "ldSeq(): Allocated aligned buffer in " << diff.count() << " seconds" << std::endl; 
+#endif
+
     for (auto &fits: listFits_) {
-        fits.extractDataDirect(fits.naxis1());
-        fits.reduceData();
+        fits.setAlignedFileSizeBuffer(alignedBuf.get());
+
+        auto start1 = std::chrono::high_resolution_clock::now();
+
+        fits.extractDataDirect(chunksize);
+
+        auto end1 = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> diff1 = end1 - start1;
+        std::cout << "Read fits " << fits.getFilename() << ", in " << diff1.count() << " sec, speed: " << (double)fits.fileSize()/(1<<20)/diff1.count() << " MBps" << std::endl; 
+
+        fits.reduceData(poln, downsamp_);
+    }
+}
+
+void fitsLoader::parLoad() {
+
+}
+
+void fitsLoader::reduceInAssemblyBuf() {
+    if (assembledDataBuffer_.get() == nullptr) {
+        std::cerr << "Assembled data buffer not allocated!" << std::endl;
+        exit(-1);
+    }
+    if (world_size_ > 1) {
+        std::cerr << "Using reduceInAssemblyBuf is not meant for parallel runs!" << std::endl;
+        exit(-1);
+    }
+
+    for (int i = 0 ; i < listFits_.size() ; ++i) {
+        size_t offset = i * contiguousChunkLen_;
+        listFits_[i].setDataBuffer(assembledDataBuffer_.get() + offset);
     }
 }
 
 void fitsLoader::assembleAllTimes() {
+    allocContiguousAssemblyBuf();
+
     // Allocate aligned buffer once which will be reused for all Fits extraction
     std::unique_ptr<unsigned char, void (*)(unsigned char*)> aligned_buf(
         static_cast<unsigned char*>(::operator new(listFits_[0].fileSizeAligned(), std::align_val_t(ALIGNMENT))),
@@ -157,6 +216,7 @@ void fitsLoader::assembleAllTimes() {
 }   
 
 void fitsLoader::assembleAllTimesAsync() {
+    allocContiguousAssemblyBuf();
 
     // Allocate aligned buffer once which will be reused for all Fits extraction
     std::unique_ptr<unsigned char, void (*)(unsigned char*)> aligned_buf(

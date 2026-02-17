@@ -46,3 +46,18 @@ void hwlocUtils::bindMemToNUMA(int node) {
         HWLOC_MEMBIND_THREAD
     );
 }
+
+int hwlocUtils::getNumNUMANodes() {
+    int n = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_NUMANODE);
+    return (n > 0) ? n : 1;
+}
+
+size_t hwlocUtils::getTotalMemOnNUMA(int node) {
+    hwloc_obj_t numa =
+        hwloc_get_obj_by_type(topo, HWLOC_OBJ_NUMANODE, node);
+
+    if (!numa || !numa->attr)
+        return 0;
+
+    return static_cast<size_t>(numa->attr->numanode.local_memory);
+}

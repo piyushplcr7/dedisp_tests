@@ -756,7 +756,8 @@ catArgv(int argc, char **argv)
 }
 /**********************************************************************/
 void showOptionValues(void) {
-  printf("showOptionValues()\n");
+  printf("----------------------------- CLI OPTIONS  "
+         "----------------------------\n");
   printf("cmd->lodm = %f\n",cmd.lodm);
   printf("cmd->hidm = %f\n", cmd.hidm);
   printf("cmd->dmstep = %f\n", cmd.dmstep);
@@ -879,6 +880,7 @@ parseCmdline(int argc, char **argv)
     if( 0==strcmp("-dmstep", argv[i]) ) {
       int keep = i;
       cmd.dmstepP = 1;
+      cmd.dmstepW = strlen(argv[i+1]);
       i = getDoubleOpt(argc, argv, i, &cmd.dmstep, 1);
       cmd.dmstepC = i-keep;
       checkDoubleHigher("-dmstep", &cmd.dmstep, cmd.dmstepC, 0);

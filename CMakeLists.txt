@@ -180,6 +180,12 @@ if (ENABLE_DEBUG)
     message("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
 endif()
 
+option(TESTDEDISP_DEBUG "Enable TESTDEDISP DEBUG" OFF)
+
+if(TESTDEDISP_DEBUG)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DTESTDEDISP_DEBUG")
+endif()
+
 ################################################################################
 # OpenMP configuration
 ################################################################################

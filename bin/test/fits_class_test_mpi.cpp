@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
         listFitsNames[i] = std::string(argv[i+1]);
     }
 
-    fitsLoader container(listFitsNames, world_rank, world_size);
+    fitsLoader container(listFitsNames, world_rank, world_size, 1);
 
     std::cout << "assembling distributed data using MPI on " << world_rank << std::endl;
     container.assembleAllTimes();

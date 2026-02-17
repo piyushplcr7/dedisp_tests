@@ -47,11 +47,12 @@ target_compile_features(resample_test PRIVATE cxx_std_20)
 # test for dedisp library
 ################################################################################
 add_executable(testdedisp
-    testdedisp.cpp
+    testdedisp_new.cpp
 )
 
 target_include_directories(testdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
 target_include_directories(testdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/numa)
+target_include_directories(testdedisp PUBLIC ${CMAKE_SOURCE_DIR}/src/common)
 
 target_compile_definitions(testdedisp PRIVATE ${GPU_DEFINITIONS})
 
@@ -72,32 +73,7 @@ target_link_libraries(testdedisp PRIVATE
     ${CFITSIO_LIBRARY} 
     ${GPU_FFT_LIBS}
     MPI::MPI_CXX
-    libpresto
-)
-
-################################################################################
-# test for dedisp library
-################################################################################
-add_executable(testdedispold
-    testdedispold.cpp
-)
-
-target_include_directories(testdedispold 
-    PRIVATE ${CMAKE_SOURCE_DIR}/src 
-    PRIVATE ${CFITSIO_INCLUDE_DIR}
-    PRIVATE ${GPU_XCCL_INCLUDE_DIR}
-)
-
-target_link_libraries(testdedispold PRIVATE GPU_TRACER_LIBS)
-target_link_libraries(testdedispold PRIVATE GPU_XCCL)
-
-target_include_directories(testdedispold PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros)
-target_compile_definitions(testdedispold PRIVATE ${GPU_DEFINITIONS})
-
-target_link_libraries(testdedispold  PRIVATE
-    fdd_gpu_clig 
-    dedisp
-    ${CFITSIO_LIBRARY} 
+    fits
 )
 
 ################################################################################
@@ -294,7 +270,7 @@ target_link_libraries(testtdd PRIVATE GPU_TRACER_LIBS)
 install(
     TARGETS
         ctestdedisp
-        testdedisp
+        #testdedisp
         testtdd
         #testfdd
     RUNTIME

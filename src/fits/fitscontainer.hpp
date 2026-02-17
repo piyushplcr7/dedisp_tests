@@ -27,6 +27,8 @@ private:
     int world_rank_;
     int world_size_;
 
+    int downsamp_;
+
     int channelChunkSize_;
     size_t contiguousChunkLen_;
     size_t assembledDataLen_;
@@ -40,13 +42,15 @@ public:
     * of all the fits filenames that are logically a part of this distributed
     * storage
     */
-    fitsLoader(std::vector<std::string>& listFits, int world_rank, int world_size);
+    fitsLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp=1);
 
     /*
     * This function goes through the local array of Fits objects sequentially and 
     * extracts and reduces the time series data
     */
-    void ldSeq();
+    void ldSeq(size_t chunksize, int poln);
+
+    void parLoad();
 
     /*
     * In a multi-node setting, where each node holds a contiguous time chunk of 
@@ -67,8 +71,30 @@ public:
 
     matrixView<float> getAssembledData() { return assembledData_; }
 
-    int startChan() { return start_chan_; }
-    int endChan() { return end_chan_; }
+    int startChan() const { return start_chan_; }
+    int endChan() const { return end_chan_; }
+
+    void allocContiguousAssemblyBuf();
+
+    void reduceInAssemblyBuf();
+
+    double sampletime() const {return listFits_[0].sampletime(downsamp_); }
+
+    size_t nsampsLocal() const {return numLocFits_ * listFits_[0].dimTime(downsamp_);}
+
+    size_t nsampsGlobal() const {return numGlobFits_ * listFits_[0].dimTime(downsamp_);}
+
+    double f0() const {return listFits_[0].f0(); }
+
+    int nchansGlobal() const {return nchans_;}
+
+    int nchansLocal() const {return end_chan_ - start_chan_;}
+
+    const std::vector<Fits>& getFitsVector() const {return listFits_; }
+
+    double ddf() const {return listFits_[0].ddf(); }
+
+    double bw() const {return listFits_[0].bw(); }
 
     /*
     * Destructor 
