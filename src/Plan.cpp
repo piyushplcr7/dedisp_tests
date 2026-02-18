@@ -10,6 +10,7 @@
 #include "common/cuda/CU.h"
 #include <iostream>
 #include "gpu_runtime.hpp"
+#include <fstream>
 
 namespace dedisp
 {
@@ -17,9 +18,10 @@ namespace dedisp
 // Public interface
 Plan::Plan(
     size_type  nchans,
-    float_type dt,
-    float_type f0,
-    float_type df)
+    double dt,
+    double f0,
+    double df,
+    double voverc)
 {
     m_dm_count      = 0;
     m_nchans        = nchans;
@@ -35,7 +37,9 @@ Plan::Plan(
     // Generate delay table and copy to device memory
     // Note: The DM factor is left out and applied during dedispersion
     h_delay_table.resize(nchans);
-    generate_delay_table(h_delay_table.data(), nchans, dt, f0, df);
+    generate_delay_table(h_delay_table.data(), nchans, dt, f0, df, voverc);
+
+    writeDelays(5.97f, nchans);
 
     // Initialize the killmask
     h_killmask.resize(nchans, (dedisp_bool)true);
@@ -109,15 +113,29 @@ void Plan::sync()
 // Private helper functions
 void Plan::generate_delay_table(
     dedisp_float* h_delay_table, dedisp_size nchans,
-    dedisp_float dt, dedisp_float f0, dedisp_float df)
+    double dt, double f0, double df, double voverc)
 {
-    dedisp_float lofreq = f0 + (nchans-1) * df;
+    double lofreq = f0 + (nchans-1) * df;
+
+    double f0doppler = f0 * (1 + voverc);
+
+    std::cout << "Debug: voverc = " << voverc << std::endl;
 
     for( dedisp_size c=0; c<nchans; ++c ) {
-        dedisp_float nu = lofreq + std::abs(df) * c;
+        double nu = lofreq + std::abs(df) * c;
+        double nudoppler = nu * (1 + voverc);
+
         // Note: To higher precision, the constant is 4.148741601e3
-        h_delay_table[c] = 1.0 / (0.000241 * nu * nu * dt)  - 1.0 / (0.000241 * f0 * f0 * dt);
+        h_delay_table[c] = (double)1.0 / (0.000241 * nudoppler * nudoppler * dt)  - 1.0 / (0.000241 * f0doppler * f0doppler * dt);
     }
+}
+
+void Plan::writeDelays(float dm, size_t nchans) {
+    std::ofstream out("delays_new");
+    for (int i = 0 ; i < nchans ; ++i) {
+        out << lround(dm * h_delay_table[i]) << std::endl;
+    }
+    out.close();
 }
 
 dedisp_float Plan::get_smearing(

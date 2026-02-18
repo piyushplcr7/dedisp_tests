@@ -32,7 +32,7 @@ FDDCPUPlan::FDDCPUPlan(
     float_type f0,
     float_type df,
     int device_index) :
-    Plan(nchans, dt, f0, df)
+    Plan(nchans, dt, f0, df, 0)
 {
 }
 

@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
   }
 
   // Set the output parameters for the plan, which also allocates the output buffer
-  plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, container.nsampsLocal(), out_nbits, container.sampletime());
+  plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits);
 
   printf("------------------------------ Plan Execute  "
          "------------------------------\n");

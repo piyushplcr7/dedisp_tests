@@ -36,8 +36,15 @@ FDDGPUPlan::FDDGPUPlan(size_type nchans, float_type dt, float_type f0,
     : GPUPlan(nchans, dt, f0, df, device_idx) {}
 
 FDDGPUPlan::FDDGPUPlan(const fitsLoader& container, int device_idx)
-    : GPUPlan(container.nchansLocal(), container.sampletime(), container.f0(),
-              container.ddf(), device_idx) {
+    : GPUPlan(container.nchansLocal(), 
+              container.sampletime(), 
+              container.f0(),
+              container.ddf(), 
+              container.avgvoverc(),
+              device_idx),
+      nsamps_(container.nsampsLocal()),
+      dt_(container.sampletime())
+               {
 #ifdef TESTDEDISP_DEBUG
   printf("dt = %f\n", container.sampletime());
   printf("f0              = %f\n", container.f0());
@@ -164,15 +171,12 @@ void FDDGPUPlan::setOutputParams(
         bool cleanout,
         bool fftout,
         bool multout,
-        size_t nsamps,
-        int out_nbits, double dt) {
+        int out_nbits) {
   //
   cleanout_ = cleanout;
   fftout_ = fftout;
   multout_ = multout;
-  nsamps_ = nsamps;
 
-  // 
   const dedisp_float *dmlist = get_dm_list();
   dedisp_size dm_count = get_dm_count();
   dedisp_size max_delay = get_max_delay();
@@ -183,8 +187,8 @@ void FDDGPUPlan::setOutputParams(
   printf("Computing %lu DMs from %f to %f pc/cm^3\n", dm_count, dmlist[0],
          dmlist[dm_count - 1]);
   printf("Max DM delay is %lu samples (%.3f seconds)\n", max_delay,
-         max_delay * dt);
-  std::cout << "dt = " << dt << std::endl;
+         max_delay * dt_);
+  std::cout << "dt = " << dt_ << std::endl;
 #endif
   
   // nsamp_fft is the fft size. Keeping this bigger than nsamps is implicitly
@@ -223,8 +227,8 @@ void FDDGPUPlan::setOutputParams(
   }
   else {
     printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
-         nsamps_computed_, nsamps,
-         100.0 * (dedisp_float)nsamps_computed_ / nsamps);
+         nsamps_computed_, nsamps_,
+         100.0 * (dedisp_float)nsamps_computed_ / nsamps_);
     printf("Output data array size : %lu MB\n",
           (dm_count * nsamps_computed_ * sizeof(float)) / (1 << 20));
     

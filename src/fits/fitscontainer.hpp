@@ -31,6 +31,10 @@ private:
 
     int downsamp_;
 
+    double maxvoverc_= -1;
+    double minvoverc_ = 1;
+    double avgvoverc_ = 0;
+
     //int channelChunkSize_ = 0;
 
     size_t contiguousChunkLen_ = 0;
@@ -58,6 +62,8 @@ public:
     void ldSeq(size_t chunksize, int poln);
 
     void parLoad();
+
+    double avgvoverc() const { return avgvoverc_; }
 
     /*
     * In a multi-node setting, where each node holds a contiguous time chunk of 

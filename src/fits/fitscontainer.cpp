@@ -10,6 +10,7 @@
 #include "barycenter.hpp"
 #include <ranges>
 #include <algorithm>
+#include <iomanip>
 
 /*
  * Safe large MPI_Put
@@ -190,6 +191,21 @@ void fitsLoader::barycenter(float* barycentered_data) {
             net_shift--;
         }
     }
+
+    // calculate max, min and avg voverc
+    for (int i = 0 ; i < voverc.size(); i++) {
+        if (voverc[i] > maxvoverc_)
+            maxvoverc_ = voverc[i];
+        if (voverc[i] < minvoverc_)
+            minvoverc_ = voverc[i];
+
+        avgvoverc_ += voverc[i];
+    }
+    avgvoverc_ /= voverc.size();
+
+    std::cout << "Average topocentric velocity (c) = " << std::setprecision(7) << avgvoverc_ << std::endl; 
+    std::cout << "Maximum topocentric velocity (c) = " << std::setprecision(7) << maxvoverc_ << std::endl; 
+    std::cout << "Minimum topocentric velocity (c) = " << std::setprecision(7) << minvoverc_ << std::endl; 
 
     size_t N_out = nsampsLocal_ + net_shift;
     // Count bin removals and additions

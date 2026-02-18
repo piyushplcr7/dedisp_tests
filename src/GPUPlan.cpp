@@ -13,11 +13,12 @@ namespace dedisp
 // Public interface
 GPUPlan::GPUPlan(
     size_type  nchans,
-    float_type dt,
-    float_type f0,
-    float_type df,
+    double dt,
+    double f0,
+    double df,
+    double voverc,
     int device_idx) :
-    Plan(nchans, dt, f0, df)
+    Plan(nchans, dt, f0, df, voverc)
 {
     // Initialize device
     set_device(device_idx);

@@ -35,9 +35,10 @@ public:
      */
     Plan(
         size_type  nchans,
-        float_type dt,
-        float_type f0,
-        float_type df);
+        double dt,
+        double f0,
+        double df,
+        double voverc);
 
     // No copying or assignment
     Plan(const Plan& other) = delete;
@@ -73,6 +74,8 @@ public:
 
     void sync();
 
+    void writeDelays(float dm, size_t nchans);
+
     // Public interface (virtual)
     virtual void execute(
         size_type        nsamps,
@@ -85,7 +88,7 @@ public:
 private:
     // Helper methods
     void generate_delay_table(dedisp_float* h_delay_table, dedisp_size nchans,
-                              dedisp_float dt, dedisp_float f0, dedisp_float df);
+                              double dt, double f0, double df, double voverc);
 
     dedisp_float get_smearing(dedisp_float dt, dedisp_float pulse_width,
                               dedisp_float f0, dedisp_size nchans, dedisp_float df,

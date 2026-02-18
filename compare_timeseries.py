@@ -11,9 +11,10 @@ arr2 = np.fromfile(file2, dtype=np.float32)
 
 print(f"File1: {file1}, length: {len(arr1)}")
 print(f"File2: {file2}, length: {len(arr2)}")
-
-# Take the first 20 points (or fewer if file shorter)
+ 
 n = min(len(arr1), len(arr2))-1
+n = min(n, int(sys.argv[3]) if len(sys.argv) > 3 else n)  # Optionally limit to first N points
+print(f"Comparing first {n} points from each file...")
 subset1 = arr1[:n]
 subset2 = arr2[:n]
 

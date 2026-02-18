@@ -43,8 +43,7 @@ public:
         bool cleanout,
         bool fftout,
         bool multout,
-        size_t nsamps,
-        int out_nbits, double dt);
+        int out_nbits);
 
     std::unique_ptr<float[]> output_buffer_;
 
@@ -89,6 +88,8 @@ private:
     size_t nsamp_fft_;
     size_t nsamps_computed_;
     size_t nsamp_padded_;
+
+    double dt_;
 };
 
 } // end namespace dedisp
