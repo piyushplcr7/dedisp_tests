@@ -46,6 +46,7 @@ Cmdline cmd = {
   /* dmstepP = */ 1,
   /* dmstep = */ 0,
   /* dmstepC = */ 1,
+  /* dmstepW = */ 0,
   /***** -fftout: Output the FFT coefficients instead of time series data. */
   /* fftoutP = */ 0,
   /***** -multout: Output individual files containing time series or fft coefficients for different DM values. */
