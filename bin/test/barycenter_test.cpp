@@ -91,7 +91,7 @@ int main() {
     /* resampleTimeSeriesMovAvg(data, barycentered_data, nchans, N_out, 
                                inForOut, additions, insertPositions); */
 
-    resampleTimeSeriesLocAvg(data, barycentered_data, nchans, N_out, 
+    resampleTimeSeriesLocAvg(data.data(), barycentered_data.data(), nchans, N_out, 
                                inForOut, insertPositions, 10000);
 
 

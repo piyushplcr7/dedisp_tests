@@ -1,0 +1,51 @@
+# Admin data
+Name fdd_gpu
+Usage "GPU-based de-dispersion for time-series analysis."
+Version [exec date +%d%b%y]
+Commandline full_cmd_line
+
+# Options (in order you want them to appear)
+
+Double -lodm lodm \
+    {The lowest dispersion measure to de-disperse (cm^-3 pc)} \
+    -r 0 oo -d 0
+
+Double -hidm hidm \
+    {The highest dispersion measure to use(cm^-3 pc)} \
+    -r 0 oo -d 1000
+
+Double -pwidth pwidth \
+    {Pulse width (in ms) used to calculate DM values} \
+    -r 0 oo -d 4
+
+Int -downsamp downsamp \
+    {The number of neighboring bins to co-add} \
+    -r 1 128 -d 1
+
+Int -numdms numdms \
+    {Number of dm values} \
+    -r 0 50000 -d 0
+
+Double -dmstep dmstep \
+    {DM step size} \
+    -r 0 oo -d 0
+
+Flag -fftout fftout \
+    {Output the FFT coefficients instead of time series data.}
+
+Flag -multout multout \
+    {Output individual files containing time series or fft coefficients for different DM values.}
+
+Flag -cleanout cleanout \
+    {Output individual files containing time series or fft coefficients for different DM values.}
+
+String -o outfile \
+    {Root of the output file names} \
+    -m -c 1 1
+
+Flag   -nobary  nobary  {Do not barycenter the data}
+
+# Rest of command line
+Rest infile \
+    {Input data file(s)} \
+    -c 1 16384

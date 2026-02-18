@@ -28,7 +28,7 @@ Cmdline cmd = {
   /* lodmC = */ 1,
   /***** -hidm: The highest dispersion measure to use(cm^-3 pc) */
   /* hidmP = */ 1,
-  /* hidm = */ 10.0,
+  /* hidm = */ 1000,
   /* hidmC = */ 1,
   /***** -pwidth: Pulse width (in ms) used to calculate DM values */
   /* pwidthP = */ 1,
@@ -56,10 +56,8 @@ Cmdline cmd = {
   /* outfileP = */ 0,
   /* outfile = */ (char*)0,
   /* outfileC = */ 0,
-  /***** -numfits: Number of fits files to process */
-  /* numfitsP = */ 1,
-  /* numfits = */ 1,
-  /* numfitsC = */ 1,
+  /***** -nobary: Do not barycenter the data */
+  /* nobaryP = */ 0,
   /***** uninterpreted rest of command line */
   /* argc = */ 0,
   /* argv = */ (char**)0,
@@ -732,6 +730,14 @@ checkDoubleHigher(char *opt, double *values, int count, double min)
 }
 /**********************************************************************/
 
+static void
+missingErr(char *opt)
+{
+  fprintf(stderr, "%s: mandatory option `%s' missing\n",
+	  Program, opt);
+}
+/**********************************************************************/
+
 static char *
 catArgv(int argc, char **argv)
 {
@@ -768,6 +774,7 @@ void showOptionValues(void) {
   printf("cmd->fftout = %d\n",(int)cmd.fftoutP);
   printf("cmd->multout = %d\n", (int)cmd.multoutP);
   printf("cmd->outfile = %s \n",cmd.outfile);
+  printf("cmd->nobary = %d\n", (int)cmd.nobaryP);
 
   if (cmd.cleanoutP) {
     printf("cleanout selected\n");
@@ -782,14 +789,14 @@ void showOptionValues(void) {
 void
 usage(void)
 {
-  fprintf(stderr,"   [-lodm lodm] [-hidm hidm] [-pwidth pwidth] [-downsamp downsamp] [-numdms numdms] [-dmstep dmstep] [-fftout] [-multout] [-cleanout] [-o outfile] [-numfits numfits] [--] infile ...\n");
-  fprintf(stderr,"      Dedisperses input data using FDD algorithm (No barycentering).\n");
+  fprintf(stderr,"   [-lodm lodm] [-hidm hidm] [-pwidth pwidth] [-downsamp downsamp] [-numdms numdms] [-dmstep dmstep] [-fftout] [-multout] [-cleanout] -o outfile [-nobary] [--] infile ...\n");
+  fprintf(stderr,"      GPU-based de-dispersion for time-series analysis.\n");
   fprintf(stderr,"        -lodm: The lowest dispersion measure to de-disperse (cm^-3 pc)\n");
   fprintf(stderr,"               1 double value between 0 and oo\n");
   fprintf(stderr,"               default: `0'\n");
   fprintf(stderr,"        -hidm: The highest dispersion measure to use(cm^-3 pc)\n");
   fprintf(stderr,"               1 double value between 0 and oo\n");
-  fprintf(stderr,"               default: `10.0'\n");
+  fprintf(stderr,"               default: `1000'\n");
   fprintf(stderr,"      -pwidth: Pulse width (in ms) used to calculate DM values\n");
   fprintf(stderr,"               1 double value between 0 and oo\n");
   fprintf(stderr,"               default: `4'\n");
@@ -807,12 +814,10 @@ usage(void)
   fprintf(stderr,"    -cleanout: Output individual files containing time series or fft coefficients for different DM values.\n");
   fprintf(stderr,"           -o: Root of the output file names\n");
   fprintf(stderr,"               1 char* value\n");
-  fprintf(stderr,"     -numfits: Number of fits files to process\n");
-  fprintf(stderr,"               1 int value between 0 and 24\n");
-  fprintf(stderr,"               default: `1'\n");
-  fprintf(stderr,"       infile: Input data file name.  If the data is not in a known raw format, it should be a single channel of single-precision floating point data.  In this case a '.inf' file with the same root filename must also exist (Note that this means that the input data file must have a suffix that starts with a period)\n");
+  fprintf(stderr,"      -nobary: Do not barycenter the data\n");
+  fprintf(stderr,"       infile: Input data file(s)\n");
   fprintf(stderr,"               1...16384 values\n");
-  fprintf(stderr,"  version: 30Mar25\n");
+  fprintf(stderr,"  version: 17Feb26\n");
   fprintf(stderr,"  ");
   exit(EXIT_FAILURE);
 }
@@ -821,6 +826,7 @@ Cmdline *
 parseCmdline(int argc, char **argv)
 {
   int i;
+  char missingMandatory = 0;
 
   Program = argv[0];
   cmd.full_cmd_line = catArgv(argc, argv);
@@ -910,13 +916,8 @@ parseCmdline(int argc, char **argv)
       continue;
     }
 
-    if( 0==strcmp("-numfits", argv[i]) ) {
-      int keep = i;
-      cmd.numfitsP = 1;
-      i = getIntOpt(argc, argv, i, &cmd.numfits, 1);
-      cmd.numfitsC = i-keep;
-      checkIntLower("-numfits", &cmd.numfits, cmd.numfitsC, 24);
-      checkIntHigher("-numfits", &cmd.numfits, cmd.numfitsC, 0);
+    if( 0==strcmp("-nobary", argv[i]) ) {
+      cmd.nobaryP = 1;
       continue;
     }
 
@@ -928,6 +929,11 @@ parseCmdline(int argc, char **argv)
     argv[cmd.argc++] = argv[i];
   }/* for i */
 
+  if( !cmd.outfileP ) {
+    missingErr("-o");
+    missingMandatory = 1;
+  }
+  if( missingMandatory ) exit(EXIT_FAILURE);
 
   /*@-mustfree*/
   cmd.argv = argv+1;

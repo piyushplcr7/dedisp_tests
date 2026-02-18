@@ -48,10 +48,8 @@ typedef struct s_Cmdline {
   char outfileP;
   char* outfile;
   int outfileC;
-  /***** -numfits: Number of fits files to process */
-  char numfitsP;
-  int numfits;
-  int numfitsC;
+  /***** -nobary: Do not barycenter the data */
+  char nobaryP;
   /***** uninterpreted command line parameters */
   int argc;
   /*@null*/char **argv;

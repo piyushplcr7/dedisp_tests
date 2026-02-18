@@ -19,7 +19,9 @@ private:
     std::vector<Fits> listFits_;
     int numLocFits_;
     int numGlobFits_;
-    int nchans_;
+
+    // Number of channels owned by the container after its usage is determined
+    int nchans_ = 0;
 
     int start_chan_;
     int end_chan_;
@@ -29,12 +31,15 @@ private:
 
     int downsamp_;
 
-    int channelChunkSize_;
-    size_t contiguousChunkLen_;
-    size_t assembledDataLen_;
+    //int channelChunkSize_ = 0;
+
+    size_t contiguousChunkLen_ = 0;
+    size_t assembledDataLen_ = 0;
+
+    size_t nsampsLocal_ = 0;
     
     std::unique_ptr<float[]> assembledDataBuffer_; 
-    matrixView<float> assembledData_;
+    //matrixView<float> assembledData_;
 
 public:
     /*
@@ -43,6 +48,8 @@ public:
     * storage
     */
     fitsLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp=1);
+
+    void barycenter(float* barycentered_data);
 
     /*
     * This function goes through the local array of Fits objects sequentially and 
@@ -69,7 +76,8 @@ public:
     */
     void packChannelChunk(int i, matrixView<float> contiguousDataView, int start_chan, int end_chan);
 
-    matrixView<float> getAssembledData() { return assembledData_; }
+    //matrixView<float> getAssembledData() { return assembledData_; }
+    std::unique_ptr<float[]>& getAssembledDataBfr() {return assembledDataBuffer_;}
 
     int startChan() const { return start_chan_; }
     int endChan() const { return end_chan_; }
@@ -80,9 +88,9 @@ public:
 
     double sampletime() const {return listFits_[0].sampletime(downsamp_); }
 
-    size_t nsampsLocal() const {return numLocFits_ * listFits_[0].dimTime(downsamp_);}
+    size_t nsampsLocal() const {return nsampsLocal_;}
 
-    size_t nsampsGlobal() const {return numGlobFits_ * listFits_[0].dimTime(downsamp_);}
+    //size_t nsampsGlobal() const {return numGlobFits_ * listFits_[0].dimTime(downsamp_);}
 
     double f0() const {return listFits_[0].f0(); }
 

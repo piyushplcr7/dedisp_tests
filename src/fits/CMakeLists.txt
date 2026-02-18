@@ -27,6 +27,8 @@ set_target_properties(fits PROPERTIES
     SOVERSION ${DEDISP_VERSION_MAJOR}
 )
 
+target_compile_features(fits PRIVATE cxx_std_20)
+
 install(
     TARGETS
         fits

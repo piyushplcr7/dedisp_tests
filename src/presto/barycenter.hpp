@@ -15,12 +15,12 @@ std::pair<std::vector<int>, std::vector<double>> calcDelaysAndVels(char rastring
 // Barycenter assuming that channels is the fastest changing index
 // this function is doing the simple duplication strategy
 template <typename T>
-void resampleTimeSeriesDuplication(std::vector<T>& data_in, std::vector<T>& data_out, 
+void resampleTimeSeriesDuplication(const T* data_in, T* data_out, 
                           size_t nchans, int Nout, std::vector<int>& inForOut) {
   #pragma omp parallel for schedule(static)
   for (int i = 0 ; i < Nout ; ++i) {
-    T* out = data_out.data() + i * nchans;
-    T* in = data_in.data() + inForOut[i] * nchans;
+    T* out = data_out + i * nchans;
+    const T* in = data_in + inForOut[i] * nchans;
     std::memcpy(out, in, nchans * sizeof(T));
   }
 }
@@ -28,7 +28,7 @@ void resampleTimeSeriesDuplication(std::vector<T>& data_in, std::vector<T>& data
 // Barycenter assuming that channels is the fastest changing index
 // this function is doing the simple duplication strategy
 template <typename T>
-void resampleTimeSeriesMovAvg(std::vector<T>& data_in, std::vector<T>& data_out, 
+void resampleTimeSeriesMovAvg(const T* data_in, T* data_out, 
                                 size_t nchans, size_t Nout, std::vector<int>& inForOut, 
                                 int numAdditions, std::vector<int>& insertPositions) {
 
@@ -55,7 +55,7 @@ void resampleTimeSeriesMovAvg(std::vector<T>& data_in, std::vector<T>& data_out,
 // Barycenter assuming that channels is the fastest changing index
 // this function is doing the simple duplication strategy
 template <typename T>
-void resampleTimeSeriesLocAvg(std::vector<T>& data_in, std::vector<T>& data_out, 
+void resampleTimeSeriesLocAvg(const T* data_in, T* data_out, 
                                 size_t nchans, int Nout, std::vector<int>& inForOut, 
                                 std::vector<int>& insertPositions, int window) {
 

@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
     int numfiles = argc - 1;
-    std::cout << "Numfiles = " << numfiles << std::endl;
+/*     std::cout << "Numfiles = " << numfiles << std::endl;
 
     std::vector<std::string> listFitsNames(numfiles);
 
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 
     std::cout << "Test passed! on " << world_rank << std::endl;
 
-    std::cout << "Just before MPI_Finalize() on proc " << world_rank << std::endl;
+    std::cout << "Just before MPI_Finalize() on proc " << world_rank << std::endl; */
     MPI_Finalize();
     return 0; 
 }

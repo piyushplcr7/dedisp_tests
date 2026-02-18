@@ -46,16 +46,21 @@ int main(int argc, char **argv) {
 
   fitsLoader container(listFitsNames, 0, 1, cmd->downsamp);
   // Contiguous buffer for assembled data
-  container.allocContiguousAssemblyBuf(); 
+  //container.allocContiguousAssemblyBuf(); 
   // Reduce directly to the assembly buffer
-  container.reduceInAssemblyBuf();
+  // container.reduceInAssemblyBuf();
 
   printf("------------------------ Loading + Reducing Fits  "
          "--------------------------\n");
   size_t chunksize = HALF_MAX_CHUNKSIZE;
   int poln = 0;
   container.ldSeq(chunksize, poln);
-  dedisp_byte *input = reinterpret_cast<dedisp_byte *> (container.getAssembledData().data());
+  if (!cmd->nobaryP) {
+    printf("------------------------------ Barycentering  "
+           "------------------------------\n");
+    float* barycentered_data;
+    container.barycenter(barycentered_data);
+  }
 
   // nsamps scales with nfitsfiles because Tobs is scaled already
   dedisp_float dm_tol = 1.25;
@@ -91,6 +96,7 @@ int main(int argc, char **argv) {
          "------------------------------\n");
   aa_gpu_timer timer;
   timer.Start();
+  dedisp_byte *input = reinterpret_cast<dedisp_byte *> (container.getAssembledDataBfr().get());
   // Compute the dedispersion transform on the GPU
   plan.execute(container.nsampsLocal(), input, in_nbits, (dedisp_byte *)plan.output_buffer_.get(), out_nbits);
   timer.Stop();
@@ -99,7 +105,7 @@ int main(int argc, char **argv) {
   if (cmd->dmstepW == 0)
     cmd->dmstepW = 2;
   plan.writeOutput(cmd->outfile, cmd->dmstepW);
-  plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsGlobal(), container.sampletime(), cmd->dmstepW);
+  plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW);
   std::cout << "Dedispersion successful." << std::endl; 
 
   return 0;

@@ -45,11 +45,17 @@ class Fits {
     const char* instrument()   const noexcept { return instrument_; }
     const char* objectName()   const noexcept { return object_name_; }
     const char* rightAscension() const noexcept { return ra_; }
+    char*       rightAscension()              { return ra_; }
     const char* declination()   const noexcept { return dec_; }
+    char*       declination()                  { return dec_; }
     const char* observer()      const noexcept { return observer_; }
     const char* projid()        const noexcept { return projid_; }
     double      epoch()         const noexcept { return epoch_; }
     const char* dateobs()       const noexcept { return dateobs_; }
+    const char* obs()           const noexcept { return obs_; }
+    char*       obs()                          { return obs_; }
+    const char* ephem()         const noexcept { return ephem_; }
+    char*       ephem()                        { return ephem_; }
     double      ddf()          const noexcept {
       return (freqs_[0] - freqs_[nchans_read_ - 1]) /(nchans_read_ - 1);
     }
@@ -108,15 +114,15 @@ class Fits {
     const char* filename_;
     
     // Strings stored in char arrays (fixed-size buffers)
-    char telescope_name_[40] = {};  // TELESCOP
+    char telescope_name_[40]  = {};  // TELESCOP
     char instrument_[100]     = {};  // BACKEND
     char object_name_[100]    = {};  // SRC_NAME
-    char ra_[40]             = {};  // RA
-    char dec_[40]            = {};  // DEC
+    char ra_[40]              = {};  // RA
+    char dec_[40]             = {};  // DEC
     char observer_[100]       = {};  // OBSERVER
     char projid_[100]         = {};  // PROJID
     char dateobs_[100]        = {};  // DATE-OBS
-    constexpr static char ephem_[10]     = "DE405";
+    char ephem_[10]           = "DE405";
     char rastring_[50];
     char decstring_[50];
     char obs_[3];
