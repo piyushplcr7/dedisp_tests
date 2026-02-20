@@ -10,7 +10,7 @@
 #include "FDDGPUPlan.hpp"
 
 int main(int argc, char **argv) {
-  std::cout << "=======================================================================\n\n";
+  std::cout << "=========================================================================\n\n";
   std::cout << "                     GPU Fourier Domain Dedispersion         " << std::endl;
   std::cout << "                            By Piyush Panchal         \n" << std::endl;
   // Parse the CLI args
@@ -50,14 +50,12 @@ int main(int argc, char **argv) {
   // Reduce directly to the assembly buffer
   // container.reduceInAssemblyBuf();
 
-  printf("------------------------ Loading + Reducing Fits  "
-         "--------------------------\n");
+  std::cout << "------------------------ Loading + Reducing Fits  -----------------------\n" << std::endl;
   size_t chunksize = HALF_MAX_CHUNKSIZE;
   int poln = 0;
   container.ldSeq(chunksize, poln);
   if (!cmd->nobaryP) {
-    printf("------------------------------ Generating Barycenter Corrections  "
-           "------------------------------\n");
+    std::cout << "\n------------------- Generating Barycenter Corrections  ------------------" << std::endl;
     container.barycenter();
   }
 
@@ -66,12 +64,10 @@ int main(int argc, char **argv) {
   dedisp_size in_nbits = 8;
   dedisp_size out_nbits = 32; 
   
-  printf("------------------------------ Plan Creation  "
-         "------------------------------\n");
+  std::cout << "\n------------------------------ Plan Creation  ---------------------------\n" << std::endl;
   dedisp::FDDGPUPlan plan(container, 0);
 
-  printf("--------------------------- Generating DM List  "
-         "----------------------------\n");
+  std::cout << "\n--------------------------- Generating DM List  -------------------------\n" << std::endl;
   // Generate a list of dispersion measures for the plan
   if (cmd->numdms == 0) {
   #ifdef TESTDEDISP_DEBUG
@@ -91,8 +87,7 @@ int main(int argc, char **argv) {
   // Set the output parameters for the plan, which also allocates the output buffer
   plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits);
 
-  printf("------------------------------ Plan Execute  "
-         "------------------------------\n");
+  std::cout << "\n------------------------------ Plan Execute  ----------------------------\n" << std::endl;
   aa_gpu_timer timer;
   timer.Start();
   dedisp_byte *input = reinterpret_cast<dedisp_byte *> (container.getAssembledDataBfr().get());

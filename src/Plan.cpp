@@ -114,10 +114,7 @@ void Plan::generate_delay_table(
     double dt, double f0, double df, double voverc)
 {
     double lofreq = f0 + (nchans-1) * df;
-
     double f0doppler = f0 * (1 + voverc);
-
-    std::cout << "Debug: voverc = " << voverc << std::endl;
 
     for( dedisp_size c=0; c<nchans; ++c ) {
         double nu = lofreq + std::abs(df) * c;
