@@ -29,6 +29,9 @@
 #include "cufft_optimal_size.hpp"
 #include "fitscontainer.hpp"
 
+#include <unistd.h>   
+#include <fcntl.h>    
+
 namespace dedisp {
 // Constructor
 FDDGPUPlan::FDDGPUPlan(size_type nchans, float_type dt, float_type f0,
@@ -57,7 +60,7 @@ FDDGPUPlan::FDDGPUPlan(const fitsLoader& container, int device_idx)
 // Destructor
 FDDGPUPlan::~FDDGPUPlan() {}
 
-void FDDGPUPlan::writeOutput(char* outfile, int w) {
+void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::vector<int>& inForOut) {
   printf("----------------------------- WRITING OUTPUT  "
          "----------------------------\n");
   const char* outfiles_basename = (outfile == NULL) ? "output" : outfile;
@@ -68,16 +71,106 @@ void FDDGPUPlan::writeOutput(char* outfile, int w) {
   unsigned out_nbits = 32;
   float* output = output_buffer_.get();
 
-  if (multout_) {
+
+  if (multout_ && !fftout_ && barycenter) {
+    int Nout = 0;
+    std::cout << "Writing barycentered timeseries" << std::endl;
+
+    int i = 0;
+    for (i = 0 ; i < inForOut.size() ; ++i) {
+      if (inForOut[i] >= nsamps_computed_) {
+        Nout = i;
+        break;
+      }
+    }
+    
+    #pragma omp parallel
+    {
+      // Create buffer for doing barycentering
+      float* barycentered_data = new float[Nout];
+      #pragma omp for
+      for (unsigned int out_file_idx = 0 ; out_file_idx < dm_count ; ++out_file_idx) {
+        char out_file_name[256];
+        sprintf(out_file_name,"%s_DM%.*f.%s", outfiles_basename, w, dmlist[out_file_idx], "dat");
+        
+        // Write block
+        float* dedispersed_data = output + out_file_idx * (size_t)nsamps_computed_;
+        // Copy data while barycentering
+        for (int i = 0 ; i < Nout ; ++i) {
+          barycentered_data[i] = dedispersed_data[inForOut[i]];
+        }
+
+        int fd = open(out_file_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0) {
+            std::cerr << "Open failed\n";
+            std::exit(1);
+        }
+        size_t numtowrite = (size_t)Nout * out_nbits / 8;
+
+        ssize_t written = write(
+            fd,
+            barycentered_data,
+            numtowrite
+        );
+
+        if (written != (ssize_t)numtowrite) {
+            std::cerr << "Write failed\n";
+            std::exit(1);
+        }
+
+        close(fd);
+        
+      }
+
+      delete[] barycentered_data;
+    }
+    
+  } 
+  else if (multout_ && !fftout_ && !barycenter) {
+
+    #pragma omp parallel
+    {
+      #pragma omp for
+      for (unsigned int out_file_idx = 0 ; out_file_idx < dm_count ; ++out_file_idx) {
+        char out_file_name[256];
+        sprintf(out_file_name,"%s_DM%.*f.%s", outfiles_basename, w, dmlist[out_file_idx], "dat");
+
+        int fd = open(out_file_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0) {
+            std::cerr << "Open failed\n";
+            std::exit(1);
+        }
+        size_t numtowrite = (size_t)nsamps_computed_ * out_nbits / 8;
+
+        ssize_t written = write(
+            fd,
+            output + out_file_idx * (size_t)nsamps_computed_,
+            numtowrite
+        );
+
+        if (written != (ssize_t)numtowrite) {
+            std::cerr << "Write failed\n";
+            std::exit(1);
+        }
+
+        close(fd);
+        
+      }
+
+    }
+    
+  } 
+  else if (multout_ && fftout_) {
     #pragma omp parallel for 
     for (unsigned int out_file_idx = 0 ; out_file_idx < dm_count ; ++out_file_idx) {
       char out_file_name[256];
-      sprintf(out_file_name,"%s_DM%.*f.%s", outfiles_basename, w, dmlist[out_file_idx], fftout_? "fft":"dat");
+      sprintf(out_file_name,"%s_DM%.*f.%s", outfiles_basename, w, dmlist[out_file_idx], "fft");
       
+      // Write block
       FILE* file_out = fopen(out_file_name, "wb");
-      size_t numtowrite = (size_t)(fftout_? nsamp_padded_ : nsamps_computed_) * out_nbits / 8;
+      size_t numtowrite = (size_t)nsamp_padded_ * out_nbits / 8;
 
-      size_t writtennum = fwrite(output + out_file_idx * (size_t)(fftout_? nsamp_padded_ : nsamps_computed_), 
+      size_t writtennum = fwrite(output + out_file_idx * (size_t)nsamp_padded_, 
             1, 
             numtowrite, 
             file_out);
@@ -89,7 +182,8 @@ void FDDGPUPlan::writeOutput(char* outfile, int w) {
       fclose(file_out);
       
     }
-  } else {
+  }
+  else {
     FILE *file_out;
     if (fftout_) {
       printf("Writing the output Fourier coefficients of all DMs in one file\n");

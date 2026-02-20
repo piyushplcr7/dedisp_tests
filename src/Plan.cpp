@@ -39,8 +39,6 @@ Plan::Plan(
     h_delay_table.resize(nchans);
     generate_delay_table(h_delay_table.data(), nchans, dt, f0, df, voverc);
 
-    writeDelays(5.97f, nchans);
-
     // Initialize the killmask
     h_killmask.resize(nchans, (dedisp_bool)true);
 }
@@ -126,17 +124,10 @@ void Plan::generate_delay_table(
         double nudoppler = nu * (1 + voverc);
 
         // Note: To higher precision, the constant is 4.148741601e3
-        h_delay_table[c] = (double)1.0 / (0.000241 * nudoppler * nudoppler * dt)  - 1.0 / (0.000241 * f0doppler * f0doppler * dt);
+        h_delay_table[c] = 1.0 / (0.000241 * nudoppler * nudoppler * dt)  - 1.0 / (0.000241 * f0doppler * f0doppler * dt);
     }
 }
 
-void Plan::writeDelays(float dm, size_t nchans) {
-    std::ofstream out("delays_new");
-    for (int i = 0 ; i < nchans ; ++i) {
-        out << lround(dm * h_delay_table[i]) << std::endl;
-    }
-    out.close();
-}
 
 dedisp_float Plan::get_smearing(
     dedisp_float dt, dedisp_float pulse_width,

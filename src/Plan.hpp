@@ -74,8 +74,6 @@ public:
 
     void sync();
 
-    void writeDelays(float dm, size_t nchans);
-
     // Public interface (virtual)
     virtual void execute(
         size_type        nsamps,

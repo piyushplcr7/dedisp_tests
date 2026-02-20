@@ -56,10 +56,9 @@ int main(int argc, char **argv) {
   int poln = 0;
   container.ldSeq(chunksize, poln);
   if (!cmd->nobaryP) {
-    printf("------------------------------ Barycentering  "
+    printf("------------------------------ Generating Barycenter Corrections  "
            "------------------------------\n");
-    float* barycentered_data;
-    container.barycenter(barycentered_data);
+    container.barycenter();
   }
 
   // nsamps scales with nfitsfiles because Tobs is scaled already
@@ -104,7 +103,7 @@ int main(int argc, char **argv) {
 
   if (cmd->dmstepW == 0)
     cmd->dmstepW = 2;
-  plan.writeOutput(cmd->outfile, cmd->dmstepW);
+  plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
   plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW);
   std::cout << "Dedispersion successful." << std::endl; 
 

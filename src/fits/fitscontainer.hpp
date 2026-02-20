@@ -43,9 +43,18 @@ private:
     size_t nsampsLocal_ = 0;
     
     std::unique_ptr<float[]> assembledDataBuffer_; 
+
+    std::vector<int> inForOut_;
+    std::vector<int> insertPositions_;
+    std::vector<int> diffbins_;
     //matrixView<float> assembledData_;
 
 public:
+
+    const std::vector<int>& getInsertPositions() const { return insertPositions_; }
+    const std::vector<int>& getInForOut() const { return inForOut_; }
+    const std::vector<int>& getDiffbins() const { return diffbins_; }
+
     /*
     * Constructor for the distributed Fits data storage. The input is the list
     * of all the fits filenames that are logically a part of this distributed
@@ -53,7 +62,7 @@ public:
     */
     fitsLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp=1);
 
-    void barycenter(float* barycentered_data);
+    void barycenter();
 
     /*
     * This function goes through the local array of Fits objects sequentially and 

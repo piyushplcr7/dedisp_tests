@@ -169,11 +169,10 @@ void fitsLoader::ldSeq(size_t chunksize, int poln) {
     }
 }
 
-void fitsLoader::barycenter(float* barycentered_data) {
+void fitsLoader::barycenter() {
     // Calculate delays and vels
     std::vector<double> voverc;
-    std::vector<int> diffbins;
-    std::tie(diffbins, voverc) = calcDelaysAndVels(listFits_[0].rightAscension(), 
+    std::tie(diffbins_, voverc) = calcDelaysAndVels(listFits_[0].rightAscension(), 
                                                     listFits_[0].declination(), 
                                                     listFits_[0].obs(), 
                                                     listFits_[0].ephem(), 
@@ -183,7 +182,7 @@ void fitsLoader::barycenter(float* barycentered_data) {
 
     // Calculate the net shift
     int net_shift = 0;
-    for (auto x: diffbins) {
+    for (auto x: diffbins_) {
         if (x > 0 && abs(x) < nsampsLocal_) {
             net_shift++;
         }
@@ -209,23 +208,23 @@ void fitsLoader::barycenter(float* barycentered_data) {
 
     size_t N_out = nsampsLocal_ + net_shift;
     // Count bin removals and additions
-    int removals = std::ranges::count_if(diffbins, [](int x){ return x < 0; });
-    int additions = std::ranges::count_if(diffbins, [](int x){ return x > 0; });
-    std::cout << "removals: " << removals << ", additions: " << diffbins.size()-removals << std::endl;
+    int removals = std::ranges::count_if(diffbins_, [](int x){ return x < 0; });
+    int additions = std::ranges::count_if(diffbins_, [](int x){ return x > 0; });
+    std::cout << "removals: " << removals << ", additions: " << diffbins_.size()-removals << std::endl;
 
     // Creat resample map inForOut
-    std::vector<int> inForOut(N_out);
-    std::vector<int> insertPositions(additions);
-    createResampleMap(nsampsLocal_, N_out, diffbins.data(), diffbins.size(), inForOut.data(), insertPositions.data());
+    inForOut_.resize(N_out);
+    insertPositions_.resize(additions);
+    createResampleMap(nsampsLocal_, N_out, diffbins_.data(), diffbins_.size(), inForOut_.data(), insertPositions_.data());
 
-    barycentered_data = new float[N_out * nchansLocal()];
+    //barycentered_data = new float[N_out * nchansLocal()];
 
-    resampleTimeSeriesLocAvg(assembledDataBuffer_.get(), barycentered_data, nchansLocal(), N_out, 
-                               inForOut, insertPositions, 10000);
+    //resampleTimeSeriesLocAvg(assembledDataBuffer_.get(), barycentered_data, nchansLocal(), N_out, 
+    //                           inForOut, insertPositions, 10000);
 
     // Deallocate the assembled data buffer and set it to the barycentered data buffer
-    assembledDataBuffer_.reset(barycentered_data);
-    nsampsLocal_ = N_out;
+    /* assembledDataBuffer_.reset(barycentered_data);
+    nsampsLocal_ = N_out; */
 }
 
 void fitsLoader::parLoad() {
