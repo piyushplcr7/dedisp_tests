@@ -61,7 +61,7 @@ FDDGPUPlan::FDDGPUPlan(const fitsLoader& container, int device_idx)
 FDDGPUPlan::~FDDGPUPlan() {}
 
 void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::vector<int>& inForOut) {
-  std::cout << "\n----------------------------- WRITING OUTPUT  ---------------------------\n" << std::endl;
+  std::cout << "\n----------------------------- WRITING OUTPUT ----------------------------\n" << std::endl;
   const char* outfiles_basename = (outfile == NULL) ? "output" : outfile;
   auto start_time = std::chrono::high_resolution_clock::now();
 

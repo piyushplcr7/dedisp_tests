@@ -50,12 +50,12 @@ int main(int argc, char **argv) {
   // Reduce directly to the assembly buffer
   // container.reduceInAssemblyBuf();
 
-  std::cout << "------------------------ Loading + Reducing Fits  -----------------------\n" << std::endl;
+  std::cout << "------------------------ LOADING + REDUCING FITS ------------------------\n" << std::endl;
   size_t chunksize = HALF_MAX_CHUNKSIZE;
   int poln = 0;
   container.ldSeq(chunksize, poln);
   if (!cmd->nobaryP) {
-    std::cout << "\n------------------- Generating Barycenter Corrections  ------------------" << std::endl;
+    std::cout << "\n------------------- GENERATING BARYCENTER CORRECTIONS -------------------\n" << std::endl;
     container.barycenter();
   }
 
@@ -64,10 +64,10 @@ int main(int argc, char **argv) {
   dedisp_size in_nbits = 8;
   dedisp_size out_nbits = 32; 
   
-  std::cout << "\n------------------------------ Plan Creation  ---------------------------\n" << std::endl;
+  std::cout << "\n------------------------------ PLAN CREATION ---------------------------\n" << std::endl;
   dedisp::FDDGPUPlan plan(container, 0);
 
-  std::cout << "\n--------------------------- Generating DM List  -------------------------\n" << std::endl;
+  std::cout << "\n--------------------------- GENERATING DM LIST --------------------------\n" << std::endl;
   // Generate a list of dispersion measures for the plan
   if (cmd->numdms == 0) {
   #ifdef TESTDEDISP_DEBUG
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
   // Set the output parameters for the plan, which also allocates the output buffer
   plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits);
 
-  std::cout << "\n------------------------------ Plan Execute  ----------------------------\n" << std::endl;
+  std::cout << "\n------------------------------ PLAN EXECUTE -----------------------------\n" << std::endl;
   aa_gpu_timer timer;
   timer.Start();
   dedisp_byte *input = reinterpret_cast<dedisp_byte *> (container.getAssembledDataBfr().get());
@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
     cmd->dmstepW = 2;
   plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
   plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW);
-  std::cout << "Dedispersion successful." << std::endl; 
+  std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
 
   return 0;
 }
