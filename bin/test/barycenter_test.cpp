@@ -35,7 +35,8 @@ int main() {
     start = std::chrono::high_resolution_clock::now();
     std::vector<double> voverc;
     std::vector<int> diffbins;
-    std::tie(diffbins, voverc) = calcDelaysAndVels(rastring, decstring, obs, ephem, N, dt, tlotoa);
+    double blotoa;
+    std::tie(diffbins, voverc, blotoa) = calcDelaysAndVels(rastring, decstring, obs, ephem, N, dt, tlotoa);
     end = std::chrono::high_resolution_clock::now();
     diff = end - start;
     std::cout << "calcDelaysAndVels took " << diff.count() << " seconds\n";

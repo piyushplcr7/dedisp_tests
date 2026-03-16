@@ -34,6 +34,7 @@ private:
     double maxvoverc_= -1;
     double minvoverc_ = 1;
     double avgvoverc_ = 0;
+    double blotoa_ = 0.0;
 
     //int channelChunkSize_ = 0;
 
@@ -73,6 +74,7 @@ public:
     void parLoad();
 
     double avgvoverc() const { return avgvoverc_; }
+    double blotoa()    const { return blotoa_; }
 
     /*
     * In a multi-node setting, where each node holds a contiguous time chunk of 

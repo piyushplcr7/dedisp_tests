@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
   if (cmd->dmstepW == 0)
     cmd->dmstepW = 2;
   plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
-  plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW);
+  plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
   std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
 
   return 0;

@@ -172,7 +172,7 @@ void fitsLoader::ldSeq(size_t chunksize, int poln) {
 void fitsLoader::barycenter() {
     // Calculate delays and vels
     std::vector<double> voverc;
-    std::tie(diffbins_, voverc) = calcDelaysAndVels(listFits_[0].rightAscension(), 
+    std::tie(diffbins_, voverc, blotoa_) = calcDelaysAndVels(listFits_[0].rightAscension(),
                                                     listFits_[0].declination(), 
                                                     listFits_[0].obs(), 
                                                     listFits_[0].ephem(), 

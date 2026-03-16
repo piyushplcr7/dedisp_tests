@@ -9,8 +9,10 @@
 // Resample map
 void createResampleMap(int N_in, int N_out, int* diffbinptr, int numdiffbins, int* inForOut, int* insertPositions);
 
-// Calculate delays and velocities
-std::pair<std::vector<int>, std::vector<double>> calcDelaysAndVels(char rastring[50], char decstring[50], char obs[3], char ephem[10], int N, double dt, double tlotoa);
+// Calculate delays and velocities.
+// Returns: (diffbins, voverc, blotoa)
+// blotoa is the barycentric MJD corresponding to the topocentric start time tlotoa.
+std::tuple<std::vector<int>, std::vector<double>, double> calcDelaysAndVels(char rastring[50], char decstring[50], char obs[3], char ephem[10], int N, double dt, double tlotoa);
 
 // Barycenter assuming that channels is the fastest changing index
 // this function is doing the simple duplication strategy

@@ -887,7 +887,16 @@ parseCmdline(int argc, char **argv)
     if( 0==strcmp("-dmstep", argv[i]) ) {
       int keep = i;
       cmd.dmstepP = 1;
-      cmd.dmstepW = strlen(argv[i+1]);
+      {
+        const char *dot = strchr(argv[i+1], '.');
+        if (dot) {
+          const char *end = argv[i+1] + strlen(argv[i+1]) - 1;
+          while (end > dot && *end == '0') end--;
+          cmd.dmstepW = (end > dot) ? (int)(end - dot) : 0;
+        } else {
+          cmd.dmstepW = 0;
+        }
+      }
       i = getDoubleOpt(argc, argv, i, &cmd.dmstep, 1);
       cmd.dmstepC = i-keep;
       checkDoubleHigher("-dmstep", &cmd.dmstep, cmd.dmstepC, 0);

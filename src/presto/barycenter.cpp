@@ -31,7 +31,7 @@ void createResampleMap(int N_in, int N_out, int* diffbinptr, int numdiffbins, in
   }
 }
 
-std::pair<std::vector<int>, std::vector<double>> calcDelaysAndVels(char rastring[50], char decstring[50], 
+std::tuple<std::vector<int>, std::vector<double>, double> calcDelaysAndVels(char rastring[50], char decstring[50],
                                                                    char obs[3], char ephem[10], int N, 
                                                                    double dt, double tlotoa){
   // Number of points where topo and bary times are computed using tempo
@@ -49,10 +49,13 @@ std::pair<std::vector<int>, std::vector<double>> calcDelaysAndVels(char rastring
   // Calling the barycenter function from presto to get the topo/bary times
   barycenter(ttoa.data(), btoa.data(), voverc.data(), numbarypts, rastring, decstring, obs, ephem);  
 
+  // Save absolute barycentric MJD of first sample before converting to relative bins
+  double blotoa = btoa[0];
+
   // Computing the differences in the topo and barycentric times.
   // The differences are converted to "bins" units.
-  // The differences are shifted such that the first difference at 
-  // 0 is equal to zero. This is to align the  topo and bary 
+  // The differences are shifted such that the first difference at
+  // 0 is equal to zero. This is to align the  topo and bary
   // timeseries at the left end
   double dtmp = (btoa[0] - ttoa[0]);
   for (int ii = 0; ii < numbarypts; ii++)
@@ -145,5 +148,5 @@ std::pair<std::vector<int>, std::vector<double>> calcDelaysAndVels(char rastring
   // Erasing unneeded indices
   diffbins.erase(it, diffbins.end());
 
-  return std::make_pair(diffbins, voverc);
+  return std::make_tuple(diffbins, voverc, blotoa);
 } 

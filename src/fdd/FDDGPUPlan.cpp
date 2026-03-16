@@ -208,7 +208,7 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
                     << " seconds" << std::endl;
 }
 
-void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, double dt, int w) {
+void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, double dt, int w, bool barycenter, double blotoa, double avgvoverc) {
   const char* outfiles_basename = (outfile == NULL) ? "output" : outfile;
 
   unsigned dm_count = m_dm_count;
@@ -231,10 +231,20 @@ void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, doubl
     fprintf(inf_out,"%-40s=  %s\n", " Instrument used", fits.instrument());
     fprintf(inf_out,"%-40s=  %s\n", " Object being observed", fits.objectName());
     fprintf(inf_out,"%-40s=  %s\n", " J2000 Right Ascension (hh:mm:ss.ssss)", fits.rightAscension());
-    fprintf(inf_out,"%-40s=  %s\n", " J2000 Declination     (dd:mm:ss.ssss)", fits.declination()+1);
+    fprintf(inf_out,"%-40s=  %s\n", " J2000 Declination     (dd:mm:ss.ssss)", fits.declination()[0] == '+' ? fits.declination() + 1 : fits.declination());
     fprintf(inf_out,"%-40s=  %s\n", " Data observed by", fits.observer());
-    fprintf(inf_out,"%-40s=  %.15f\n", " Epoch of observation (MJD)", fits.epoch());
-    fprintf(inf_out,"%-40s=  0\n", " Barycentered?           (1 yes, 0 no)"); // Fix!
+    double epoch;
+    if (barycenter) {
+      // Highest channel frequency (observed), Doppler-shifted to emitted frequency
+      double baryhifreq = fits.freqs().back() * (1.0 + avgvoverc);
+      // Dispersion delay at highest channel: DM / (0.000241 * f_emitted^2) in seconds
+      double barydispdt = dmlist[out_file_idx] / (0.000241 * baryhifreq * baryhifreq);
+      epoch = blotoa - barydispdt / 86400.0;
+    } else {
+      epoch = fits.epoch();
+    }
+    fprintf(inf_out,"%-40s=  %.15f\n", " Epoch of observation (MJD)", epoch);
+    fprintf(inf_out,"%-40s=  %d\n", " Barycentered?           (1 yes, 0 no)", barycenter ? 1 : 0);
     fprintf(inf_out,"%-40s=  %ld\n", " Number of bins in the time series", nsamps);
     fprintf(inf_out,"%-40s=  %.4f\n", " Width of each time series bin (sec)", dt);
     fprintf(inf_out,"%-40s=  1\n", " Any breaks in the data? (1 yes, 0 no)");
