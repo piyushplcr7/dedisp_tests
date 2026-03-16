@@ -5,6 +5,7 @@
 #include <vector>
 #include <ranges>
 #include <algorithm>
+#include <tuple>
 #include <iostream>
 
 void createResampleMap(int N_in, int N_out, int* diffbinptr, int numdiffbins, int* inForOut, int* insertPositions) {
