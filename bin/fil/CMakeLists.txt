@@ -47,6 +47,17 @@ target_link_libraries(tdd_fil PRIVATE GPU_TRACER_LIBS)
 
 #target_link_libraries(fdd_fil fdd)
 
+################################################################################
+# fil_class_test binary
+################################################################################
+add_executable(fil_class_test 
+fil_class_test.cpp)
+
+target_link_libraries(fil_class_test filterbank)
+
+target_include_directories(fil_class_test PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+)
 
 ################################################################################
 # install
