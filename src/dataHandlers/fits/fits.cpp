@@ -177,88 +177,32 @@ void Fits::printInfo() const noexcept {
   printf("decstring        = %s\n", decstring_);
 }
 
-void Fits::extractDataDirect(size_t chunksize) {
-  if (aligned_filesize_buffer_ == nullptr) {
-    std::cerr << "Error: aligned_filesize_buffer_ is not set. Use setAlignedFileSizeBuffer() before calling extractDataDirect()." << std::endl;
-    exit(-1);
-  }
 
-  // Open the file using two file descriptors - one for direct read and one for normal read
-  int fd = open(filename_, O_RDONLY | O_DIRECT);
-  if (fd == -1) {
-    perror("open");
-    exit(-1);
-  }
-
-  int fd_nodirect = open(filename_, O_RDONLY);
-  if (fd_nodirect == -1) {
-    perror("open");
-    close(fd);
-    exit(-1);
-  }
+void Fits::reduceData(unsigned char* outBuf, int out_bits, int poln, unsigned int downsamp) {
+  float* data = reinterpret_cast<float*>(outBuf);
 
 #ifdef TESTDEDISP_DEBUG
-  auto start_time = std::chrono::high_resolution_clock::now();
-#endif
-
-  long chunks =
-      getDataFromRows(fd, aligned_filesize_buffer_, chunksize, file_size_, fd_nodirect);
-
-#ifdef TESTDEDISP_DEBUG
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                    end_time - start_time)
-                    .count();
-    long megabytes_read = (double)(file_size_) / 1e6;
-
-    if (verbose) {
-        std::cout << "read " << chunks << " chunks with chunksize = " << chunksize
-                << " from file " << std::string(filename_)
-                << ", time: " << (double)duration_us / 1e6 << " seconds"
-                << ", Read speed (MB/s): "
-                << megabytes_read / (double)duration_us * 1e6 << std::endl;
-    }
-#endif
-
-
-  close(fd);
-  close(fd_nodirect);
-}
-
-void Fits::reduceData(int poln, unsigned int downsamp) {
-  if (aligned_filesize_buffer_ == nullptr) {
-    std::cerr << "Error: aligned_filesize_buffer_ is not set. Use setAlignedFileSizeBuffer() before calling reduceData()." << std::endl;
-    exit(-1);
-  }
-  if (data_ == nullptr) {
-    std::cerr << "Error: data_ is not set. Use setDataBuffer() before calling reduceData()." << std::endl;
-    exit(-1);
-  }
-
-#ifdef TESTDEDISP_DEBUG
-  // Reducing the binary table to get the relevant data
   auto start_time = std::chrono::high_resolution_clock::now();
 #endif
 
   if (downsamp == 1) {
-    reduceBinaryTable(aligned_filesize_buffer_, data_, poln, naxis1_, naxis2_,
+    reduceBinaryTable(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
                     nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
                     scal_offs_width_);
   }
   else if (downsamp > 1) {
-    reduceBinaryTableDownSamp(aligned_filesize_buffer_, data_, poln, naxis1_, naxis2_,
+    reduceBinaryTableDownSamp(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
                     nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
                     scal_offs_width_, downsamp);
 
     size_t reducedDataLen = getNumElements(downsamp);
     #pragma omp parallel for schedule(static)
     for (size_t i = 0 ; i < reducedDataLen ; ++i) {
-      data_[i] /= downsamp;
+      data[i] /= downsamp;
     }
   }
 
-  // Create the data view for easy access
-  dataView_ = matrixView<float> (data_, (size_t)nsblk_ * naxis2_/downsamp , (size_t)nchans_read_);
+  dataView_ = matrixView<float>(data, (size_t)nsblk_ * naxis2_ / downsamp, (size_t)nchans_read_);
   
 #ifdef TESTDEDISP_DEBUG
   auto end_time = std::chrono::high_resolution_clock::now();
@@ -271,51 +215,6 @@ void Fits::reduceData(int poln, unsigned int downsamp) {
 #endif
 }
 
-long Fits::getDataFromRows(int fd, unsigned char *table_data, long chunksize,
-                     long bytes_to_read, int fd_nodirect) {
-  unsigned char *curr_pos;
-  long chunk = 0;
-  for (; chunk < bytes_to_read / chunksize; ++chunk) {
-    curr_pos = table_data + chunksize * chunk;
-    ssize_t bytes_read = read(fd, curr_pos, chunksize);
-    if (bytes_read == -1) {
-      perror("read");
-      close(fd);
-      exit(-1);
-    }
-
-    if (bytes_read == 0) {
-      std::cerr << "Reached end of file prematurely" << std::endl;
-      break;
-    }
-
-    if (bytes_read != chunksize) {
-      std::cout << "read less than the chunksize: " << bytes_read << std::endl;
-      // break;
-    }
-  }
-
-  // Read last part of data using the alternative file descriptor if needed
-  if (chunksize * chunk < bytes_to_read) {
-    curr_pos = table_data + chunksize * chunk;
-    ssize_t bytes_read =
-        pread(fd_nodirect, curr_pos, bytes_to_read - chunksize * chunk,
-              chunksize * chunk);
-
-    if (bytes_read == -1) {
-      perror("pread");
-      close(fd);
-      close(fd_nodirect);
-      exit(-1);
-    }
-
-    if (bytes_read == 0) {
-      std::cerr << "Reached end of file prematurely while reading last part"
-                << std::endl;
-    }
-  }
-  return chunk;
-}
 
 void Fits::reduceBinaryTable(unsigned char *full_binary_table, float *data, int poln,
                        int naxis1, int naxis2, int nsblk, int nchans, int npol,

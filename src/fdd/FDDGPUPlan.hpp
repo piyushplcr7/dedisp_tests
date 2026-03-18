@@ -21,11 +21,11 @@ public:
         float_type df,
         int device_idx = 0);
 
-    FDDGPUPlan(const fitsLoader& container, int device_idx = 0);
+    FDDGPUPlan(const dataLoader& container, int device_idx = 0);
 
     void writeOutput(char* outfile, int w, bool barycenter, const std::vector<int>& inForOut);
 
-    void writeInfs(char* outfile, const Fits& fits, size_t nsamps, double dt, int w, bool barycenter = false, double blotoa = 0.0, double avgvoverc = 0.0);
+    void writeInfs(char* outfile, const dataFile* file, size_t nsamps, double dt, int w, bool barycenter = false, double blotoa = 0.0, double avgvoverc = 0.0);
 
     // Destructor
     ~FDDGPUPlan();

@@ -25,15 +25,13 @@ int main() {
     );
     std::cout << "allocated buffer" << std::endl;
 
-    obj.setAlignedFileSizeBuffer(alignedBuf.get());
-
     //size_t chunksize = 1073741824; 
     size_t chunksize = 2147479552;
     //size_t chunksize = obj.naxis1();
 
     std::cout << "extracting data direct" << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
-    obj.extractDataDirect(chunksize);
+    obj.extractDataDirect(alignedBuf.get(), chunksize);
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<double> diff = end-start;

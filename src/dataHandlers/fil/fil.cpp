@@ -8,14 +8,15 @@
 #include <stdlib.h>
 #include <omp.h>
 #include <iostream>
-#include "../presto/barycenter_presto_utils.h"
-#include "../fits/matrix_view.hpp"
+#include "barycenter_presto_utils.h"
+#include "matrix_view.hpp"
 
 // -------------------------------------------------------------------------
 // Constructor
 // -------------------------------------------------------------------------
 
-Fil::Fil(const char* filename) : filename_(filename) {
+Fil::Fil(const char* filename){
+    filename_ = filename;
     parseHeader();
 
     // Build ascending frequency array to match the Fits convention:
@@ -78,6 +79,10 @@ void Fil::parseHeader() {
         else if (strcmp(string, "nchans")       == 0) fread(&nchans_read_, sizeof(int),    1, file);
         else if (strcmp(string, "nifs")         == 0) fread(&npol_,        sizeof(int),    1, file);
         else if (strcmp(string, "nbits")        == 0) fread(&nbit_,        sizeof(int),    1, file);
+        if (nbit_ % 8 != 0 || nbit_ < 8) {
+            std::cerr << "Fil: unsupported nbits value " << nbit_ << " (only 8 or multiples of 8 supported)" << std::endl;
+            std::abort();
+        }
         else if (strcmp(string, "nsamples")     == 0) {
             // Optional pre-declared sample count; we recompute from file size below.
             int dummy; fread(&dummy, sizeof(int), 1, file);
@@ -109,9 +114,9 @@ void Fil::parseHeader() {
     buffersize_ = file_size_ - headersize_;
 
     // Treat the entire file as a single subintegration so that
-    // dimTime(downsamp) = nsblk_ / downsamp, and the fitscontainer
+    // dimTime(downsamp) = dimTime_ / downsamp, and the fitscontainer
     // downsampling check (nsblk % downsamp == 0) maps to (nsamp % downsamp == 0).
-    nsblk_ = (int)(buffersize_ / ((size_t)nchans_read_ * npol_ * (nbit_ / 8)));
+    dimTime_ = (int)(buffersize_ / ((size_t)nchans_read_ * npol_ * (nbit_ / 8)));
 
     file_size_aligned_ = ((file_size_ + 4095) / 4096) * 4096;
 }
@@ -193,7 +198,7 @@ void Fil::printInfo() const noexcept {
     printf("nchans           = %d\n",   nchans_read_);
     printf("nbit             = %d\n",   nbit_);
     printf("nif (npol)       = %d\n",   npol_);
-    printf("nsamp (nsblk)    = %d\n",   nsblk_);
+    printf("nsamp (nsblk)    = %d\n",   dimTime_);
     printf("headersize       = %zu bytes\n", headersize_);
     printf("buffersize       = %zu bytes\n", buffersize_);
     printf("file_size        = %zu bytes\n", file_size_);
@@ -205,96 +210,27 @@ void Fil::printInfo() const noexcept {
 }
 
 // -------------------------------------------------------------------------
+// I/O: write data back to disk as a SIGPROC filterbank file
+// -------------------------------------------------------------------------
+
+void Fil::writeToDisk(const char* outfile) const {
+    FILE* fp = fopen(outfile, "wb");
+    if (!fp) {
+        fprintf(stderr, "Fil::writeToDisk: cannot open '%s' for writing\n", outfile);
+        return;
+    }
+
+    const unsigned char* data_start = aligned_filesize_buffer_ + headersize_;
+    fwrite(data_start, 1, buffersize_, fp);
+
+    fclose(fp);
+    printf("Fil::writeToDisk: wrote %s (%zu bytes)\n", outfile, buffersize_);
+}
+
+// -------------------------------------------------------------------------
 // I/O: direct-IO read, mirrors Fits::getDataFromRows / extractDataDirect
 // -------------------------------------------------------------------------
 
-long Fil::getDataFromRows(int fd, unsigned char* table_data, long chunksize,
-                          long bytes_to_read, int fd_nodirect) {
-    unsigned char* curr_pos;
-    long chunk = 0;
-
-    for (; chunk < bytes_to_read / chunksize; ++chunk) {
-        curr_pos = table_data + chunksize * chunk;
-        ssize_t bytes_read = read(fd, curr_pos, chunksize);
-        if (bytes_read == -1) {
-            perror("Fil::getDataFromRows: read");
-            close(fd);
-            exit(-1);
-        }
-        if (bytes_read == 0) {
-            std::cerr << "Fil::getDataFromRows: reached end of file prematurely" << std::endl;
-            break;
-        }
-        if (bytes_read != chunksize) {
-            std::cout << "Fil::getDataFromRows: read less than chunksize: "
-                      << bytes_read << std::endl;
-        }
-    }
-
-    // Read the remainder that didn't fill a full chunk
-    if (chunksize * chunk < bytes_to_read) {
-        curr_pos = table_data + chunksize * chunk;
-        ssize_t bytes_read = pread(fd_nodirect, curr_pos,
-                                   bytes_to_read - chunksize * chunk,
-                                   chunksize * chunk);
-        if (bytes_read == -1) {
-            perror("Fil::getDataFromRows: pread");
-            close(fd);
-            close(fd_nodirect);
-            exit(-1);
-        }
-        if (bytes_read == 0) {
-            std::cerr << "Fil::getDataFromRows: reached end of file while reading remainder"
-                      << std::endl;
-        }
-    }
-
-    return chunk;
-}
-
-void Fil::extractDataDirect(size_t chunksize) {
-    if (aligned_filesize_buffer_ == nullptr) {
-        std::cerr << "Fil::extractDataDirect: aligned_filesize_buffer_ not set. "
-                     "Call setAlignedFileSizeBuffer() first." << std::endl;
-        exit(-1);
-    }
-
-    int fd = open(filename_, O_RDONLY | O_DIRECT);
-    if (fd == -1) {
-        perror("Fil::extractDataDirect: open (O_DIRECT)");
-        exit(-1);
-    }
-
-    int fd_nodirect = open(filename_, O_RDONLY);
-    if (fd_nodirect == -1) {
-        perror("Fil::extractDataDirect: open");
-        close(fd);
-        exit(-1);
-    }
-
-#ifdef TESTDEDISP_DEBUG
-    auto start_time = std::chrono::high_resolution_clock::now();
-#endif
-
-    long chunks = getDataFromRows(fd, aligned_filesize_buffer_, chunksize,
-                                  file_size_, fd_nodirect);
-
-#ifdef TESTDEDISP_DEBUG
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                         end_time - start_time).count();
-    if (verbose_) {
-        std::cout << "Fil::extractDataDirect: read " << chunks
-                  << " chunks (chunksize=" << chunksize << ") from " << filename_
-                  << ", time: " << (double)duration_us / 1e6 << " s"
-                  << ", speed: " << (double)file_size_ / 1e6 / ((double)duration_us / 1e6)
-                  << " MB/s" << std::endl;
-    }
-#endif
-
-    close(fd);
-    close(fd_nodirect);
-}
 
 // -------------------------------------------------------------------------
 // Data reduction helpers
@@ -342,40 +278,29 @@ void Fil::reduceRawDataDownSamp(const unsigned char* raw, float* data,
 // reduceData — public entry point, mirrors Fits::reduceData
 // -------------------------------------------------------------------------
 
-void Fil::reduceData(int poln, unsigned int downsamp) {
-    if (aligned_filesize_buffer_ == nullptr) {
-        std::cerr << "Fil::reduceData: aligned_filesize_buffer_ not set." << std::endl;
-        exit(-1);
-    }
-    if (data_ == nullptr) {
-        std::cerr << "Fil::reduceData: data_ not set. Call setDataBuffer() first." << std::endl;
-        exit(-1);
-    }
+void Fil::reduceData(unsigned char* outBuf, int out_bits, int poln, unsigned int downsamp) {
+    float* data = reinterpret_cast<float*>(outBuf);
 
 #ifdef TESTDEDISP_DEBUG
     auto start_time = std::chrono::high_resolution_clock::now();
 #endif
 
-    // The first `headersize_` bytes in the aligned buffer are the SIGPROC header;
-    // the raw data starts immediately after.
     const unsigned char* raw = aligned_filesize_buffer_ + headersize_;
-    size_t nsamp = (size_t)nsblk_;   // nsblk_ == total number of raw time samples
+    size_t nsamp = (size_t)dimTime_;
 
     if (downsamp == 1) {
-        reduceRawData(raw, data_, nchans_read_, nsamp);
+        reduceRawData(raw, data, nchans_read_, nsamp);
     } else {
-        reduceRawDataDownSamp(raw, data_, nchans_read_, nsamp, downsamp);
+        reduceRawDataDownSamp(raw, data, nchans_read_, nsamp, downsamp);
 
-        // Normalise accumulated sums (same pattern as Fits::reduceData)
         size_t reduced_len = getNumElements(downsamp);
 #pragma omp parallel for schedule(static)
         for (size_t i = 0; i < reduced_len; ++i) {
-            data_[i] /= downsamp;
+            data[i] /= downsamp;
         }
     }
 
-    // Create a 2-D view: rows = time samples (after downsampling), cols = chans
-    dataView_ = matrixView<float>(data_, dimTime(downsamp), (size_t)nchans_read_);
+    dataView_ = matrixView<float>(data, dimTime(downsamp), (size_t)nchans_read_);
 
 #ifdef TESTDEDISP_DEBUG
     auto end_time = std::chrono::high_resolution_clock::now();

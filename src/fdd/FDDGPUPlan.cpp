@@ -38,7 +38,7 @@ FDDGPUPlan::FDDGPUPlan(size_type nchans, float_type dt, float_type f0,
                        float_type df, int device_idx)
     : GPUPlan(nchans, dt, f0, df, device_idx) {}
 
-FDDGPUPlan::FDDGPUPlan(const fitsLoader& container, int device_idx)
+FDDGPUPlan::FDDGPUPlan(const dataLoader& container, int device_idx)
     : GPUPlan(container.nchansLocal(), 
               container.sampletime(), 
               container.f0(),
@@ -208,7 +208,7 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
                     << " seconds" << std::endl;
 }
 
-void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, double dt, int w, bool barycenter, double blotoa, double avgvoverc) {
+void FDDGPUPlan::writeInfs(char* outfile, const dataFile* file, size_t nsamps, double dt, int w, bool barycenter, double blotoa, double avgvoverc) {
   const char* outfiles_basename = (outfile == NULL) ? "output" : outfile;
 
   unsigned dm_count = m_dm_count;
@@ -227,21 +227,21 @@ void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, doubl
 
     // Writing the inf data
     fprintf(inf_out,"%-40s=  %s_DM_%.*f\n", " Data file name without suffix", outfiles_basename, w, dmlist[out_file_idx]);
-    fprintf(inf_out,"%-40s=  %s\n", " Telescope used", fits.telescope());
-    fprintf(inf_out,"%-40s=  %s\n", " Instrument used", fits.instrument());
-    fprintf(inf_out,"%-40s=  %s\n", " Object being observed", fits.objectName());
-    fprintf(inf_out,"%-40s=  %s\n", " J2000 Right Ascension (hh:mm:ss.ssss)", fits.rightAscension());
-    fprintf(inf_out,"%-40s=  %s\n", " J2000 Declination     (dd:mm:ss.ssss)", fits.declination()[0] == '+' ? fits.declination() + 1 : fits.declination());
-    fprintf(inf_out,"%-40s=  %s\n", " Data observed by", fits.observer());
+    fprintf(inf_out,"%-40s=  %s\n", " Telescope used", file->telescope());
+    fprintf(inf_out,"%-40s=  %s\n", " Instrument used", file->instrument());
+    fprintf(inf_out,"%-40s=  %s\n", " Object being observed", file->objectName());
+    fprintf(inf_out,"%-40s=  %s\n", " J2000 Right Ascension (hh:mm:ss.ssss)", file->rightAscension());
+    fprintf(inf_out,"%-40s=  %s\n", " J2000 Declination     (dd:mm:ss.ssss)", file->declination()[0] == '+' ? file->declination() + 1 : file->declination());
+    fprintf(inf_out,"%-40s=  %s\n", " Data observed by", file->observer());
     double epoch;
     if (barycenter) {
       // Highest channel frequency (observed), Doppler-shifted to emitted frequency
-      double baryhifreq = fits.freqs().back() * (1.0 + avgvoverc);
+      double baryhifreq = file->freqs().back() * (1.0 + avgvoverc);
       // Dispersion delay at highest channel: DM / (0.000241 * f_emitted^2) in seconds
       double barydispdt = dmlist[out_file_idx] / (0.000241 * baryhifreq * baryhifreq);
       epoch = blotoa - barydispdt / 86400.0;
     } else {
-      epoch = fits.epoch();
+      epoch = file->epoch();
     }
     fprintf(inf_out,"%-40s=  %.15f\n", " Epoch of observation (MJD)", epoch);
     fprintf(inf_out,"%-40s=  %d\n", " Barycentered?           (1 yes, 0 no)", barycenter ? 1 : 0);
@@ -253,16 +253,16 @@ void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, doubl
     fprintf(inf_out,"%-40s=  Radio\n", " Type of observation (EM band)  ");
     fprintf(inf_out,"%-40s=  900\n", " Beam diameter (arcsec)");
     fprintf(inf_out,"%-40s=  %.*f\n", " Dispersion measure (cm-3 pc)", w, dmlist[out_file_idx]);
-    fprintf(inf_out,"%-40s=  %.7f\n", " Central freq of low channel (MHz)", fits.freqs()[0]);
-    fprintf(inf_out, "%-40s=  %.7f\n", " Total bandwidth (MHz)", fits.bw());
-    fprintf(inf_out, "%-40s=  %d\n", " Number of channels", fits.nchan());
-    fprintf(inf_out, "%-40s=  %.15f\n", " Channel bandwidth (MHz)", -fits.ddf());
+    fprintf(inf_out,"%-40s=  %.7f\n", " Central freq of low channel (MHz)", file->freqs()[0]);
+    fprintf(inf_out, "%-40s=  %.7f\n", " Total bandwidth (MHz)", file->bw());
+    fprintf(inf_out, "%-40s=  %d\n", " Number of channels", file->nchan());
+    fprintf(inf_out, "%-40s=  %.15f\n", " Channel bandwidth (MHz)", -file->ddf());
 
     char *user = getenv("USER");  // Get the username
     if (!user) user = getenv("USERNAME");  // Fallback for Windows
 
     fprintf(inf_out, "%-40s=  %s\n", " Data analyzed by", user ? user : "Unknown");
-    fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", fits.projid(), fits.dateobs());
+    fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", file->projid(), file->dateobs());
     
     fclose(inf_out);
     

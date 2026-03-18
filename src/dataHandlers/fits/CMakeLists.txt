@@ -1,24 +1,17 @@
 add_library(fits SHARED
     fits.cpp
-    fitscontainer.cpp
 )
 
-##############################
-# CLIG INTERFACE
-##############################
-
 target_link_libraries(fits
-    ${CFITSIO_LIBRARY}
-    MPI::MPI_CXX
-    hwlocutils
-    libpresto
+    PRIVATE ${CFITSIO_LIBRARY}
+    PRIVATE libpresto
+    PUBLIC datafile
 )
 
 target_include_directories(fits
    PRIVATE ${CFITSIO_INCLUDE_DIR}
-   PRIVATE ${MPI_CXX_INCLUDE_DIRS}
    PRIVATE ${CMAKE_SOURCE_DIR}/src/presto
-   PRIVATE ${CMAKE_SOURCE_DIR}/src/numa
+   PUBLIC ${CMAKE_SOURCE_DIR}/src/dataHandlers
 )
 
 set_target_properties(fits PROPERTIES

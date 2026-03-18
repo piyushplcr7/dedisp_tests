@@ -1,57 +1,45 @@
 #include <iostream>
-#include "fil/fil.hpp"
-#include <memory>
-#include <new>
+#include <cstdlib>
+#include "dataHandlers/fil/fil.hpp"
+#include "dataHandlers/datafile.hpp"
 
-struct AlignedDeleter {
-    std::size_t align;
-    void operator()(unsigned char* p) const noexcept {
-        ::operator delete(p, std::align_val_t{align}); // matches allocation
-    }
-};
-
-int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <filename>" << std::endl;
+int main(int argc, char** argv) {
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <input.fil> <output.dat>" << std::endl;
         return 1;
     }
-    const char* filename = argv[1];
-    std::cout << "Testing Fil class with file: " << filename << std::endl;
-    Fil obj(filename);
 
-    std::cout << "obj.file_size_aligned() = " << obj.fileSizeAligned() << std::endl;
+    const char* infile  = argv[1];
+    const char* outfile = argv[2];
 
-    size_t numelements = obj.getNumElements();
-    std::cout << "obj.getNumElements() = " << numelements << std::endl;
+    Fil fil(infile);
+    fil.printInfo();
 
-    unsigned char* buf = static_cast<unsigned char*> (std::aligned_alloc(4096, obj.fileSizeAligned()));
+    unsigned char* buf = static_cast<unsigned char*>(
+        std::aligned_alloc(4096, fil.fileSizeAligned()));
+    if (!buf) {
+        std::cerr << "Failed to allocate aligned buffer" << std::endl;
+        return 1;
+    }
 
-    /* std::unique_ptr<unsigned char, AlignedDeleter> buf(
-    static_cast<unsigned char*>(
-        ::operator new(obj.file_size_aligned(), std::align_val_t{4096})
-    ),
-    AlignedDeleter{4096}); */
+    std::cout << "Extracting data..." << std::endl;
+    fil.extractDataDirect(buf, HALF_MAX_CHUNKSIZE);
 
-    float* data = static_cast<float*> (std::malloc(obj.getNumElements() * sizeof(float)));
+    float* data = static_cast<float*>(std::malloc(fil.getNumElements() * sizeof(float)));
+    if (!data) {
+        std::cerr << "Failed to allocate data buffer" << std::endl;
+        std::free(buf);
+        return 1;
+    }
 
-    obj.setAlignedFileSizeBuffer(buf);
-    obj.setDataBuffer(data);
+    std::cout << "Reducing data..." << std::endl;
+    fil.reduceData(reinterpret_cast<unsigned char*>(data), 32, 0, 1);
 
-    std::cout << "extracting data" << std::endl;
-    obj.extractDataDirect();
-    std::cout << "extracting data finished" << std::endl;
+    std::cout << "Writing data to disk..." << std::endl;
+    fil.writeToDisk(outfile);
 
-    std::cout << "reduce data" << std::endl;
-    obj.reduceData();
-    std::cout << "reducing data finished" << std::endl;
-
-    std::cout << "freeing data buffer" << std::endl;
     std::free(data);
-    std::cout << "freed data buffer" << std::endl;
-    
-    std::cout << "freeing buf" << std::endl;
     std::free(buf);
-    std::cout << "freed buf" << std::endl;
 
-    return 0; 
+    return 0;
 }

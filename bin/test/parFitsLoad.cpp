@@ -37,10 +37,8 @@ void extractOnNode(int node, Fits& fits) {
         [] (unsigned char* x) { ::operator delete(x, std::align_val_t(4096)); }
     );
 
-    fits.setAlignedFileSizeBuffer(alignedBuf.get());
-
     auto start = std::chrono::high_resolution_clock::now();
-    fits.extractDataDirect(fits.naxis1());
+    fits.extractDataDirect(alignedBuf.get(), fits.naxis1());
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<double> diff = end - start;

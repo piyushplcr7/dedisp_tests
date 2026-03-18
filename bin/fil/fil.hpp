@@ -199,6 +199,20 @@ int run(int argc,char *argv[])
   fread(input,sizeof(dedisp_byte),h.buffersize,file);
   if (verbose) printf("Reading input file took %.2f seconds\n",(double)(clock()-startclock)/CLOCKS_PER_SEC);
 
+#ifdef TESTDEDISP_DEBUG
+  // Write raw input data for comparison with fil class output
+  {
+    char rawname[256];
+    sprintf(rawname, "%s_raw.dat", prefix);
+    FILE *rawfile = fopen(rawname, "wb");
+    if (rawfile) {
+      fwrite(input, sizeof(dedisp_byte), h.buffersize, rawfile);
+      fclose(rawfile);
+      if (verbose) printf("Wrote raw input data to %s\n", rawname);
+    }
+  }
+#endif
+
   // Decimate if required
   if (ndec>1) {
     if (verbose) printf("Decimate timeseries by factor %d\n",(int) ndec);

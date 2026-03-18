@@ -1,7 +1,7 @@
 #ifndef FITSCONTAINERHPP
 #define FITSCONTAINERHPP
 
-#include "fits.hpp"
+#include "datafile.hpp"
 #include <vector>
 #include <string>
 #include <memory>
@@ -11,12 +11,12 @@
 #define ALIGNMENT 4096
 
 /*
-* This class is a distributed storage of Fits data. 
+* This class is a distributed storage of Fits data.
 */
-class fitsLoader {
+class dataLoader {
 
 private:
-    std::vector<Fits> listFits_;
+    std::vector<std::unique_ptr<dataFile>> listFiles_;
     int numLocFits_;
     int numGlobFits_;
 
@@ -36,19 +36,16 @@ private:
     double avgvoverc_ = 0;
     double blotoa_ = 0.0;
 
-    //int channelChunkSize_ = 0;
-
     size_t contiguousChunkLen_ = 0;
     size_t assembledDataLen_ = 0;
 
     size_t nsampsLocal_ = 0;
-    
-    std::unique_ptr<float[]> assembledDataBuffer_; 
+
+    std::unique_ptr<float[]> assembledDataBuffer_;
 
     std::vector<int> inForOut_;
     std::vector<int> insertPositions_;
     std::vector<int> diffbins_;
-    //matrixView<float> assembledData_;
 
 public:
 
@@ -61,12 +58,12 @@ public:
     * of all the fits filenames that are logically a part of this distributed
     * storage
     */
-    fitsLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp=1);
+    dataLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp=1);
 
     void barycenter();
 
     /*
-    * This function goes through the local array of Fits objects sequentially and 
+    * This function goes through the local array of Fits objects sequentially and
     * extracts and reduces the time series data
     */
     void ldSeq(size_t chunksize, int poln);
@@ -77,8 +74,8 @@ public:
     double blotoa()    const { return blotoa_; }
 
     /*
-    * In a multi-node setting, where each node holds a contiguous time chunk of 
-    * the entire time series, this function assembles all the time points on 
+    * In a multi-node setting, where each node holds a contiguous time chunk of
+    * the entire time series, this function assembles all the time points on
     * each node for the local channel chunk. So nodes go from having all channels
     * and a time chunk to all times and a channel chunk.
     */
@@ -88,13 +85,11 @@ public:
 
     /*
     * This function copies the channel chunk denoted by start and end chan
-    * into the contiguous buffer. This is done for the Fits object at ith 
-    * position
+    * into the contiguous buffer.
     */
-    void packChannelChunk(int i, matrixView<float> contiguousDataView, int start_chan, int end_chan);
+    void packChannelChunk(matrixView<float> dataView, matrixView<float> contiguousDataView, int start_chan, int end_chan);
 
-    //matrixView<float> getAssembledData() { return assembledData_; }
-    std::unique_ptr<float[]>& getAssembledDataBfr() {return assembledDataBuffer_;}
+    std::unique_ptr<float[]>& getAssembledDataBfr() { return assembledDataBuffer_; }
 
     int startChan() const { return start_chan_; }
     int endChan() const { return end_chan_; }
@@ -103,29 +98,23 @@ public:
 
     void reduceInAssemblyBuf();
 
-    double sampletime() const {return listFits_[0].sampletime(downsamp_); }
+    double sampletime() const { return listFiles_[0]->sampletime(downsamp_); }
 
-    size_t nsampsLocal() const {return nsampsLocal_;}
+    size_t nsampsLocal() const { return nsampsLocal_; }
 
-    //size_t nsampsGlobal() const {return numGlobFits_ * listFits_[0].dimTime(downsamp_);}
+    double f0() const { return listFiles_[0]->f0(); }
 
-    double f0() const {return listFits_[0].f0(); }
+    int nchansGlobal() const { return nchans_; }
 
-    int nchansGlobal() const {return nchans_;}
+    int nchansLocal() const { return end_chan_ - start_chan_; }
 
-    int nchansLocal() const {return end_chan_ - start_chan_;}
+    const std::vector<std::unique_ptr<dataFile>>& getFileVector() const { return listFiles_; }
 
-    const std::vector<Fits>& getFitsVector() const {return listFits_; }
+    double ddf() const { return listFiles_[0]->ddf(); }
 
-    double ddf() const {return listFits_[0].ddf(); }
+    double bw() const { return listFiles_[0]->bw(); }
 
-    double bw() const {return listFits_[0].bw(); }
-
-    /*
-    * Destructor 
-    */
-    ~fitsLoader() {}
-
+    ~dataLoader() {}
 };
 
 #endif

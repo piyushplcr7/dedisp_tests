@@ -5,8 +5,8 @@
 #include <mpi.h>
 #include <vector>
 #include <string>
-#include "fits/fitscontainer.hpp"
-#include "fits/matrix_view.hpp"
+#include "fitscontainer.hpp"
+#include "matrix_view.hpp"
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
         listFitsNames[i] = std::string(argv[i+1]);
     }
 
-    fitsLoader container(listFitsNames, world_rank, world_size, 1);
+    dataLoader container(listFitsNames, world_rank, world_size, 1);
 
     std::cout << "assembling distributed data using MPI on " << world_rank << std::endl;
     container.assembleAllTimes();

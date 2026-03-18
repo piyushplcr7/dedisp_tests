@@ -3,7 +3,14 @@ add_library(filterbank SHARED
 )
 
 target_link_libraries(filterbank
-    libpresto)
+    PRIVATE libpresto
+    PRIVATE datafile
+)
+
+target_include_directories(filterbank
+   PRIVATE ${CMAKE_SOURCE_DIR}/src/presto
+   PUBLIC ${CMAKE_SOURCE_DIR}/src/dataHandlers
+)
 
 set_target_properties(filterbank PROPERTIES
     PUBLIC_HEADER fil.hpp

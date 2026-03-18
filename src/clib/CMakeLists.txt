@@ -14,16 +14,11 @@ target_link_libraries(clib PRIVATE
     GPU_TRACER_LIBS
     ${CFITSIO_LIBRARY}
     GPU_XCCL
-    )
+    datacontainer
+)
 
 target_include_directories(clib 
     PUBLIC ${CMAKE_SOURCE_DIR}/src/gpu_macros
-    PUBLIC ${CMAKE_SOURCE_DIR}/src/fits
+    PUBLIC ${CMAKE_SOURCE_DIR}/src/dataHandlers
 )
 target_compile_definitions(clib PRIVATE ${GPU_DEFINITIONS})
-
-
-#target_link_libraries(
-#    clib
-#    ${GPU_FFT_LIBS}
-#)

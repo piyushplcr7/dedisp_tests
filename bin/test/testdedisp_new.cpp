@@ -1,7 +1,6 @@
 #include <iostream>
 #include "fdd_gpu.h"
 #include "fitscontainer.hpp"
-#include "fits.hpp"
 #include <vector>
 #include "dedisp_types.h"
 #include <string>
@@ -15,13 +14,13 @@ int main(int argc, char **argv) {
   std::cout << "                            By Piyush Panchal         \n" << std::endl;
   // Parse the CLI args
   Cmdline *cmd = parseCmdline(argc, argv);
-  int nfitsfiles = cmd->argc;
+  int nfiles = cmd->argc;
   char **fitsfiles = cmd->argv;
 
 #ifdef TESTDEDISP_DEBUG
   showOptionValues();
-  printf("No. of infiles = %d\n", nfitsfiles);
-  for (int i = 0; i < nfitsfiles; ++i) {
+  printf("No. of infiles = %d\n", nfiles);
+  for (int i = 0; i < nfiles; ++i) {
     printf("input file %d: %s \n", i, fitsfiles[i]);
   }
 #endif
@@ -39,12 +38,12 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::vector<std::string> listFitsNames(nfitsfiles);
-  for (int i = 0 ; i < nfitsfiles ; ++i) {
-    listFitsNames[i] = std::string(fitsfiles[i]);
+  std::vector<std::string> listFileNames(nfiles);
+  for (int i = 0 ; i < nfiles ; ++i) {
+    listFileNames[i] = std::string(fitsfiles[i]);
   }
 
-  fitsLoader container(listFitsNames, 0, 1, cmd->downsamp);
+  dataLoader container(listFileNames, 0, 1, cmd->downsamp);
   // Contiguous buffer for assembled data
   //container.allocContiguousAssemblyBuf(); 
   // Reduce directly to the assembly buffer
@@ -59,7 +58,7 @@ int main(int argc, char **argv) {
     container.barycenter();
   }
 
-  // nsamps scales with nfitsfiles because Tobs is scaled already
+  // nsamps scales with nfiles because Tobs is scaled already
   dedisp_float dm_tol = 1.25;
   dedisp_size in_nbits = 8;
   dedisp_size out_nbits = 32; 
@@ -99,7 +98,7 @@ int main(int argc, char **argv) {
   if (cmd->dmstepW == 0)
     cmd->dmstepW = 2;
   plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
-  plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
+  plan.writeInfs(cmd->outfile, container.getFileVector()[0].get(), container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
   std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
 
   return 0;

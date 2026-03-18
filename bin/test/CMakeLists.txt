@@ -60,6 +60,7 @@ target_link_libraries(testdedisp PRIVATE GPU_TRACER_LIBS)
 target_link_libraries(testdedisp PRIVATE GPU_XCCL)
 target_link_libraries(testdedisp PRIVATE hwlocutils)
 target_link_libraries(testdedisp PRIVATE ${GPU_HOST_RUNTIME_LIBS})
+target_link_libraries(testdedisp PUBLIC datacontainer)
 
 target_include_directories(testdedisp 
     PRIVATE ${CMAKE_SOURCE_DIR}/src 
@@ -139,15 +140,21 @@ target_include_directories(mmap_only_read PRIVATE
 
 target_link_libraries(mmap_only_read fdd_gpu_clig dedisp ${CFITSIO_LIBRARY})
 
-add_executable(fits_class_test
-    fits_class_test.cpp
+add_executable(file_class_test
+    file_class_test.cpp
 )
 
-target_include_directories(fits_class_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR}
+target_include_directories(file_class_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src 
+    ${CFITSIO_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fits
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fil
 )
 
-target_link_libraries(fits_class_test fits ${CFITSIO_LIBRARY})
+target_link_libraries(file_class_test 
+    fits 
+    ${CFITSIO_LIBRARY}
+    filterbank)
 
 add_executable(fits_class_test_mpi
     fits_class_test_mpi.cpp
@@ -165,9 +172,9 @@ add_executable(numatests
     numatests.cpp
 )
 
-target_include_directories(numatests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src 
-    ${CFITSIO_INCLUDE_DIR}
+target_include_directories(numatests 
+    PUBLIC ${CMAKE_SOURCE_DIR}/src 
+    PUBLIC ${CMAKE_SOURCE_DIR}/src/dataHandlers/fits
 )
 
 target_link_libraries(numatests fits ${CFITSIO_LIBRARY})
