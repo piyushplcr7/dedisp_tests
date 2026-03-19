@@ -373,8 +373,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
   };
 
-  float* float_in = (float*) in;
-
   aa_gpu_timer C2Rtimer;
   double c2rtime = 0;
 
@@ -382,7 +380,21 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   double r2ctime = 0;
 
   // Original code. Commented out to allow working directly with floats
-  //assert(in_nbits == 8);
+  if (in_nbits == 8) {
+    std::cout << "****************************************************\n";
+    std::cout << " Using 8 bit input. Unpacking to 32 bit floats on GPU.\n";
+    std::cout << "****************************************************\n";
+  }
+  else if (in_nbits == 32) {
+    std::cout << "****************************************************\n";
+    std::cout << " Using 32 bit float input. No unpacking needed.\n";
+    std::cout << "****************************************************\n";
+  }
+  else {
+    std::cerr << "Unsupported input bit depth: " << in_nbits << std::endl;
+    exit(1);
+  }
+
   assert(out_nbits == 32);
 
   // Parameters
@@ -391,25 +403,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   size_t nsamp = nsamps;          // number of time samples
   unsigned int ndm = m_dm_count;        // number of DMs
 
-  // Use zero-padded FFT
-  // This allows for a more efficient FFT implementation with cuFFT
-  //bool use_zero_padding = true;
-  // Compute padded number of samples (for r2c transformation)
-  // the round_up value might be tuned for efficiency depending on system
-  // architecture
-
-  //size_t nsamp_fft = (cmd.fftoutP) ? round_up(nsamp + m_max_delay, 16384) : ((use_zero_padding)? round_up(nsamp + 1, 16384) : nsamp );
-  /* if (cmd.fftoutP) {
-    nsamp_fft = round_up(nsamp + m_max_delay, 16384);
-    std::cout << "nsamp_fft value used inside plan.execute() = " << nsamp_fft << std::endl;
-  }
-  else {
-    nsamp_fft = use_zero_padding ? round_up(nsamp + 1, 16384) : nsamp;
-  } */
-
   size_t nfreq = (nsamp_fft_ / 2 + 1); // number of spin frequencies
-  //size_t nsamp_padded = round_up(nsamp_fft + 1, 1024);
-  //size_t nsamp_padded = 2ULL * (nsamp_fft/2 + 1);
   std::cout << "nsamp        = " << nsamp << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft_ << std::endl;
   std::cout << "nsamp_padded = " << nsamp_padded_ << std::endl;
@@ -446,14 +440,19 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   dedisp_size out_bytes_per_sample =
       out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
   
-  //dedisp_size chans_per_word = sizeof(dedisp_word) * BITS_PER_BYTE / in_nbits;
-  dedisp_size chans_per_word = 1;
+  dedisp_size chans_per_word = sizeof(dedisp_word) * BITS_PER_BYTE / in_nbits;
+  //dedisp_size chans_per_word = 1;
 
   // The number of channel words in the input
   dedisp_size nchan_words = nchan / chans_per_word;
 
   // The number of channel words proccessed in one gulp
   dedisp_size nchan_words_gulp = nchan_batch_max / chans_per_word;
+
+  if (nchan_batch_max % chans_per_word != 0) {
+    std::cerr << "nchan_batch_max must be a multiple of chans_per_word" << std::endl;
+    exit(1);
+  }
 
   // Events, markers, timers
   cu::Event eStartGPU, eEndGPU;

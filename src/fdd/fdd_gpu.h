@@ -33,6 +33,10 @@ typedef struct s_Cmdline {
   char numdmsP;
   int numdms;
   int numdmsC;
+  /***** -nbits: Number of dm values */
+  char nbitsP;
+  int nbits;
+  int nbitsC;
   /***** -dmstep: DM step size */
   char dmstepP;
   double dmstep;
@@ -57,11 +61,11 @@ typedef struct s_Cmdline {
   char *full_cmd_line;
 } Cmdline;
 
-  extern Cmdline cmd;
+extern Cmdline cmd;
 
-  extern char *Program;
-  extern void usage(void);
-  extern /*@shared*/Cmdline *parseCmdline(int argc, char **argv);
+extern char *Program;
+extern void usage(void);
+extern /*@shared*/Cmdline *parseCmdline(int argc, char **argv);
 
   extern void showOptionValues(void);
 

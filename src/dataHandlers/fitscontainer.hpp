@@ -46,9 +46,10 @@ private:
     std::vector<int> inForOut_;
     std::vector<int> insertPositions_;
     std::vector<int> diffbins_;
+    int nbits_;
 
 public:
-
+    const int nbits() const { return nbits_; }
     const std::vector<int>& getInsertPositions() const { return insertPositions_; }
     const std::vector<int>& getInForOut() const { return inForOut_; }
     const std::vector<int>& getDiffbins() const { return diffbins_; }
@@ -58,7 +59,7 @@ public:
     * of all the fits filenames that are logically a part of this distributed
     * storage
     */
-    dataLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp=1);
+    dataLoader(std::vector<std::string>& listFits, int world_rank, int world_size, int downsamp, int nbits);
 
     void barycenter();
 

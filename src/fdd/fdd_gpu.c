@@ -42,6 +42,10 @@ Cmdline cmd = {
   /* numdmsP = */ 1,
   /* numdms = */ 0,
   /* numdmsC = */ 1,
+  /***** -nbits: Number of input bits */
+  /* nbitsP = */ 1,
+  /* nbits = */ 0,
+  /* nbitsC = */ 1,
   /***** -dmstep: DM step size */
   /* dmstepP = */ 1,
   /* dmstep = */ 0,
@@ -790,7 +794,7 @@ void showOptionValues(void) {
 void
 usage(void)
 {
-  fprintf(stderr,"   [-lodm lodm] [-hidm hidm] [-pwidth pwidth] [-downsamp downsamp] [-numdms numdms] [-dmstep dmstep] [-fftout] [-multout] [-cleanout] -o outfile [-nobary] [--] infile ...\n");
+  fprintf(stderr,"   [-lodm lodm] [-hidm hidm] [-pwidth pwidth] [-downsamp downsamp] [-numdms numdms] [-nbits nbits] [-dmstep dmstep] [-fftout] [-multout] [-cleanout] -o outfile [-nobary] [--] infile ...\n");
   fprintf(stderr,"      GPU-based de-dispersion for time-series analysis.\n");
   fprintf(stderr,"        -lodm: The lowest dispersion measure to de-disperse (cm^-3 pc)\n");
   fprintf(stderr,"               1 double value between 0 and oo\n");
@@ -807,6 +811,9 @@ usage(void)
   fprintf(stderr,"      -numdms: Number of dm values\n");
   fprintf(stderr,"               1 int value between 0 and 50000\n");
   fprintf(stderr,"               default: `0'\n");
+  fprintf(stderr,"       -nbits: Number of input bits\n");
+  fprintf(stderr,"               1 int value between 0 and 64\n");
+  fprintf(stderr,"               default: `0' => Program chooses based on file extension\n");
   fprintf(stderr,"      -dmstep: DM step size\n");
   fprintf(stderr,"               1 double value between 0 and oo\n");
   fprintf(stderr,"               default: `0'\n");
@@ -818,7 +825,7 @@ usage(void)
   fprintf(stderr,"      -nobary: Do not barycenter the data\n");
   fprintf(stderr,"       infile: Input data file(s)\n");
   fprintf(stderr,"               1...16384 values\n");
-  fprintf(stderr,"  version: 17Feb26\n");
+  fprintf(stderr,"  version: 19Mar26\n");
   fprintf(stderr,"  ");
   exit(EXIT_FAILURE);
 }
@@ -881,6 +888,16 @@ parseCmdline(int argc, char **argv)
       cmd.numdmsC = i-keep;
       checkIntLower("-numdms", &cmd.numdms, cmd.numdmsC, 50000);
       checkIntHigher("-numdms", &cmd.numdms, cmd.numdmsC, 0);
+      continue;
+    }
+
+    if( 0==strcmp("-nbits", argv[i]) ) {
+      int keep = i;
+      cmd.nbitsP = 1;
+      i = getIntOpt(argc, argv, i, &cmd.nbits, 1);
+      cmd.nbitsC = i-keep;
+      checkIntLower("-nbits", &cmd.nbits, cmd.nbitsC, 64);
+      checkIntHigher("-nbits", &cmd.nbits, cmd.nbitsC, 0);
       continue;
     }
 

@@ -26,6 +26,10 @@ Int -numdms numdms \
     {Number of dm values} \
     -r 0 50000 -d 0
 
+Int -nbits nbits \
+    {Number of input bits} \
+    -r 0 64 -d 0
+
 Double -dmstep dmstep \
     {DM step size} \
     -r 0 oo -d 0

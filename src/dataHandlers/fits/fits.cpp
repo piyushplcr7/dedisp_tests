@@ -179,30 +179,53 @@ void Fits::printInfo() const noexcept {
 
 
 void Fits::reduceData(unsigned char* outBuf, int out_bits, int poln, unsigned int downsamp) {
-  float* data = reinterpret_cast<float*>(outBuf);
-
 #ifdef TESTDEDISP_DEBUG
   auto start_time = std::chrono::high_resolution_clock::now();
 #endif
+  if (out_bits == 32) {
+    float* data = reinterpret_cast<float*>(outBuf);
 
-  if (downsamp == 1) {
-    reduceBinaryTable(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
-                    nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
-                    scal_offs_width_);
-  }
-  else if (downsamp > 1) {
-    reduceBinaryTableDownSamp(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
-                    nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
-                    scal_offs_width_, downsamp);
+    if (downsamp == 1) {
+      reduceBinaryTable(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
+                      nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
+                      scal_offs_width_);
+    }
+    else if (downsamp > 1) {
+      reduceBinaryTableDownSamp(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
+                      nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
+                      scal_offs_width_, downsamp);
 
-    size_t reducedDataLen = getNumElements(downsamp);
-    #pragma omp parallel for schedule(static)
-    for (size_t i = 0 ; i < reducedDataLen ; ++i) {
-      data[i] /= downsamp;
+      size_t reducedDataLen = getNumElements(downsamp);
+      #pragma omp parallel for schedule(static)
+      for (size_t i = 0 ; i < reducedDataLen ; ++i) {
+        data[i] /= downsamp;
+      }
     }
   }
+  else if (out_bits == 8) {
+    unsigned char* data = outBuf;
+    if (downsamp == 1) {
+      reduceBinaryTable8(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
+                      nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
+                      scal_offs_width_);
+    }
+    else if (downsamp > 1) {
+      reduceBinaryTableDownSamp8(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
+                      nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
+                      scal_offs_width_, downsamp);
 
-  dataView_ = matrixView<float>(data, (size_t)nsblk_ * naxis2_ / downsamp, (size_t)nchans_read_);
+      size_t reducedDataLen = getNumElements(downsamp);
+      #pragma omp parallel for schedule(static)
+      for (size_t i = 0 ; i < reducedDataLen ; ++i) {
+        data[i] /= downsamp;
+      }
+    }
+  }
+  else {
+    std::cerr << "Unsupported out_bits value!" << std::endl;
+    std::abort();
+  }
+  
   
 #ifdef TESTDEDISP_DEBUG
   auto end_time = std::chrono::high_resolution_clock::now();
@@ -314,6 +337,82 @@ void Fits::reduceBinaryTableDownSamp(unsigned char *full_binary_table, float *da
                   data_scl[nchans_poln + chan] +
               data_offs[nchans_poln + chan]) *
             data_wts[chan];
+      }
+    }
+  }
+}
+
+void Fits::reduceBinaryTable8(unsigned char *full_binary_table, unsigned char *data, int poln,
+                       int naxis1, int naxis2, int nsblk, int nchans, int npol,
+                       size_t data_offset_from_start, size_t data_cols_offset,
+                       size_t scal_offs_width) {
+  // Skipping the header
+  unsigned char *bin_table_start = full_binary_table + data_offset_from_start;
+  size_t nchans_poln = nchans * poln;
+
+// Going over all the rows (subints) of the binary table
+#pragma omp parallel for schedule(static)
+  for (size_t subint = 0; subint < naxis2; ++subint) 
+  {
+    float *data_wts =
+        (float *)(bin_table_start + subint * naxis1 + data_cols_offset);
+    // data wts has nchans floats, after which data_offs starts
+    float *data_offs = data_wts + nchans;
+    // data_offs has scal_offs_width floats, after which data_scl starts
+    float *data_scl = data_offs + scal_offs_width;
+    // data_scl has scal_offs_width floats, after which rawdata starts
+    unsigned char *rawdata = (unsigned char *)(data_scl + scal_offs_width);
+    size_t subIntStartTimeIdx = nsblk * subint;
+
+    for (size_t spectra = 0; spectra < nsblk; ++spectra) 
+    {
+      size_t outTimeIdx = subIntStartTimeIdx + spectra;
+      size_t nchans_npol_spectra_nchans_poln =
+          nchans * npol * spectra + nchans_poln;
+      for (size_t chan = 0; chan < nchans; ++chan) 
+      {
+        // No byteswapping
+        // (nsblk * subint + spectra) * nchans
+        data[outTimeIdx * nchans + chan] = rawdata[nchans_npol_spectra_nchans_poln + chan] ;
+      }
+    }
+  }
+}
+
+void Fits::reduceBinaryTableDownSamp8(unsigned char *full_binary_table, unsigned char *data, int poln,
+                       int naxis1, int naxis2, int nsblk, int nchans, int npol,
+                       size_t data_offset_from_start, size_t data_cols_offset,
+                       size_t scal_offs_width, int downsamp) {
+  // Skipping the header
+  unsigned char *bin_table_start = full_binary_table + data_offset_from_start;
+  size_t nchans_poln = nchans * poln;
+
+// Going over all the rows (subints) of the binary table
+#pragma omp parallel for schedule(static)
+  for (size_t subint = 0; subint < naxis2; ++subint) 
+  {
+    float *data_wts =
+        (float *)(bin_table_start + subint * naxis1 + data_cols_offset);
+    // data wts has nchans floats, after which data_offs starts
+    float *data_offs = data_wts + nchans;
+    // data_offs has scal_offs_width floats, after which data_scl starts
+    float *data_scl = data_offs + scal_offs_width;
+    // data_scl has scal_offs_width floats, after which rawdata starts
+    unsigned char *rawdata = (unsigned char *)(data_scl + scal_offs_width);
+    size_t subIntStartTimeIdx = nsblk * subint;
+
+    for (size_t spectra = 0; spectra < nsblk; ++spectra) 
+    {
+      size_t outTimeIdx = (subIntStartTimeIdx + spectra)/downsamp;
+      size_t nchans_npol_spectra_nchans_poln =
+          nchans * npol * spectra + nchans_poln;
+      for (size_t chan = 0; chan < nchans; ++chan) 
+      {
+        // No byteswapping
+        // ((nsblk * subint + spectra)/downsamp) * nchans
+
+        // Ensuring nsblk % downsamp == 0 means no clashes between threads over subints
+        data[outTimeIdx * nchans + chan] += rawdata[nchans_npol_spectra_nchans_poln + chan];
       }
     }
   }

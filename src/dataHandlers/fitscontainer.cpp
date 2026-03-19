@@ -54,7 +54,8 @@ inline void MPI_Put_split_Float(
     }
 }
 
-dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, int world_size, int downsamp):world_rank_(world_rank), world_size_(world_size), downsamp_(downsamp) { 
+dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, int world_size, int downsamp, int nbits)
+        :world_rank_(world_rank), world_size_(world_size), downsamp_(downsamp), nbits_(nbits) { 
     // Check if configuration is allowed
     if (listFitsNames.size() % world_size_ != 0) {
         std::cerr << "Number of fits files not divisible by MPI size! Aborting." << std::endl;
@@ -70,6 +71,21 @@ dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, 
     numGlobFits_ = listFitsNames.size();
     numLocFits_ = numGlobFits_ / world_size_;
     listFiles_.reserve(numLocFits_);
+
+    const std::string& firstFile = listFitsNames[0];
+    if (firstFile.size() >= 4 && firstFile.substr(firstFile.size() - 4) == ".fil") {
+        std::cout << "Input files are filterbank files" << std::endl;
+        if (nbits_ == 0) {
+            std::cout << "nbits not specified, defaulting to " << nbits_ << " bits for filterbank files" << std::endl;
+        }
+        nbits_ = nbits_ == 0 ? 8 : nbits_; // default to 8 bits for filterbank files if nbits not specified 
+    } else if (firstFile.size() >= 5 && firstFile.substr(firstFile.size() - 5) == ".fits") {
+        std::cout << "Input files are fits files" << std::endl;
+        if (nbits_ == 0) {
+            std::cout << "nbits not specified, defaulting to " << nbits_ << " bits for fits files" << std::endl;
+        }
+        nbits_ = nbits_ == 0 ? 32 : nbits_; // default to 32 bits for fits files if nbits not specified 
+    }
 
     for (int i = 0 ; i < numLocFits_ ; ++i) {
         const std::string& fname = listFitsNames[world_rank_ * numLocFits_ + i];
@@ -166,8 +182,8 @@ void dataLoader::ldSeq(size_t chunksize, int poln) {
         auto end1 = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> diff1 = end1 - start1;
         std::cout << "Read file " << f->getFilename() << ", in " << diff1.count() << " sec, speed: " << (double)f->fileSize()/(1<<20)/diff1.count() << " MBps" << std::endl;
-
-        f->reduceData((unsigned char*)(assembledDataBuffer_.get() + offset), 32, poln, downsamp_);
+    
+        f->reduceData((unsigned char*)(assembledDataBuffer_.get() + offset), nbits_, poln, downsamp_);
     }
 }
 
@@ -295,7 +311,7 @@ void dataLoader::assembleAllTimes() {
 
         auto& f = listFiles_[i];
         f->extractDataDirect(aligned_buf.get(), HALF_MAX_CHUNKSIZE);
-        f->reduceData((unsigned char*)data_buf.get(), 32);
+        f->reduceData((unsigned char*)data_buf.get(), nbits_, 0, downsamp_);
 
         // Collecting data for a target rank. This does a partitioning 
         // of channels. All the time points in a fits file are dealt with here

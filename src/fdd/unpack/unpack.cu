@@ -66,16 +66,33 @@ void transpose_unpack(
             dim3 grid(round_up_pow2(block_count.x),
                       round_up_pow2(block_count.y));
 
-            // Run the CUDA kernel
-            transpose_unpack_kernel<float><<<grid, block, 0, stream>>> \
-                (d_in + in_offset,      \
-                 w, h,                  \
-                 in_stride, out_stride, \
-                 d_out + out_offset,    \
-                 block_count.x,         \
-                 block_count.y,         \
-                 in_nbits,              \
-                 scale);
+            if (in_nbits == 8) {
+                // Run the transpose unpack kernel for 8-bit input
+                // Run the CUDA kernel
+                transpose_unpack_kernel<dedisp_word><<<grid, block, 0, stream>>> \
+                    ((const dedisp_word*)d_in + in_offset,      \
+                    w, h,                  \
+                    in_stride, out_stride, \
+                    (dedisp_word*)d_out + out_offset,    \
+                    block_count.x,         \
+                    block_count.y,         \
+                    in_nbits,              \
+                    scale);
+            }
+            else if (in_nbits == 32) {
+                // Run the transpose kernel for 32-bit input (no unpacking)
+                // Run the CUDA kernel
+                transpose_kernel<float><<<grid, block, 0, stream>>> \
+                    ((const float*)d_in + in_offset,      \
+                    w, h,                  \
+                    in_stride, out_stride, \
+                    (float*)d_out + out_offset,    \
+                    block_count.x,         \
+                    block_count.y,         \
+                    in_nbits,              \
+                    scale);
+            }
+            
         } // end for block_x_offset
     } // end for block_y_offset
 }

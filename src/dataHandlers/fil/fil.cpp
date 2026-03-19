@@ -257,19 +257,68 @@ void Fil::reduceRawData(const unsigned char* raw, float* data,
 // The caller is responsible for the data_ buffer being zero-initialised
 // (make_unique<float[]> guarantees this in fitscontainer / filecontainer).
 // Requires: nsamp % downsamp == 0.
-void Fil::reduceRawDataDownSamp(const unsigned char* raw, float* data,
-                                int nchan, size_t nsamp, unsigned int downsamp) {
-    // Accumulate into bins, then divide outside (same pattern as Fits).
+void Fil::reduceRawDataDownSamp(const unsigned char* raw,
+                                float* data,
+                                int nchan,
+                                size_t nsamp,
+                                unsigned int downsamp)
+{
+#pragma omp parallel for schedule(static)
+    for (size_t t_out = 0; t_out < nsamp / downsamp; ++t_out) {
+        float* out = data + t_out * (size_t)nchan;
+
+        for (size_t k = 0; k < downsamp; ++k) {
+            size_t t = t_out * downsamp + k;
+            const unsigned char* row = raw + t * (size_t)nchan;
+
+            for (int c = 0; c < nchan; ++c) {
+                out[c] += (float)row[c];
+            }
+        }
+    }
+}
+
+void Fil::reduceRawData8(const unsigned char* raw, unsigned char* data,
+                        int nchan, size_t nsamp) {
 #pragma omp parallel for schedule(static)
     for (size_t t = 0; t < nsamp; ++t) {
-        size_t t_out = t / downsamp;
         const unsigned char* row = raw + t * (size_t)nchan;
-        float*               out = data + t_out * (size_t)nchan;
+        unsigned char*     out = data + t * (size_t)nchan;
         for (int c = 0; c < nchan; ++c) {
-            // Safe for OpenMP: threads writing to the same t_out row are
-            // guaranteed to be in the same parallel-for iteration group when
-            // downsamp divides nsblk (enforced by the fitscontainer check).
-            out[c] += (float)row[c];
+            out[c] = row[c];
+        }
+    }
+}
+
+void Fil::reduceRawDataDownSamp8(const unsigned char* raw,
+                                 unsigned char* data,
+                                 int nchan,
+                                 size_t nsamp,
+                                 unsigned int downsamp) {
+    #pragma omp parallel
+    {
+        std::vector<int> acc(nchan);
+
+    #pragma omp for schedule(static)
+        for (size_t t_out = 0; t_out < nsamp / downsamp; ++t_out) {
+            unsigned char* out = data + t_out * (size_t)nchan;
+
+            std::fill(acc.begin(), acc.end(), 0);
+
+            for (size_t k = 0; k < downsamp; ++k) {
+                size_t t = t_out * downsamp + k;
+                const unsigned char* row = raw + t * (size_t)nchan;
+
+                for (int c = 0; c < nchan; ++c) {
+                    acc[c] += row[c];
+                }
+            }
+
+            for (int c = 0; c < nchan; ++c) {
+                int val = (acc[c] + downsamp / 2) / downsamp;
+                if (val > 255) val = 255;
+                out[c] = static_cast<unsigned char>(val);
+            }
         }
     }
 }
@@ -279,8 +328,6 @@ void Fil::reduceRawDataDownSamp(const unsigned char* raw, float* data,
 // -------------------------------------------------------------------------
 
 void Fil::reduceData(unsigned char* outBuf, int out_bits, int poln, unsigned int downsamp) {
-    float* data = reinterpret_cast<float*>(outBuf);
-
 #ifdef TESTDEDISP_DEBUG
     auto start_time = std::chrono::high_resolution_clock::now();
 #endif
@@ -288,19 +335,34 @@ void Fil::reduceData(unsigned char* outBuf, int out_bits, int poln, unsigned int
     const unsigned char* raw = aligned_filesize_buffer_ + headersize_;
     size_t nsamp = (size_t)dimTime_;
 
-    if (downsamp == 1) {
-        reduceRawData(raw, data, nchans_read_, nsamp);
-    } else {
-        reduceRawDataDownSamp(raw, data, nchans_read_, nsamp, downsamp);
+    if (out_bits == 32) {
+        float* data = reinterpret_cast<float*>(outBuf);
 
-        size_t reduced_len = getNumElements(downsamp);
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < reduced_len; ++i) {
-            data[i] /= downsamp;
+        if (downsamp == 1) {
+            reduceRawData(raw, data, nchans_read_, nsamp);
+        } else {
+            reduceRawDataDownSamp(raw, data, nchans_read_, nsamp, downsamp);
+
+            size_t reduced_len = getNumElements(downsamp);
+    #pragma omp parallel for schedule(static)
+            for (size_t i = 0; i < reduced_len; ++i) {
+                data[i] /= downsamp;
+            }
         }
     }
-
-    dataView_ = matrixView<float>(data, dimTime(downsamp), (size_t)nchans_read_);
+    else if (out_bits == 8) {
+        unsigned char* data = outBuf;
+        if (downsamp == 1) {
+            reduceRawData8(raw, data, nchans_read_, nsamp);
+        } else {
+            reduceRawDataDownSamp8(raw, data, nchans_read_, nsamp, downsamp);
+        }
+    }
+    else {
+        std::cerr << "Unsupported out_bits value!" << std::endl;
+        std::abort();
+    }
+    
 
 #ifdef TESTDEDISP_DEBUG
     auto end_time = std::chrono::high_resolution_clock::now();

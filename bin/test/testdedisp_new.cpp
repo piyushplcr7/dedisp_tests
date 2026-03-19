@@ -43,11 +43,15 @@ int main(int argc, char **argv) {
     listFileNames[i] = std::string(fitsfiles[i]);
   }
 
-  dataLoader container(listFileNames, 0, 1, cmd->downsamp);
-  // Contiguous buffer for assembled data
-  //container.allocContiguousAssemblyBuf(); 
-  // Reduce directly to the assembly buffer
-  // container.reduceInAssemblyBuf();
+  // nsamps scales with nfiles because Tobs is scaled already
+  dedisp_float dm_tol = 1.25;
+  dedisp_size in_nbits = cmd->nbits;
+  dedisp_size out_nbits = 32; 
+
+  dataLoader container(listFileNames, 0, 1, cmd->downsamp, in_nbits);
+
+  // If nbits is not specified, use the nbits from the container (which is determined from the input files)
+  in_nbits = in_nbits == 0 ? container.nbits() : in_nbits;
 
   std::cout << "------------------------ LOADING + REDUCING FITS ------------------------\n" << std::endl;
   size_t chunksize = HALF_MAX_CHUNKSIZE;
@@ -57,11 +61,6 @@ int main(int argc, char **argv) {
     std::cout << "\n------------------- GENERATING BARYCENTER CORRECTIONS -------------------\n" << std::endl;
     container.barycenter();
   }
-
-  // nsamps scales with nfiles because Tobs is scaled already
-  dedisp_float dm_tol = 1.25;
-  dedisp_size in_nbits = 8;
-  dedisp_size out_nbits = 32; 
   
   std::cout << "\n------------------------------ PLAN CREATION ---------------------------\n" << std::endl;
   dedisp::FDDGPUPlan plan(container, 0);

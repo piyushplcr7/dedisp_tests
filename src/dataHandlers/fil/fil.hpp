@@ -49,9 +49,6 @@ class Fil : public dataFile {
         return getNumElements(downsamp) * sizeof(float);
     }
 
-    matrixView<float>&       dataView()       { return dataView_; }
-    const matrixView<float>& dataView() const { return dataView_; }
-
     // Write the read data back to disk as a SIGPROC filterbank file.
     // Mirrors the write logic in dedisp_fil.
     void writeToDisk(const char* outfile) const;
@@ -67,8 +64,6 @@ class Fil : public dataFile {
     size_t headersize_ = 0;   // byte length of SIGPROC header
     size_t buffersize_ = 0;   // nsamp * nchan * nbit/8
 
-    matrixView<float> dataView_;
-
     // Internal helpers
     void parseHeader();
     void rajToString(double raj, char* out, size_t sz);
@@ -78,6 +73,11 @@ class Fil : public dataFile {
     void reduceRawData(const unsigned char* raw, float* data,
                        int nchan, size_t nsamp);
     void reduceRawDataDownSamp(const unsigned char* raw, float* data,
+                               int nchan, size_t nsamp, unsigned int downsamp);
+
+    void reduceRawData8(const unsigned char* raw, unsigned char* data,
+                       int nchan, size_t nsamp);
+    void reduceRawDataDownSamp8(const unsigned char* raw, unsigned char* data,
                                int nchan, size_t nsamp, unsigned int downsamp);
 
     static const char* telescopeName(int id);
