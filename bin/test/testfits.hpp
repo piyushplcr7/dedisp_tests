@@ -894,7 +894,7 @@ template <typename PlanType> int run(int argc, char **argv) {
       if (!user) user = getenv("USERNAME");  // Fallback for Windows
 
       fprintf(inf_out, "%-40s=  %s\n", " Data analyzed by", user ? user : "Unknown");
-      fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", projid, dateobs);
+      fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: %s.\n \t4 polns were not summed.  Samples have 8 bits. \n", projid, dateobs);
       
       fclose(inf_out);
       

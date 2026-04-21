@@ -243,12 +243,19 @@ void Fil::writeToDisk(const char* outfile) const {
 // Assumption: nbit = 8, nif = 1 (poln index ignored, must be 0).
 void Fil::reduceRawData(const unsigned char* raw, float* data,
                         int nchan, size_t nsamp) {
+#ifdef TESTDEDISP_DEBUG
+    float scale = 1.0f / (float)nchan;
+#endif
 #pragma omp parallel for schedule(static)
     for (size_t t = 0; t < nsamp; ++t) {
         const unsigned char* row = raw + t * (size_t)nchan;
         float*               out = data + t * (size_t)nchan;
         for (int c = 0; c < nchan; ++c) {
+#ifdef TESTDEDISP_DEBUG
+            out[c] = ((float)row[c] - 127.5f) * scale;
+#else
             out[c] = (float)row[c];
+#endif
         }
     }
 }
@@ -263,6 +270,9 @@ void Fil::reduceRawDataDownSamp(const unsigned char* raw,
                                 size_t nsamp,
                                 unsigned int downsamp)
 {
+#ifdef TESTDEDISP_DEBUG
+    float scale = 1.0f / (float)nchan;
+#endif
 #pragma omp parallel for schedule(static)
     for (size_t t_out = 0; t_out < nsamp / downsamp; ++t_out) {
         float* out = data + t_out * (size_t)nchan;
@@ -272,7 +282,11 @@ void Fil::reduceRawDataDownSamp(const unsigned char* raw,
             const unsigned char* row = raw + t * (size_t)nchan;
 
             for (int c = 0; c < nchan; ++c) {
+#ifdef TESTDEDISP_DEBUG
+                out[c] += ((float)row[c] - 127.5f) * scale;
+#else
                 out[c] += (float)row[c];
+#endif
             }
         }
     }

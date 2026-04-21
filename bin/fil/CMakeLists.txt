@@ -61,13 +61,35 @@ target_include_directories(fil_class_test PRIVATE
 target_link_libraries(fil_class_test filterbank datafile)
 
 ################################################################################
+# reduce_fil binary (debug only)
+################################################################################
+if(TESTDEDISP_DEBUG)
+add_executable(reduce_fil
+    reduce_fil.cpp
+)
+
+target_include_directories(reduce_fil PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(reduce_fil filterbank datafile)
+endif()
+
+################################################################################
 # install
 ################################################################################
+set(_FIL_INSTALL_TARGETS
+    dedisp_fil
+    tdd_fil
+    fil_class_test
+)
+if(TESTDEDISP_DEBUG)
+    list(APPEND _FIL_INSTALL_TARGETS reduce_fil)
+endif()
+
 install(
     TARGETS
-        dedisp_fil
-        tdd_fil
-        fil_class_test
+        ${_FIL_INSTALL_TARGETS}
     RUNTIME
         DESTINATION bin
 )

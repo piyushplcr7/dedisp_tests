@@ -132,13 +132,8 @@ void dataLoader::allocContiguousAssemblyBuf() {
         exit(-1);
     }
 
-    assembledDataBuffer_ = std::make_unique<float[]>(assembledDataLen_);
+    assembledDataBuffer_ = std::make_unique<float[]>(assembledDataLen_ / (32 / nbits_));
 
-    /* assembledData_ = matrixView<float> 
-        (assembledDataBuffer_.get(),  
-        listFiles_[0].dimTime(downsamp_) * numGlobFits_,
-        (size_t)channelChunkSize_
-        ); */
 }
 
 void dataLoader::ldSeq(size_t chunksize, int poln) {
@@ -174,7 +169,8 @@ void dataLoader::ldSeq(size_t chunksize, int poln) {
 #endif
 
     for (int i = 0; i < (int)listFiles_.size(); ++i) {
-        size_t offset = i * listFiles_[0]->getNumElements(downsamp_);
+        int bytes_per_samp = nbits_ / 8;
+        size_t offset = i * listFiles_[0]->getNumElements(downsamp_) * bytes_per_samp;
         auto& f = listFiles_[i];
 
         auto start1 = std::chrono::high_resolution_clock::now();
@@ -183,7 +179,8 @@ void dataLoader::ldSeq(size_t chunksize, int poln) {
         std::chrono::duration<double> diff1 = end1 - start1;
         std::cout << "Read file " << f->getFilename() << ", in " << diff1.count() << " sec, speed: " << (double)f->fileSize()/(1<<20)/diff1.count() << " MBps" << std::endl;
     
-        f->reduceData((unsigned char*)(assembledDataBuffer_.get() + offset), nbits_, poln, downsamp_);
+        auto* dataPtr = reinterpret_cast<unsigned char*>(assembledDataBuffer_.get()) + offset;
+        f->reduceData(dataPtr, nbits_, poln, downsamp_);
     }
 }
 

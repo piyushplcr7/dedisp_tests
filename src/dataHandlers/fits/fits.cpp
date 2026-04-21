@@ -1,5 +1,7 @@
 #include "fits.hpp"
+#include <cstdint>
 #include <iostream>
+#include <vector>
 #include "fitsio.h"
 #include <string.h>
 #include <chrono>
@@ -213,12 +215,7 @@ void Fits::reduceData(unsigned char* outBuf, int out_bits, int poln, unsigned in
       reduceBinaryTableDownSamp8(aligned_filesize_buffer_, data, poln, naxis1_, naxis2_,
                       nsblk_, nchans_read_, npol_, fits_header_bytesize_, timeseries_col_byte_offset_,
                       scal_offs_width_, downsamp);
-
-      size_t reducedDataLen = getNumElements(downsamp);
-      #pragma omp parallel for schedule(static)
-      for (size_t i = 0 ; i < reducedDataLen ; ++i) {
-        data[i] /= downsamp;
-      }
+      // Division with rounding is now done inside reduceBinaryTableDownSamp8
     }
   }
   else {
@@ -379,6 +376,83 @@ void Fits::reduceBinaryTable8(unsigned char *full_binary_table, unsigned char *d
   }
 }
 
+#ifdef TESTDEDISP_DEBUG
+void Fits::writeModifiedFits(const char* outfile) const {
+  // Read the entire original file into a buffer
+  FILE* fin = fopen(filename_, "rb");
+  if (!fin) {
+    fprintf(stderr, "Fits::writeModifiedFits: cannot open '%s' for reading\n", filename_);
+    return;
+  }
+  fseek(fin, 0, SEEK_END);
+  size_t total_size = (size_t)ftell(fin);
+  fseek(fin, 0, SEEK_SET);
+
+  std::vector<unsigned char> buf(total_size);
+  if (fread(buf.data(), 1, total_size, fin) != total_size) {
+    fprintf(stderr, "Fits::writeModifiedFits: short read on '%s'\n", filename_);
+    fclose(fin);
+    return;
+  }
+  fclose(fin);
+
+  // Compute the scale/offset/weight values that make the 32-bit reduction
+  // formula produce ((float)val - 127.5f) / nchan:
+  //   (val * scl + offs) * wt = (val - 127.5) / nchan
+  //   => scl = 1.0/nchan, offs = -127.5/nchan, wt = 1.0
+  float scl_val = 1.0f / (float)nchans_read_;
+  float offs_val = -127.5f / (float)nchans_read_;
+  float wts_val = 1.0f;
+
+  // Convert to big-endian (FITS stores floats big-endian)
+  auto to_big_endian = [](float f) -> uint32_t {
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof(float));
+    return bswap_32(bits);
+  };
+
+  uint32_t scl_be  = to_big_endian(scl_val);
+  uint32_t offs_be = to_big_endian(offs_val);
+  uint32_t wts_be  = to_big_endian(wts_val);
+
+  // Overwrite data_wts, data_offs, data_scl for each subint row
+  unsigned char* bin_table_start = buf.data() + fits_header_bytesize_;
+  size_t nchans_poln = (size_t)nchans_read_ * 0; // poln=0
+
+  for (size_t subint = 0; subint < (size_t)naxis2_; ++subint) {
+    float* data_wts =
+        (float*)(bin_table_start + subint * naxis1_ + timeseries_col_byte_offset_);
+    float* data_offs = data_wts + nchans_read_;
+    float* data_scl  = data_offs + scal_offs_width_;
+
+    // Overwrite weights (nchans floats)
+    for (int c = 0; c < nchans_read_; ++c) {
+      memcpy(&data_wts[c], &wts_be, sizeof(uint32_t));
+    }
+
+    // Overwrite offsets and scales for each polarization
+    for (size_t p = 0; p < (size_t)npol_; ++p) {
+      size_t idx = p * nchans_read_;
+      for (int c = 0; c < nchans_read_; ++c) {
+        memcpy(&data_offs[idx + c], &offs_be, sizeof(uint32_t));
+        memcpy(&data_scl[idx + c], &scl_be, sizeof(uint32_t));
+      }
+    }
+  }
+
+  // Write the modified buffer to the output file
+  FILE* fout = fopen(outfile, "wb");
+  if (!fout) {
+    fprintf(stderr, "Fits::writeModifiedFits: cannot open '%s' for writing\n", outfile);
+    return;
+  }
+  fwrite(buf.data(), 1, total_size, fout);
+  fclose(fout);
+
+  printf("Fits::writeModifiedFits: wrote %s (%zu bytes)\n", outfile, total_size);
+}
+#endif // TESTDEDISP_DEBUG
+
 void Fits::reduceBinaryTableDownSamp8(unsigned char *full_binary_table, unsigned char *data, int poln,
                        int naxis1, int naxis2, int nsblk, int nchans, int npol,
                        size_t data_offset_from_start, size_t data_cols_offset,
@@ -386,6 +460,10 @@ void Fits::reduceBinaryTableDownSamp8(unsigned char *full_binary_table, unsigned
   // Skipping the header
   unsigned char *bin_table_start = full_binary_table + data_offset_from_start;
   size_t nchans_poln = nchans * poln;
+
+  // Accumulate into uint16_t to avoid overflow and integer truncation
+  size_t outLen = ((size_t)naxis2 * nsblk / downsamp) * nchans;
+  std::vector<uint16_t> acc(outLen, 0);
 
 // Going over all the rows (subints) of the binary table
 #pragma omp parallel for schedule(static)
@@ -408,13 +486,16 @@ void Fits::reduceBinaryTableDownSamp8(unsigned char *full_binary_table, unsigned
           nchans * npol * spectra + nchans_poln;
       for (size_t chan = 0; chan < nchans; ++chan) 
       {
-        // No byteswapping
-        // ((nsblk * subint + spectra)/downsamp) * nchans
-
         // Ensuring nsblk % downsamp == 0 means no clashes between threads over subints
-        data[outTimeIdx * nchans + chan] += rawdata[nchans_npol_spectra_nchans_poln + chan];
+        acc[outTimeIdx * nchans + chan] += rawdata[nchans_npol_spectra_nchans_poln + chan];
       }
     }
+  }
+
+  // Round and write back to unsigned char
+  #pragma omp parallel for schedule(static)
+  for (size_t i = 0; i < outLen; ++i) {
+    data[i] = (unsigned char)((acc[i] + downsamp / 2) / downsamp);
   }
 }
 

@@ -272,14 +272,82 @@ target_link_libraries(testtdd PRIVATE GPU_TRACER_LIBS)
 
 
 ################################################################################
+# modify_fits utility (debug only)
+################################################################################
+if(TESTDEDISP_DEBUG)
+add_executable(modify_fits
+    modify_fits.cpp
+)
+
+target_include_directories(modify_fits PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CFITSIO_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fits
+)
+
+target_link_libraries(modify_fits
+    fits
+    ${CFITSIO_LIBRARY}
+)
+
+################################################################################
+# compare_fits_fil_raw utility (debug only)
+################################################################################
+add_executable(compare_fits_fil_raw
+    compare_fits_fil_raw.cpp
+)
+
+target_include_directories(compare_fits_fil_raw PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CFITSIO_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fits
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fil
+)
+
+target_link_libraries(compare_fits_fil_raw
+    fits
+    filterbank
+    ${CFITSIO_LIBRARY}
+)
+
+################################################################################
+# fits_to_fil utility (debug only)
+################################################################################
+add_executable(fits_to_fil
+    fits_to_fil.cpp
+)
+
+target_include_directories(fits_to_fil PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CFITSIO_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fits
+    ${CMAKE_SOURCE_DIR}/src/dataHandlers/fil
+)
+
+target_link_libraries(fits_to_fil
+    fits
+    filterbank
+    ${CFITSIO_LIBRARY}
+)
+
+endif()
+
+################################################################################
 # install
 ################################################################################
+set(_TEST_INSTALL_TARGETS
+    ctestdedisp
+    #testdedisp
+    testtdd
+    #testfdd
+)
+if(TESTDEDISP_DEBUG)
+    list(APPEND _TEST_INSTALL_TARGETS modify_fits compare_fits_fil_raw fits_to_fil)
+endif()
+
 install(
     TARGETS
-        ctestdedisp
-        #testdedisp
-        testtdd
-        #testfdd
+        ${_TEST_INSTALL_TARGETS}
     RUNTIME
         DESTINATION bin
 )

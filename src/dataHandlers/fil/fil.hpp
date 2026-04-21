@@ -53,6 +53,10 @@ class Fil : public dataFile {
     // Mirrors the write logic in dedisp_fil.
     void writeToDisk(const char* outfile) const;
 
+#ifdef TESTDEDISP_DEBUG
+    size_t headerSize() const noexcept { return headersize_; }
+#endif
+
     ~Fil() {}
 
   private:

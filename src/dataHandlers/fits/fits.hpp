@@ -56,6 +56,9 @@ class Fits : public dataFile {
                        size_t scal_offs_width, int downsamp);
 
     void reduceData(unsigned char* outBuf, int out_bits=32, int poln=0, unsigned int downsamp=1) override;
+#ifdef TESTDEDISP_DEBUG
+    void writeModifiedFits(const char* outfile) const;
+#endif
     bool checkDownsamp(unsigned int downsamp) const override { return nsblk_ % downsamp == 0; }
 
     size_t getDataSize(unsigned int downsamp=1) const { return getNumElements(downsamp) * sizeof(float); }
