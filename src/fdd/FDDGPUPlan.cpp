@@ -72,7 +72,7 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
 
 
   if (multout_ && !fftout_ && barycenter) {
-    int Nout = 0;
+    int Nout = inForOut.size();
     std::cout << "Writing barycentered timeseries" << std::endl;
 
     int i = 0;
@@ -262,7 +262,7 @@ void FDDGPUPlan::writeInfs(char* outfile, const dataFile* file, size_t nsamps, d
     if (!user) user = getenv("USERNAME");  // Fallback for Windows
 
     fprintf(inf_out, "%-40s=  %s\n", " Data analyzed by", user ? user : "Unknown");
-    fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: 2%s.\n \t4 polns were not summed.  Samples have 8 bits. \n", file->projid(), file->dateobs());
+    fprintf(inf_out, " Any additional notes: \n \tProject ID %s, Date: %s.\n \t4 polns were not summed.  Samples have 8 bits. \n", file->projid(), file->dateobs());
     
     fclose(inf_out);
     
