@@ -92,6 +92,26 @@ public:
 
     std::unique_ptr<float[]>& getAssembledDataBfr() { return assembledDataBuffer_; }
 
+    /*
+    * Returns a byte pointer to the start of the i-th segment in the assembled
+    * data buffer. Each segment corresponds to one file's reduced timeseries,
+    * laid out contiguously in the order they appear in listFiles_.
+    */
+    unsigned char* getSegmentPtr(int i) const;
+
+    int numLocFits() const { return numLocFits_; }
+
+    int numGlobFits() const {return numGlobFits_; }
+
+    size_t nsampsPerSegment() const { return listFiles_[0]->dimTime(downsamp_); }
+
+    /*
+    * Returns true iff all local files have the same dimTime(downsamp_).
+    * Used to validate that per-file segments in the assembled buffer are
+    * equal length.
+    */
+    bool segmentsEqualLength() const;
+
     int startChan() const { return start_chan_; }
     int endChan() const { return end_chan_; }
 

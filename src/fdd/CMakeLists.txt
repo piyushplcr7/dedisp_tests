@@ -23,7 +23,7 @@ target_include_directories(fdd PUBLIC
     )
 
 target_compile_definitions(fdd PRIVATE ${GPU_DEFINITIONS})
-target_link_libraries(fdd PRIVATE GPU_TRACER_LIBS hwlocutils fits ${CFITSIO_LIBRARY})
+target_link_libraries(fdd PRIVATE GPU_TRACER_LIBS hwlocutils fits ${CFITSIO_LIBRARY} datacontainer)
 
 ##############################
 # CLIG INTERFACE

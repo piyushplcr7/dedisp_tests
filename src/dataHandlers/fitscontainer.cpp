@@ -390,6 +390,29 @@ void dataLoader::assembleAllTimesAsync() {
     MPI_Win_free(&win); */
 }   
 
+bool dataLoader::segmentsEqualLength() const {
+    if (listFiles_.empty()) return true;
+    size_t ref = listFiles_[0]->dimTime(downsamp_);
+    for (const auto& f : listFiles_) {
+        if (f->dimTime(downsamp_) != ref) return false;
+    }
+    return true;
+}
+
+unsigned char* dataLoader::getSegmentPtr(int i) const {
+    if (assembledDataBuffer_.get() == nullptr) {
+        std::cerr << "Assembled data buffer not allocated!" << std::endl;
+        exit(-1);
+    }
+    if (i < 0 || i >= numLocFits_) {
+        std::cerr << "Segment index " << i << " out of range [0, " << numLocFits_ << ")" << std::endl;
+        exit(-1);
+    }
+    int bytes_per_samp = nbits_ / 8;
+    size_t offset = static_cast<size_t>(i) * listFiles_[0]->getNumElements(downsamp_) * bytes_per_samp;
+    return reinterpret_cast<unsigned char*>(assembledDataBuffer_.get()) + offset;
+}
+
 void dataLoader::packChannelChunk(matrixView<float> data, matrixView<float> contiguousDataView, int start_chan, int end_chan) {
     for (size_t j = 0 ; j < data.rows() ; ++j) {
         for (int chan = start_chan ; chan < end_chan ; ++chan) {

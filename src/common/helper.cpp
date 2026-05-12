@@ -32,6 +32,30 @@ void memcpy2D(
     }
 }
 
+// Element-wise += for a 2D float region.
+// Row strides (dstWidth / srcWidth) and widthBytes are all expressed in bytes,
+// matching memcpy2D's interface. widthBytes must be a multiple of sizeof(float).
+void memadd2D(
+    void *dstPtr, size_t dstWidth,
+    const void *srcPtr, size_t srcWidth,
+    size_t widthBytes, size_t height)
+{
+    const size_t widthFloats = widthBytes / sizeof(float);
+    char* dstBase       = (char*) dstPtr;
+    const char* srcBase = (const char*) srcPtr;
+
+    #pragma omp parallel for
+    for (size_t y = 0; y < height; y++)
+    {
+        float* dstRow       = (float*)       (dstBase + y * dstWidth);
+        const float* srcRow = (const float*) (srcBase + y * srcWidth);
+        for (size_t x = 0; x < widthFloats; x++)
+        {
+            dstRow[x] += srcRow[x];
+        }
+    }
+}
+
 // Assumes same width of the source and destination memory layout in 2D./
 // Also assumes float type
 void memcpy2D_width(

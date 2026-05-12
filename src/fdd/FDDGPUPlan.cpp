@@ -48,6 +48,7 @@ FDDGPUPlan::FDDGPUPlan(const dataLoader& container, int device_idx)
       nsamps_(container.nsampsLocal()),
       dt_(container.sampletime())
                {
+  container_ = &container;
 #ifdef TESTDEDISP_DEBUG
   printf("dt = %f\n", container.sampletime());
   printf("f0              = %f\n", container.f0());
@@ -126,7 +127,7 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
     
   } 
   else if (multout_ && !fftout_ && !barycenter) {
-
+    std::cout << "**********************Check for writing function" << std::endl;
     #pragma omp parallel
     {
       #pragma omp for
@@ -139,15 +140,16 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
             std::cerr << "Open failed\n";
             std::exit(1);
         }
-        size_t numtowrite = (size_t)nsamps_computed_ * out_nbits / 8;
-
+        size_t numtowrite = (nsamps_ - get_max_delay())/2 * 2; //nsamps_ + get_max_delay(); 
+        size_t bytestowrite = numtowrite * out_nbits / 8;
+        size_t dm_offset = get_max_delay(); //roundf(dmlist[out_file_idx] * h_delay_table[0] );
         ssize_t written = write(
             fd,
-            output + out_file_idx * (size_t)nsamps_computed_,
-            numtowrite
+            output + out_file_idx * (size_t)nsamps_computed_ + dm_offset,
+            bytestowrite
         );
 
-        if (written != (ssize_t)numtowrite) {
+        if (written != bytestowrite) {
             std::cerr << "Write failed\n";
             std::exit(1);
         }
@@ -312,11 +314,14 @@ void FDDGPUPlan::setOutputParams(
   }
   // output dirty timeseries
   else {
+      std::cout << "---------------nsamps_computed_ = nsamps_ + max_delay" << std::endl;
+      std::cout << "nsamps_ = " << nsamps_ << std::endl;
+      std::cout << "max_delay = " << max_delay << std::endl;
       nsamps_computed_ = nsamps_ + max_delay;
   }
 
   // Make nsamps_computed even
-  nsamps_computed_ = (nsamps_computed_/2) * 2;
+  //nsamps_computed_ = (nsamps_computed_/2) * 2;
 
   if (fftout) {
     printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
@@ -351,11 +356,29 @@ void FDDGPUPlan::execute(size_type nsamps, const byte_type *in,
                          size_type out_nbits, unsigned flags) {
   char *use_segmented_str = getenv("USE_SEGMENTED");
   bool use_segmented = !use_segmented_str ? false : atoi(use_segmented_str);
-  if (use_segmented) {
-#ifdef DEDISP_DEBUG
-    std::cout << ">> Running segmented GPU implementation" << std::endl;
+  if (use_segmented || true) {
+#ifdef TESTDEDISP_DEBUG
+    std::cout << ">> Running segmented GPU implementation (per-file segments)" << std::endl;
 #endif
-    execute_gpu_segmented(nsamps, in, in_nbits, out, out_nbits);
+    if (container_ == nullptr) {
+      std::cerr << "USE_SEGMENTED requires FDDGPUPlan constructed from a dataLoader." << std::endl;
+      exit(-1);
+    }
+    if (!container_->segmentsEqualLength()) {
+      std::cerr << "USE_SEGMENTED requires all per-file segments to have equal length." << std::endl;
+      exit(-1);
+    }
+
+    const int    nseg               = container_->numLocFits();
+    const size_t nsamps_segment     = container_->nsampsPerSegment();
+    const size_t out_seg_byte_width = nsamps_segment * (out_nbits / 8);
+
+    for (int i = 0; i < nseg; ++i) {
+      const byte_type* seg_in  = container_->getSegmentPtr(i);
+      byte_type*       seg_out = out + i * out_seg_byte_width;
+      execute_gpu(nsamps_segment, seg_in, in_nbits,
+                                seg_out, out_nbits);
+    }
   } else { // Default
 #ifdef DEDISP_DEBUG
     std::cout << ">> Running GPU implementation" << std::endl;
@@ -373,10 +396,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     BYTES_PER_WORD = sizeof(dedisp_word) / sizeof(dedisp_byte)
   };
 
-  aa_gpu_timer C2Rtimer;
+  //aa_gpu_timer C2Rtimer;
   double c2rtime = 0;
 
-  aa_gpu_timer R2Ctimer;
+  //aa_gpu_timer R2Ctimer;
   double r2ctime = 0;
 
   // Original code. Commented out to allow working directly with floats
@@ -403,10 +426,16 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   size_t nsamp = nsamps;          // number of time samples
   unsigned int ndm = m_dm_count;        // number of DMs
 
-  size_t nfreq = (nsamp_fft_ / 2 + 1); // number of spin frequencies
-  std::cout << "nsamp        = " << nsamp << std::endl;
-  std::cout << "nsamp_fft    = " << nsamp_fft_ << std::endl;
-  std::cout << "nsamp_padded = " << nsamp_padded_ << std::endl;
+  // Need to modify nsamp_fft_ and nsamp_padded_ for segment dedispersion
+  dedisp_size max_delay = get_max_delay();
+  size_t nsamp_fft_segment = closestOptimal(nsamp + max_delay,true);
+  size_t nsamp_padded_segment = 2ULL * (nsamp_fft_segment/2 + 1);
+  size_t nfreq = (nsamp_fft_segment / 2 + 1);    // number of spin frequencies
+  //size_t nsamps_computed_segment = nsamp + max_delay;
+
+  std::cout << "nsamp_segment        = " << nsamp << std::endl;
+  std::cout << "nsamp_fft_segment    = " << nsamp_fft_segment << std::endl;
+  std::cout << "nsamp_padded_segment = " << nsamp_padded_segment << std::endl;
 
   std::cout << "m_max_delay = " << m_max_delay << std::endl;
   std::cout << "nsamps_computed = " << nsamps_computed_ << std::endl;
@@ -475,7 +504,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   init_timer->Start();
 #endif
 
-  if ((nsamp_fft_ - (int) nsamp_fft_) != 0 || (nsamp_padded_ - (int) nsamp_padded_) != 0) {
+  if ((nsamp_fft_segment - (int) nsamp_fft_segment) != 0 || (nsamp_padded_segment - (int) nsamp_padded_segment) != 0) {
     std::cerr << "Too large sizes for nsamp_fft or nsamp_padded. Check FDDGPUPlan.cpp" << std::endl;
     exit(1);
   }
@@ -486,9 +515,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 #endif
   mPrepFFT.start();
   gpufftHandle plan_r2c, plan_c2r;
-  int n[] = {(int)nsamp_fft_};
-  int rnembed[] = {(int)nsamp_padded_};     // width in real elements
-  int cnembed[] = {(int)nsamp_padded_ / 2}; // width in complex elements
+  int n[] = {(int)nsamp_fft_segment};
+  int rnembed[] = {(int)nsamp_padded_segment};     // width in real elements
+  int cnembed[] = {(int)nsamp_padded_segment / 2}; // width in complex elements
 
   gpufftResult result =
       gpufftPlanMany(&plan_r2c,              // plan
@@ -518,7 +547,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Generate spin frequency table
   mPrepSpinf.start();
   if (h_spin_frequencies.size() != nfreq) {
-    generate_spin_frequency_table(nfreq, nsamp_fft_, dt);
+    generate_spin_frequency_table(nfreq, nsamp_fft_segment, dt);
   }
   mPrepSpinf.end();
 
@@ -528,8 +557,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   size_t sizeof_data_t_nu =
       1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
   size_t sizeof_data_x_nu =
-      1ULL * nchan_batch_max * nsamp_padded_ * sizeof(float);
-  size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded_ * sizeof(float);
+      1ULL * nchan_batch_max * nsamp_padded_segment * sizeof(float);
+  size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded_segment * sizeof(float);
   // For device side, initial value
   size_t d_memory_required = sizeof_data_t_nu * nchan_buffers +
                              sizeof_data_x_nu * 1 +
@@ -715,21 +744,55 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 #endif
       // copy part from pinned h_data_t_dm to part of paged return buffer out
       // GPU Host mem pointers
-      dedisp_size src_stride = 1ULL * nsamp_padded_ * out_bytes_per_sample;
+      dedisp_size src_stride = 1ULL * nsamp_padded_segment * out_bytes_per_sample;
       float* h_src_float = (float*)dm_job.h_data_t_dm->data();
       auto *h_src = (void*) h_src_float;
+
+      // Due to the left shifts, the left section is actually at the right 
+      auto *h_src_L = h_src + 1ULL * (nsamp_fft_segment - max_delay) * out_bytes_per_sample;
+      auto *h_src_R = h_src + 1ULL * (nsamps - max_delay) * out_bytes_per_sample;
+      auto *h_src_mid = h_src;
+
       // CPU mem pointers
 
-  dedisp_size dst_stride = cmd.fftoutP ? 1ULL * nsamp_padded_ * out_bytes_per_sample : 1ULL * nsamps_computed_ * out_bytes_per_sample;
+      // destination stride has nsamps_computed_ which is the global size
+      dedisp_size dst_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
+      dedisp_size width_LR   = 1ULL * max_delay * out_bytes_per_sample;
+      dedisp_size width_mid  = 1ULL * (nsamps - max_delay) * out_bytes_per_sample;
 
       dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
+
+      // out points to the top left of output array segment 
+      // (even the DM rows because of dst_offset)
       auto *h_dst = (void *)(((size_t)out) + dst_offset);
+      auto *h_dst_L = h_dst;
+      auto *h_dst_mid = h_dst + 1ULL * max_delay * out_bytes_per_sample;
+      auto *h_dst_R = h_dst + 1ULL * nsamps * out_bytes_per_sample;
+
       mCopyMem.start();
-      memcpy2D(h_dst,               // dst
+
+      // memadd left segment
+      memadd2D(h_dst_L,             // dst
                dst_stride,          // dst stride
-               h_src,               // src
+               h_src_L,             // src
                src_stride,          // src stride
-               dst_stride,          // width bytes
+               width_LR,            // width bytes
+               dm_job.ndm_current); // height
+
+      // memadd right segment
+      memadd2D(h_dst_R,             // dst
+               dst_stride,          // dst stride
+               h_src_R,             // src
+               src_stride,          // src stride
+               width_LR,            // width bytes
+               dm_job.ndm_current); // height
+
+      // memcpy middle segment
+      memcpy2D(h_dst_mid,           // dst
+               dst_stride,          // dst stride
+               h_src_mid,           // src
+               src_stride,          // src stride
+               width_mid,           // width bytes
                dm_job.ndm_current); // height
       mCopyMem.end();
 
@@ -796,7 +859,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        nchan_words_gulp,                    // input width
                        nsamp,                               // input height
                        nchan_words_gulp,                    // in_stride
-                       nsamp_padded_,                        // out_stride
+                       nsamp_padded_segment,                        // out_stride
                        d_data_x_nu,                         // d_out
                        in_nbits, 32,    // in_nbits, out_nbits
                        1.0 / nchan,     // scale
@@ -804,23 +867,23 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
       // Apply zero padding
       auto dst_ptr = ((float *)d_data_x_nu.data()) + nsamp;
-      unsigned int nsamp_padding = nsamp_padded_ - nsamp;
+      unsigned int nsamp_padding = nsamp_padded_segment - nsamp;
       gpuMemset2DAsync(dst_ptr,                       // devPtr
-                                       nsamp_padded_ * sizeof(float),  // pitch
-                                       0,                             // value
-                                       nsamp_padding * sizeof(float), // width
-                                       nchan_batch_max,               // height
-                                       *executestream);
+                        nsamp_padded_segment * sizeof(float),  // pitch
+                        0,                             // value
+                        nsamp_padding * sizeof(float), // width
+                        nchan_batch_max,               // height
+                        *executestream);
       
       // FFT data (real to complex) along time axis
       for (unsigned int i = 0; i < nchan_batch_max / nchan_fft_batch; i++) {
         gpufftReal *idata = (gpufftReal *)d_data_x_nu.data() +
-                           i * nsamp_padded_ * nchan_fft_batch;
+                           i * nsamp_padded_segment * nchan_fft_batch;
         gpufftComplex *odata = (gpufftComplex *)idata;
-        R2Ctimer.Start();
+        //R2Ctimer.Start();
         gpufftExecR2C(plan_r2c, idata, odata);
-        R2Ctimer.Stop();
-        r2ctime += R2Ctimer.Elapsed();
+        //R2Ctimer.Stop();
+        //r2ctime += R2Ctimer.Elapsed();
       }
       executestream->record(channel_job.preprocessingEnd);
 
@@ -866,8 +929,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                       d_dm_list,                 // d_dm_list
                       d_data_x_nu,               // d_in
                       d_out,                     // d_out
-                      nsamp_padded_ / 2,          // in stride
-                      nsamp_padded_ / 2,          // out stride
+                      nsamp_padded_segment / 2,  // in stride
+                      nsamp_padded_segment / 2,  // out stride
                       dm_job.idm_start,          // idm_start
                       dm_job.idm_end,            // idm_end
                       channel_job.ichan_start,   // ichan_start
@@ -940,32 +1003,32 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
 #endif
       // Get pointer to DM output data on host and on device
-      dedisp_size dm_stride = 1ULL * nsamp_padded_ * out_bytes_per_sample;
+      dedisp_size dm_stride = 1ULL * nsamp_padded_segment * out_bytes_per_sample;
       auto *h_out = dm_job.h_data_t_dm->data();
       auto *d_out = (float *)dm_job.d_data_x_dm->data();
 
       // Fourier transform results back to time domain if required
       executestream->record(dm_job.postprocessingStart);
 
-      if (!cmd.fftoutP) {
-        for (unsigned int i = 0; i < ndm_batch_max / ndm_fft_batch; i++) {
-          gpufftReal *odata =
-              (gpufftReal *)d_out + i * nsamp_padded_ * ndm_fft_batch;
-          gpufftComplex *idata = (gpufftComplex *)odata;
-          C2Rtimer.Start();
-          gpufftExecC2R(plan_c2r, idata, odata);
-          C2Rtimer.Stop();
-          c2rtime += C2Rtimer.Elapsed();
-        }
-
-        // FFT scaling
-        kernel.scale(dm_job.ndm_current, // height
-                      nsamp_padded_,       // width
-                      nsamp_padded_,       // stride
-                      1.0f / nsamp_fft_,   // scale
-                      d_out,              // d_data
-                      *executestream);    // stream
+      
+      for (unsigned int i = 0; i < ndm_batch_max / ndm_fft_batch; i++) {
+        gpufftReal *odata =
+            (gpufftReal *)d_out + i * nsamp_padded_segment * ndm_fft_batch;
+        gpufftComplex *idata = (gpufftComplex *)odata;
+        //C2Rtimer.Start();
+        gpufftExecC2R(plan_c2r, idata, odata);
+        //C2Rtimer.Stop();
+        //c2rtime += C2Rtimer.Elapsed();
       }
+
+      // FFT scaling
+      kernel.scale(dm_job.ndm_current, // height
+                    nsamp_padded_segment,       // width
+                    nsamp_padded_segment,       // stride
+                    1.0f / nsamp_fft_segment,   // scale
+                    d_out,              // d_data
+                    *executestream);    // stream
+      
       
       executestream->record(dm_job.postprocessingEnd);
 

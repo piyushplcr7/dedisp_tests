@@ -61,7 +61,7 @@ public:
     virtual void set_killmask(
         const bool_type* killmask);
 
-    float_type        get_max_delay()     const { return m_max_delay; }
+    dedisp_size       get_max_delay()     const { return m_max_delay; }
     size_type         get_channel_count() const { return m_nchans; }
     size_type         get_dm_count()      const { return m_dm_count; }
     float_type        get_dt()            const { return m_dt; }

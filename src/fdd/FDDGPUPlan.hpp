@@ -55,7 +55,7 @@ private:
         size_type        in_nbits,
         byte_type*       out,
         size_type        out_nbits);
-
+        
     // Private interface for FDD on GPU with time segmentation of input data
     virtual void execute_gpu_segmented(
         size_type        nsamps,
@@ -90,6 +90,10 @@ private:
     size_t nsamp_padded_;
 
     double dt_;
+
+    // Set by the dataLoader-aware constructor; needed by USE_SEGMENTED mode
+    // to fetch per-segment input pointers via getSegmentPtr().
+    const dataLoader* container_ = nullptr;
 };
 
 } // end namespace dedisp

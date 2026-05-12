@@ -18,6 +18,11 @@ void memcpy2D(
     const void *srcPtr, size_t srcWidth,
     size_t widthBytes, size_t height);
 
+void memadd2D(
+    void *dstPtr, size_t dstWidth,
+    const void *srcPtr, size_t srcWidth,
+    size_t widthBytes, size_t height);
+
 void memcpy2D_width(
     void *dstPtr, size_t dstHeight,
     const void *srcPtr, size_t srcHeight,
