@@ -21,7 +21,7 @@ public:
         float_type df,
         int device_idx = 0);
 
-    FDDGPUPlan(const dataLoader& container, int device_idx = 0);
+    FDDGPUPlan(const dataLoader& container, int device_idx);
 
     void writeOutput(char* outfile, int w, bool barycenter, const std::vector<int>& inForOut);
 
@@ -90,6 +90,8 @@ private:
     size_t nsamp_padded_;
 
     double dt_;
+
+    int device_idx_;
 
     // Set by the dataLoader-aware constructor; needed by USE_SEGMENTED mode
     // to fetch per-segment input pointers via getSegmentPtr().

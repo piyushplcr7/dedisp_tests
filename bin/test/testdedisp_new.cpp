@@ -1,4 +1,5 @@
 #include <iostream>
+#include <mpi.h>
 #include "fdd_gpu.h"
 #include "fitscontainer.hpp"
 #include <vector>
@@ -7,11 +8,42 @@
 #include "cufft_optimal_size.hpp"
 #include "fdd/helper.h"
 #include "FDDGPUPlan.hpp"
+#include "gpu_runtime.hpp"
 
 int main(int argc, char **argv) {
-  std::cout << "=========================================================================\n\n";
-  std::cout << "                     GPU Fourier Domain Dedispersion         " << std::endl;
-  std::cout << "                            By Piyush Panchal         \n" << std::endl;
+  MPI_Init(&argc, &argv);
+  int mpi_rank = 0, mpi_size = 1;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+  int gpu_device_id = 0;
+  int num_gpus = 0;
+  gpuGetDeviceCount(&num_gpus);
+  const char *localid_str = std::getenv("SLURM_LOCALID");
+  const char *ntasks_str  = std::getenv("SLURM_NTASKS_PER_NODE");
+  if (localid_str && ntasks_str) {
+    int local_id = std::atoi(localid_str);
+    int ntasks   = std::atoi(ntasks_str);
+    if (ntasks > 0)
+      gpu_device_id = local_id * (num_gpus / ntasks);
+  }
+  gpuSetDevice(gpu_device_id);
+  gpuGetDevice(&gpu_device_id);
+
+#ifdef TESTDEDISP_DEBUG
+  printf("[rank %d/%d] num_gpus=%d, SLURM_LOCALID=%s, SLURM_NTASKS_PER_NODE=%s, gpu device %d\n",
+         mpi_rank, mpi_size, num_gpus,
+         localid_str ? localid_str : "unset",
+         ntasks_str ? ntasks_str : "unset",
+         gpu_device_id);
+  fflush(stdout);
+#endif
+
+  if (mpi_rank == 0) {
+    std::cout << "=========================================================================\n\n";
+    std::cout << "                     GPU Fourier Domain Dedispersion         " << std::endl;
+    std::cout << "                            By Piyush Panchal         \n" << std::endl;
+  }
   // Parse the CLI args
   Cmdline *cmd = parseCmdline(argc, argv);
   int nfiles = cmd->argc;
@@ -48,7 +80,7 @@ int main(int argc, char **argv) {
   dedisp_size in_nbits = cmd->nbits;
   dedisp_size out_nbits = 32; 
 
-  dataLoader container(listFileNames, 0, 1, cmd->downsamp, in_nbits);
+  dataLoader container(listFileNames, mpi_rank, mpi_size, cmd->downsamp, in_nbits);
 
   // If nbits is not specified, use the nbits from the container (which is determined from the input files)
   in_nbits = in_nbits == 0 ? container.nbits() : in_nbits;
@@ -63,7 +95,7 @@ int main(int argc, char **argv) {
   }
   
   std::cout << "\n------------------------------ PLAN CREATION ---------------------------\n" << std::endl;
-  dedisp::FDDGPUPlan plan(container, 0);
+  dedisp::FDDGPUPlan plan(container, gpu_device_id);
 
   std::cout << "\n--------------------------- GENERATING DM LIST --------------------------\n" << std::endl;
   // Generate a list of dispersion measures for the plan
@@ -96,9 +128,10 @@ int main(int argc, char **argv) {
 
   if (cmd->dmstepW == 0)
     cmd->dmstepW = 2;
-  plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
+  //plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
   plan.writeInfs(cmd->outfile, container.getFileVector()[0].get(), container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
   std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
 
+  MPI_Finalize();
   return 0;
 }

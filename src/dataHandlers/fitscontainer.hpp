@@ -40,6 +40,12 @@ private:
     size_t assembledDataLen_ = 0;
 
     size_t nsampsLocal_ = 0;
+    size_t nsampsGlobal_ = 0;
+
+    // Header-only handle to the very first global file (listFitsNames[0]),
+    // opened on every rank so barycenter() can compute the global resample
+    // map deterministically without MPI communication.
+    std::unique_ptr<dataFile> firstFile_;
 
     std::unique_ptr<float[]> assembledDataBuffer_;
 
@@ -53,6 +59,8 @@ public:
     const std::vector<int>& getInsertPositions() const { return insertPositions_; }
     const std::vector<int>& getInForOut() const { return inForOut_; }
     const std::vector<int>& getDiffbins() const { return diffbins_; }
+    const int getMPIRank() const {return world_rank_;}
+    const int getMPISize() const {return world_size_;}
 
     /*
     * Constructor for the distributed Fits data storage. The input is the list
@@ -122,6 +130,8 @@ public:
     double sampletime() const { return listFiles_[0]->sampletime(downsamp_); }
 
     size_t nsampsLocal() const { return nsampsLocal_; }
+
+    size_t nsampsGlobal() const { return nsampsGlobal_; }
 
     double f0() const { return listFiles_[0]->f0(); }
 

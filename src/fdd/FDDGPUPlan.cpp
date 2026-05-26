@@ -31,12 +31,13 @@
 
 #include <unistd.h>   
 #include <fcntl.h>    
+#include <mpi.h>
 
 namespace dedisp {
 // Constructor
 FDDGPUPlan::FDDGPUPlan(size_type nchans, float_type dt, float_type f0,
                        float_type df, int device_idx)
-    : GPUPlan(nchans, dt, f0, df, device_idx) {}
+    : GPUPlan(nchans, dt, f0, df, device_idx), device_idx_(device_idx) {}
 
 FDDGPUPlan::FDDGPUPlan(const dataLoader& container, int device_idx)
     : GPUPlan(container.nchansLocal(), 
@@ -45,6 +46,7 @@ FDDGPUPlan::FDDGPUPlan(const dataLoader& container, int device_idx)
               container.ddf(), 
               container.avgvoverc(),
               device_idx),
+      device_idx_(device_idx),
       nsamps_(container.nsampsLocal()),
       dt_(container.sampletime())
                {
@@ -369,8 +371,8 @@ void FDDGPUPlan::execute(size_type nsamps, const byte_type *in,
       exit(-1);
     }
 
-    const int    nseg               = container_->numLocFits();
-    const size_t nsamps_segment     = container_->nsampsPerSegment();
+    const int    nseg               = 1; //container_->numLocFits();
+    const size_t nsamps_segment     = container_->nsampsLocal() ;//nsampsPerSegment();
     const size_t out_seg_byte_width = nsamps_segment * (out_nbits / 8);
 
     for (int i = 0; i < nseg; ++i) {
@@ -726,7 +728,24 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   // Launch thread to copy output data from device to host for each dm_job
   std::thread output_thread = std::thread([&]() {
-    gpuSetDevice(0);
+    gpuSetDevice(device_idx_);
+    float* sendbuf = new float[max_delay * ndm_batch_max];
+    float* recvbuf = new float[max_delay * ndm_batch_max];
+
+    int mpi_rank = container_->getMPIRank();
+    int mpi_size = container_->getMPISize();
+
+    int dest = mpi_rank + 1;
+    int source = mpi_rank - 1;
+
+    if (mpi_rank == mpi_size - 1) {
+      dest = MPI_PROC_NULL;   // last process sends to nobody
+    }
+
+    if (mpi_rank == 0) {
+        source = MPI_PROC_NULL; // first process receives from nobody
+    }
+
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
       auto &dm_job = dm_jobs[job_id];
 
@@ -749,51 +768,99 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto *h_src = (void*) h_src_float;
 
       // Due to the left shifts, the left section is actually at the right 
-      auto *h_src_L = h_src + 1ULL * (nsamp_fft_segment - max_delay) * out_bytes_per_sample;
-      auto *h_src_R = h_src + 1ULL * (nsamps - max_delay) * out_bytes_per_sample;
-      auto *h_src_mid = h_src;
-
-      // CPU mem pointers
-
-      // destination stride has nsamps_computed_ which is the global size
-      dedisp_size dst_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
-      dedisp_size width_LR   = 1ULL * max_delay * out_bytes_per_sample;
-      dedisp_size width_mid  = 1ULL * (nsamps - max_delay) * out_bytes_per_sample;
-
-      dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
-
-      // out points to the top left of output array segment 
-      // (even the DM rows because of dst_offset)
-      auto *h_dst = (void *)(((size_t)out) + dst_offset);
-      auto *h_dst_L = h_dst;
-      auto *h_dst_mid = h_dst + 1ULL * max_delay * out_bytes_per_sample;
-      auto *h_dst_R = h_dst + 1ULL * nsamps * out_bytes_per_sample;
+      auto *h_src_L = h_src;
+      auto *h_src_R = h_src + 1ULL * nsamps * out_bytes_per_sample;
+      auto *h_src_mid = h_src + 1ULL * max_delay * out_bytes_per_sample;
 
       mCopyMem.start();
+      // Overlap-add and write using the temporary buffers directly
 
-      // memadd left segment
-      memadd2D(h_dst_L,             // dst
-               dst_stride,          // dst stride
-               h_src_L,             // src
-               src_stride,          // src stride
-               width_LR,            // width bytes
-               dm_job.ndm_current); // height
+      // Pack data into sendbuf if rank not last
+      if (mpi_rank != mpi_size - 1) {
+        memcpy2D((void*) sendbuf,           // dst
+                max_delay * out_bytes_per_sample,          // dst stride
+                h_src_R,           // src
+                src_stride,          // src stride
+                max_delay * out_bytes_per_sample,           // width bytes
+                ndm_batch_max); // height
+      }
 
-      // memadd right segment
-      memadd2D(h_dst_R,             // dst
-               dst_stride,          // dst stride
-               h_src_R,             // src
-               src_stride,          // src stride
-               width_LR,            // width bytes
-               dm_job.ndm_current); // height
+      MPI_Sendrecv(
+          sendbuf, max_delay * ndm_batch_max, MPI_FLOAT, dest,   mpi_rank, // mpi_rank_ sends this message
+          recvbuf, max_delay * ndm_batch_max, MPI_FLOAT, source, mpi_rank - 1,
+          MPI_COMM_WORLD, MPI_STATUS_IGNORE
+      );
 
-      // memcpy middle segment
-      memcpy2D(h_dst_mid,           // dst
-               dst_stride,          // dst stride
-               h_src_mid,           // src
-               src_stride,          // src stride
-               width_mid,           // width bytes
-               dm_job.ndm_current); // height
+      // memadd2D if rank is not first
+      if (mpi_rank != 0) {
+        memadd2D(h_src_L,             // dst
+                src_stride,          // dst stride
+                (void*) recvbuf,             // src
+                max_delay * out_bytes_per_sample,          // src stride
+                max_delay * out_bytes_per_sample,            // width bytes
+                ndm_batch_max); // height
+      }
+      
+      // Now, make all procs write the first nsamps_ values except for process zero
+      // process zero writes nsamps_ - max_delay by starting at col max delay to
+      // discard useless data
+      //
+      // Per-rank slice in each DM row of h_src:
+      //   rank 0  : skip first max_delay (junk left fringe),
+      //             write nsamps - max_delay samples at global byte offset 0
+      //   rank r>0: skip nothing,
+      //             write nsamps samples at global byte offset
+      //             (r * nsamps - max_delay) * out_bytes_per_sample
+      //
+      // One file per DM. MPI_File_open with MPI_COMM_WORLD is collective —
+      // every rank must call it in lock-step on the same file. That's
+      // satisfied here because dm_jobs and dm ranges are identical across
+      // ranks (DMs aren't partitioned; segments are).
+      //
+      // TODO: source outfile_basename and dmstepW from a setter (or extend
+      // setOutputParams). Hardcoded defaults below mirror writeOutput().
+      // TODO: barycenter path (inForOut is global → reindex per rank).
+      // TODO: fftout / single-allDMs.dat paths.
+      // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
+      {
+        const char* outfile_basename = "/scratch/panchal/segmentout/oot";
+        const int   dmstepW          = 2;
+        const dedisp_float* dmlist   = get_dm_list();
+
+        const size_t     local_skip_bytes = (mpi_rank == 0)
+            ? (size_t)max_delay * out_bytes_per_sample : 0;
+        const size_t     write_bytes      = (mpi_rank == 0)
+            ? (size_t)(nsamps - max_delay) * out_bytes_per_sample
+            : (size_t)nsamps * out_bytes_per_sample;
+        const MPI_Offset global_byte_off  = (mpi_rank == 0)
+            ? (MPI_Offset)0
+            : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
+                * out_bytes_per_sample;
+        const int        mpi_count        = (int)(write_bytes / sizeof(float));
+
+        for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
+          const unsigned idm = dm_job.idm_start + j;
+
+          char outname[256];
+          snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
+                   outfile_basename, dmstepW, dmlist[idm]);
+
+          MPI_File fh;
+          MPI_File_open(MPI_COMM_WORLD, outname,
+                        MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                        MPI_INFO_NULL, &fh);
+
+          const char* row_base = (const char*)h_src + (size_t)j * src_stride;
+          MPI_File_write_at(fh,
+                            global_byte_off,
+                            row_base + local_skip_bytes,
+                            mpi_count, MPI_FLOAT,
+                            MPI_STATUS_IGNORE);
+
+          MPI_File_close(&fh);
+        }
+      }
+
       mCopyMem.end();
 
       // Signal that the host buffer can be used again
@@ -801,6 +868,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         dm_jobs[job_id + ndm_buffers].gpu_lock.unlock();
       }
     }
+    delete[] sendbuf;
+    delete[] recvbuf;
   });
 #ifdef DEDISP_DEBUG
   std::cout << fdd_dedispersion_str << std::endl;
@@ -860,18 +929,26 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                        nsamp,                               // input height
                        nchan_words_gulp,                    // in_stride
                        nsamp_padded_segment,                        // out_stride
-                       d_data_x_nu,                         // d_out
+                       (float*)d_data_x_nu + max_delay,                         // d_out
                        in_nbits, 32,    // in_nbits, out_nbits
                        1.0 / nchan,     // scale
                        *executestream); // stream
 
-      // Apply zero padding
-      auto dst_ptr = ((float *)d_data_x_nu.data()) + nsamp;
-      unsigned int nsamp_padding = nsamp_padded_segment - nsamp;
-      gpuMemset2DAsync(dst_ptr,                       // devPtr
+      // Apply zero padding R
+      auto dst_ptr_R = ((float *)d_data_x_nu.data()) + nsamp + max_delay;
+      unsigned int nsamp_padding = nsamp_padded_segment - nsamp - max_delay;
+      gpuMemset2DAsync(dst_ptr_R,                       // devPtr
                         nsamp_padded_segment * sizeof(float),  // pitch
                         0,                             // value
                         nsamp_padding * sizeof(float), // width
+                        nchan_batch_max,               // height
+                        *executestream);
+      // Apply zero padding L
+      auto dst_ptr_L = ((float *)d_data_x_nu.data());
+      gpuMemset2DAsync(dst_ptr_L,                       // devPtr
+                        nsamp_padded_segment * sizeof(float),  // pitch
+                        0,                             // value
+                        max_delay * sizeof(float), // width
                         nchan_batch_max,               // height
                         *executestream);
       

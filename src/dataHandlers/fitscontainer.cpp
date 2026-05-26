@@ -75,12 +75,14 @@ dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, 
     const std::string& firstFile = listFitsNames[0];
     if (firstFile.size() >= 4 && firstFile.substr(firstFile.size() - 4) == ".fil") {
         std::cout << "Input files are filterbank files" << std::endl;
+        firstFile_ = std::make_unique<Fil>(firstFile.c_str());
         if (nbits_ == 0) {
             std::cout << "nbits not specified, defaulting to " << nbits_ << " bits for filterbank files" << std::endl;
         }
         nbits_ = nbits_ == 0 ? 8 : nbits_; // default to 8 bits for filterbank files if nbits not specified 
     } else if (firstFile.size() >= 5 && firstFile.substr(firstFile.size() - 5) == ".fits") {
         std::cout << "Input files are fits files" << std::endl;
+        firstFile_ = std::make_unique<Fits>(firstFile.c_str());
         if (nbits_ == 0) {
             std::cout << "nbits not specified, defaulting to " << nbits_ << " bits for fits files" << std::endl;
         }
@@ -95,7 +97,8 @@ dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, 
             listFiles_.emplace_back(std::make_unique<Fits>(fname.c_str()));
         }
     }
-    
+    nsampsGlobal_ = firstFile_->dimTime(downsamp_) * numGlobFits_;
+
     if (!listFiles_[0]->checkDownsamp(downsamp_)) {
         std::cerr << "Downsampling factor "
         << downsamp_ << " not allowed! Please choose a different value" << std::endl;
@@ -104,7 +107,7 @@ dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, 
 
 #ifdef TESTDEDISP_DEBUG
     if (world_rank_ == 0) {
-        listFiles_[0]->printInfo();
+        firstFile_->printInfo();
     }
 #endif
 
@@ -185,23 +188,26 @@ void dataLoader::ldSeq(size_t chunksize, int poln) {
 }
 
 void dataLoader::barycenter() {
-    // Calculate delays and vels
+    // Barycentric corrections must be computed against the FULL global time
+    // series (start epoch + total length), not the local chunk. firstFile_
+    // is opened on every rank in the constructor so this is deterministic
+    // and identical across ranks without any communication.
     std::vector<double> voverc;
-    std::tie(diffbins_, voverc, blotoa_) = calcDelaysAndVels(listFiles_[0]->rightAscension(),
-                                                    listFiles_[0]->declination(),
-                                                    listFiles_[0]->obs(),
-                                                    listFiles_[0]->ephem(),
-                                                    nsampsLocal_,
-                                                    listFiles_[0]->sampletime(downsamp_),
-                                                    listFiles_[0]->epoch());
+    std::tie(diffbins_, voverc, blotoa_) = calcDelaysAndVels(firstFile_->rightAscension(),
+                                                    firstFile_->declination(),
+                                                    firstFile_->obs(),
+                                                    firstFile_->ephem(),
+                                                    nsampsGlobal_,
+                                                    firstFile_->sampletime(downsamp_),
+                                                    firstFile_->epoch());
 
     // Calculate the net shift
     int net_shift = 0;
     for (auto x: diffbins_) {
-        if (x > 0 && abs(x) < nsampsLocal_) {
+        if (x > 0 && abs(x) < nsampsGlobal_) {
             net_shift++;
         }
-        else if (x < 0 && abs(x) < nsampsLocal_) {
+        else if (x < 0 && abs(x) < nsampsGlobal_) {
             net_shift--;
         }
     }
@@ -217,11 +223,11 @@ void dataLoader::barycenter() {
     }
     avgvoverc_ /= voverc.size();
 
-    std::cout << "Average topocentric velocity (c) = " << std::setprecision(7) << avgvoverc_ << std::endl; 
-    std::cout << "Maximum topocentric velocity (c) = " << std::setprecision(7) << maxvoverc_ << std::endl; 
-    std::cout << "Minimum topocentric velocity (c) = " << std::setprecision(7) << minvoverc_ << std::endl; 
+    std::cout << "Average topocentric velocity (c) = " << std::setprecision(7) << avgvoverc_ << std::endl;
+    std::cout << "Maximum topocentric velocity (c) = " << std::setprecision(7) << maxvoverc_ << std::endl;
+    std::cout << "Minimum topocentric velocity (c) = " << std::setprecision(7) << minvoverc_ << std::endl;
 
-    size_t N_out = nsampsLocal_ + net_shift;
+    size_t N_out = nsampsGlobal_ + net_shift;
     // Count bin removals and additions
     int removals = std::ranges::count_if(diffbins_, [](int x){ return x < 0; });
     int additions = std::ranges::count_if(diffbins_, [](int x){ return x > 0; });
@@ -230,7 +236,7 @@ void dataLoader::barycenter() {
     // Creat resample map inForOut
     inForOut_.resize(N_out);
     insertPositions_.resize(additions);
-    createResampleMap(nsampsLocal_, N_out, diffbins_.data(), diffbins_.size(), inForOut_.data(), insertPositions_.data());
+    createResampleMap(nsampsGlobal_, N_out, diffbins_.data(), diffbins_.size(), inForOut_.data(), insertPositions_.data());
 
     //barycentered_data = new float[N_out * nchansLocal()];
 
