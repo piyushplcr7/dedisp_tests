@@ -4,6 +4,7 @@
 * 2D Memory Copy helper function.
 */
 #include "helper.h"
+#include <cstring>
 #include <unistd.h> // get total memory
 #include <sys/resource.h> // get used memory
 
@@ -16,19 +17,15 @@ void memcpy2D(
     const void *srcPtr, size_t srcWidth,
     size_t widthBytes, size_t height)
 {
-    typedef char SrcType[height][srcWidth];
-    typedef char DstType[height][dstWidth];
-
-    auto src = (SrcType *) srcPtr;
-    auto dst = (DstType *) dstPtr;
+    char* dstBase       = (char*) dstPtr;
+    const char* srcBase = (const char*) srcPtr;
 
     #pragma omp parallel for
     for (size_t y = 0; y < height; y++)
     {
-        for (size_t x = 0; x < widthBytes; x++)
-        {
-            (*dst)[y][x] = (*src)[y][x];
-        }
+        std::memcpy(dstBase + y * dstWidth,
+                    srcBase + y * srcWidth,
+                    widthBytes);
     }
 }
 

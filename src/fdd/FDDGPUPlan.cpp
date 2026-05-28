@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <deque>
 #include <mutex>
 #include <thread>
 
@@ -489,6 +490,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   cu::Event eStartGPU, eEndGPU;
   cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
   cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
+  cu::Marker mMPI("MPI Communication and file write", cu::Marker::red);
   cu::Marker mPrepFFT("cufft Plan Many", cu::Marker::yellow);
   cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
   cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
@@ -699,6 +701,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     unsigned int ndm_current;
     std::mutex cpu_lock;
     std::mutex gpu_lock;
+    std::mutex out_lock;
     cu::HostMemory *h_data_t_dm;
     cu::DeviceMemory *d_data_x_dm;
     cu::Event inputStart, inputEnd;
@@ -721,30 +724,146 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       dm_jobs.pop_back();
     }
     job.cpu_lock.lock();
-    if (job_id > ndm_buffers) {
+    job.out_lock.lock();
+    if (job_id >= ndm_buffers) {
       job.gpu_lock.lock();
     }
   }
 
-  // Launch thread to copy output data from device to host for each dm_job
-  std::thread output_thread = std::thread([&]() {
-    gpuSetDevice(device_idx_);
+  // Launch thread to manage MPI communication, data reduction and output
+  std::thread mpi_thread = std::thread([&]() {
+    // Buffers for communication
     float* sendbuf = new float[max_delay * ndm_batch_max];
     float* recvbuf = new float[max_delay * ndm_batch_max];
 
     int mpi_rank = container_->getMPIRank();
     int mpi_size = container_->getMPISize();
 
-    int dest = mpi_rank + 1;
-    int source = mpi_rank - 1;
+    // If last rank, no destination, otherwise the next rank is the dest
+    int dest = (mpi_rank == mpi_size - 1) ? MPI_PROC_NULL : mpi_rank + 1;
 
-    if (mpi_rank == mpi_size - 1) {
-      dest = MPI_PROC_NULL;   // last process sends to nobody
+    // If first rank, no source, otherwise the previous rank is source
+    int source = (mpi_rank == 0) ? MPI_PROC_NULL : mpi_rank - 1;
+
+    // Bounded ring of in-flight per-DM file writes. Each entry owns one
+    // MPI_File handle and its outstanding MPI_File_iwrite_at request. We
+    // close (which waits) once the ring is full or at the end of the run.
+    // Sized small enough to stay clear of common fd limits even with
+    // hundreds of ranks * tens of DMs in flight per rank.
+    // TODO: source outfile_basename and dmstepW from a setter (or extend
+    // setOutputParams). Hardcoded defaults below mirror writeOutput().
+    // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
+    struct PendingWrite { MPI_File fh; MPI_Request req; };
+    constexpr size_t max_inflight_writes = 32;
+    std::deque<PendingWrite> inflight_writes;
+    auto drain_one_write = [&]() {
+      auto &pw = inflight_writes.front();
+      MPI_Wait(&pw.req, MPI_STATUS_IGNORE);
+      MPI_File_close(&pw.fh);
+      inflight_writes.pop_front();
+    };
+
+    const char* outfile_basename = "/scratch/panchal/segmentout/oot";
+    const int   dmstepW          = 2;
+    const dedisp_float* dmlist   = get_dm_list();
+
+    // Per-rank slice within each DM row of the paged `out` buffer:
+    //   rank 0   : skip first max_delay junk samples, write nsamps - max_delay
+    //   rank r>0 : skip nothing, write nsamps samples
+    // Global byte offset places rank r's slice immediately after rank r-1.
+    const size_t local_skip_bytes = (mpi_rank == 0)
+        ? (size_t)max_delay * out_bytes_per_sample : 0;
+    const size_t write_bytes      = (mpi_rank == 0)
+        ? (size_t)(nsamps - max_delay) * out_bytes_per_sample
+        : (size_t)nsamps * out_bytes_per_sample;
+    const MPI_Offset global_byte_off = (mpi_rank == 0)
+        ? (MPI_Offset)0
+        : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
+            * out_bytes_per_sample;
+    const int mpi_count = (int)(write_bytes / sizeof(float));
+
+    // Go over all DM jobs
+    for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
+      auto &dm_job = dm_jobs[job_id];
+
+      dedisp_size out_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
+      dedisp_size out_offset = 1ULL * dm_job.idm_start * out_stride;
+      auto* out_curr_dmjob = (void*)out + out_offset;
+      auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
+
+      // Try to acquire the out_lock. It can be done only when the output buffer is populated
+      dm_job.out_lock.lock();
+
+      // Perform MPI communication for current DM job
+      // We first pack the R data into the contiguous buffer sendbuf
+      if (mpi_rank != mpi_size - 1) {
+        memcpy2D((void*) sendbuf,           // dst
+                max_delay * out_bytes_per_sample,          // dst stride
+                out_curr_dmjob_R,           // src
+                out_stride,          // src stride
+                max_delay * out_bytes_per_sample,           // width bytes
+                dm_job.ndm_current); // height
+      }
+
+      // Send recv call for communication
+      MPI_Sendrecv(
+          sendbuf, max_delay * ndm_batch_max, MPI_FLOAT, dest,   mpi_rank, // mpi_rank_ sends this message
+          recvbuf, max_delay * ndm_batch_max, MPI_FLOAT, source, mpi_rank - 1,
+          MPI_COMM_WORLD, MPI_STATUS_IGNORE
+      );
+
+      // Unpacking the data and doing memadd2D if rank not first
+      if (mpi_rank != 0) {
+        memadd2D(out_curr_dmjob,             // dst
+                out_stride,          // dst stride
+                (void*) recvbuf,             // src
+                max_delay * out_bytes_per_sample,          // src stride
+                max_delay * out_bytes_per_sample,            // width bytes
+                dm_job.ndm_current); // height
+      }
+
+      // Output buffer for current DM batch is ready. Launch non-blocking
+      // per-DM writes (one file per DM, MPI_COMM_SELF so ranks proceed
+      // independently). Disjoint byte ranges per rank → no shared-file
+      // consistency concern. Ring-drain throttles outstanding writes.
+      for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
+        if (inflight_writes.size() >= max_inflight_writes) {
+          drain_one_write();
+        }
+
+        const unsigned idm = dm_job.idm_start + j;
+        char outname[256];
+        snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
+                 outfile_basename, dmstepW, dmlist[idm]);
+
+        PendingWrite pw;
+        MPI_File_open(MPI_COMM_SELF, outname,
+                      MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                      MPI_INFO_NULL, &pw.fh);
+
+        const char* row_base =
+            (const char*)out_curr_dmjob + (size_t)j * out_stride;
+        MPI_File_iwrite_at(pw.fh, global_byte_off,
+                           row_base + local_skip_bytes,
+                           mpi_count, MPI_FLOAT, &pw.req);
+
+        inflight_writes.push_back(pw);
+      }
     }
 
-    if (mpi_rank == 0) {
-        source = MPI_PROC_NULL; // first process receives from nobody
+    // Drain any remaining in-flight writes before exiting the thread.
+    while (!inflight_writes.empty()) {
+      drain_one_write();
     }
+
+    // De-allocate the buffers
+    delete[] sendbuf;
+    delete[] recvbuf;
+  });
+
+  // Launch thread to copy output data from device to host for each dm_job
+  std::thread output_thread = std::thread([&]() {
+    gpuSetDevice(device_idx_);
 
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
       auto &dm_job = dm_jobs[job_id];
@@ -767,110 +886,29 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       float* h_src_float = (float*)dm_job.h_data_t_dm->data();
       auto *h_src = (void*) h_src_float;
 
-      // Due to the left shifts, the left section is actually at the right 
-      auto *h_src_L = h_src;
-      auto *h_src_R = h_src + 1ULL * nsamps * out_bytes_per_sample;
-      auto *h_src_mid = h_src + 1ULL * max_delay * out_bytes_per_sample;
+      dedisp_size dst_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
+      dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
+      auto* h_dst = (void*)out + dst_offset;
 
       mCopyMem.start();
-      // Overlap-add and write using the temporary buffers directly
-
-      // Pack data into sendbuf if rank not last
-      if (mpi_rank != mpi_size - 1) {
-        memcpy2D((void*) sendbuf,           // dst
-                max_delay * out_bytes_per_sample,          // dst stride
-                h_src_R,           // src
-                src_stride,          // src stride
-                max_delay * out_bytes_per_sample,           // width bytes
-                ndm_batch_max); // height
-      }
-
-      MPI_Sendrecv(
-          sendbuf, max_delay * ndm_batch_max, MPI_FLOAT, dest,   mpi_rank, // mpi_rank_ sends this message
-          recvbuf, max_delay * ndm_batch_max, MPI_FLOAT, source, mpi_rank - 1,
-          MPI_COMM_WORLD, MPI_STATUS_IGNORE
-      );
-
-      // memadd2D if rank is not first
-      if (mpi_rank != 0) {
-        memadd2D(h_src_L,             // dst
-                src_stride,          // dst stride
-                (void*) recvbuf,             // src
-                max_delay * out_bytes_per_sample,          // src stride
-                max_delay * out_bytes_per_sample,            // width bytes
-                ndm_batch_max); // height
-      }
-      
-      // Now, make all procs write the first nsamps_ values except for process zero
-      // process zero writes nsamps_ - max_delay by starting at col max delay to
-      // discard useless data
-      //
-      // Per-rank slice in each DM row of h_src:
-      //   rank 0  : skip first max_delay (junk left fringe),
-      //             write nsamps - max_delay samples at global byte offset 0
-      //   rank r>0: skip nothing,
-      //             write nsamps samples at global byte offset
-      //             (r * nsamps - max_delay) * out_bytes_per_sample
-      //
-      // One file per DM. MPI_File_open with MPI_COMM_WORLD is collective —
-      // every rank must call it in lock-step on the same file. That's
-      // satisfied here because dm_jobs and dm ranges are identical across
-      // ranks (DMs aren't partitioned; segments are).
-      //
-      // TODO: source outfile_basename and dmstepW from a setter (or extend
-      // setOutputParams). Hardcoded defaults below mirror writeOutput().
-      // TODO: barycenter path (inForOut is global → reindex per rank).
-      // TODO: fftout / single-allDMs.dat paths.
-      // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
-      {
-        const char* outfile_basename = "/scratch/panchal/segmentout/oot";
-        const int   dmstepW          = 2;
-        const dedisp_float* dmlist   = get_dm_list();
-
-        const size_t     local_skip_bytes = (mpi_rank == 0)
-            ? (size_t)max_delay * out_bytes_per_sample : 0;
-        const size_t     write_bytes      = (mpi_rank == 0)
-            ? (size_t)(nsamps - max_delay) * out_bytes_per_sample
-            : (size_t)nsamps * out_bytes_per_sample;
-        const MPI_Offset global_byte_off  = (mpi_rank == 0)
-            ? (MPI_Offset)0
-            : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
-                * out_bytes_per_sample;
-        const int        mpi_count        = (int)(write_bytes / sizeof(float));
-
-        for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          const unsigned idm = dm_job.idm_start + j;
-
-          char outname[256];
-          snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
-                   outfile_basename, dmstepW, dmlist[idm]);
-
-          MPI_File fh;
-          MPI_File_open(MPI_COMM_WORLD, outname,
-                        MPI_MODE_CREATE | MPI_MODE_WRONLY,
-                        MPI_INFO_NULL, &fh);
-
-          const char* row_base = (const char*)h_src + (size_t)j * src_stride;
-          MPI_File_write_at(fh,
-                            global_byte_off,
-                            row_base + local_skip_bytes,
-                            mpi_count, MPI_FLOAT,
-                            MPI_STATUS_IGNORE);
-
-          MPI_File_close(&fh);
-        }
-      }
-
+      // Flush the pinned buffer 
+      memcpy2D(h_dst,               // dst
+               dst_stride,          // dst stride
+               h_src,               // src
+               src_stride,          // src stride
+               dst_stride,          // width bytes
+               dm_job.ndm_current); // height
       mCopyMem.end();
 
       // Signal that the host buffer can be used again
       if ((job_id + ndm_buffers) < ndm_jobs) {
         dm_jobs[job_id + ndm_buffers].gpu_lock.unlock();
       }
+
+      dm_job.out_lock.unlock();
     }
-    delete[] sendbuf;
-    delete[] recvbuf;
   });
+
 #ifdef DEDISP_DEBUG
   std::cout << fdd_dedispersion_str << std::endl;
 #endif
@@ -1128,6 +1166,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Wait for host threads to exit
   if (output_thread.joinable()) {
     output_thread.join();
+  }
+
+  if (mpi_thread.joinable()) {
+    mpi_thread.join();
   }
   dtohstream->record(eEndGPU);
   mExeGPU.end(eEndGPU);
