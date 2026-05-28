@@ -6,6 +6,7 @@
 #include "GPUPlan.hpp"
 #include <iostream>
 #include "gpu_runtime.hpp"
+#include "math.h"
 
 namespace dedisp
 {
@@ -79,7 +80,7 @@ void GPUPlan::generate_dm_list_equispaced(
 
             m_dm_count = h_dm_list.size();
             // Calculate the maximum delay and store it in the plan
-            m_max_delay = (dedisp_size) h_dm_list[m_dm_count-1] * h_delay_table[0];
+            m_max_delay = (dedisp_size) roundf(h_dm_list[m_dm_count-1] * h_delay_table[0]);
 
             
             // Allocate device memory for the DM list
