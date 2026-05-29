@@ -35,10 +35,15 @@ if(GPU_BACKEND STREQUAL "CUDA")
 
     target_link_libraries(GPU_TRACER_LIBS
         INTERFACE
-        CUDA::nvToolsExt
+        CUDA::nvtx3
     )
     set(GPU_LIBRARIES ${CUDAToolkit_LIBRARIES})
-    set(GPU_FFT_LIBS CUDA::cufft)
+    add_library(GPU_FFT_LIBS INTERFACE)
+    target_link_libraries(GPU_FFT_LIBS 
+	INTERFACE
+	CUDA::cufft
+    )
+
     set(GPU_DEFINITIONS USE_CUDA)
     set(GPU_LANG CUDA)
 

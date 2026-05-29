@@ -3,7 +3,7 @@
 
 #ifdef USE_CUDA
   // NVIDIA / CUFFT :
-  #include <nvToolsExt.h>
+  #include <nvtx3/nvToolsExt.h>
   #define gpuRangePushA  nvtxRangePushA
   #define gpuRangePop    nvtxRangePop
   #define gpuMarkA       nvtxMarkA
