@@ -367,6 +367,22 @@ target_link_libraries(fits_to_fil
     ${CFITSIO_LIBRARY}
 )
 
+################################################################################
+# make_fits : generate fake PSRFITS search-mode files with injected data
+# (standalone: only needs cfitsio, no project libs)
+################################################################################
+add_executable(make_fits
+    make_fits.cpp
+)
+
+target_include_directories(make_fits PRIVATE
+    ${CFITSIO_INCLUDE_DIR}
+)
+
+target_link_libraries(make_fits
+    ${CFITSIO_LIBRARY}
+)
+
 endif()
 
 ################################################################################
@@ -379,7 +395,7 @@ set(_TEST_INSTALL_TARGETS
     #testfdd
 )
 if(TESTDEDISP_DEBUG)
-    list(APPEND _TEST_INSTALL_TARGETS modify_fits compare_fits_fil_raw fits_to_fil)
+    list(APPEND _TEST_INSTALL_TARGETS modify_fits compare_fits_fil_raw fits_to_fil make_fits)
 endif()
 
 install(
