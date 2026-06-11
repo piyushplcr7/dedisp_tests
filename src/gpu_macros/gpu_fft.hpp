@@ -56,4 +56,61 @@
     } \
 } while(0)
 
+#ifdef USE_OPENMP
+  #include <fftw3.h>
+  typedef float        gpufftReal;
+  typedef fftwf_complex gpufftComplex;
+  #define GPUFFT_R2C 0
+  #define GPUFFT_C2R 1
+  #define GPUFFT_SUCCESS 0
+  typedef int gpufftResult;
+
+  struct gpufftHandle_t {
+      int type;        // GPUFFT_R2C or GPUFFT_C2R
+      int n;           // logical transform length
+      int batch;
+      int istride, idist, ostride, odist;
+  };
+  typedef gpufftHandle_t gpufftHandle;
+
+  static inline gpufftResult gpufftPlanMany(
+      gpufftHandle* plan, int rank, int* n,
+      int* inembed, int istride, int idist,
+      int* onembed, int ostride, int odist,
+      int type, int batch) {
+      (void)rank; (void)inembed; (void)onembed;
+      *plan = gpufftHandle{ type, n[0], batch, istride, idist, ostride, odist };
+      return GPUFFT_SUCCESS;
+  }
+  static inline gpufftResult gpufftPlan1d(gpufftHandle* plan, int n, int type, int batch) {
+      *plan = gpufftHandle{ type, n, batch, 1, n, 1, (type==GPUFFT_R2C ? n/2+1 : n) };
+      return GPUFFT_SUCCESS;
+  }
+  #define gpufftSetStream(plan, stream) GPUFFT_SUCCESS
+
+  static inline gpufftResult gpufftExecR2C(gpufftHandle p, gpufftReal* in, gpufftComplex* out) {
+      int n = p.n;
+      fftwf_plan fp = fftwf_plan_many_dft_r2c(
+          1, &n, p.batch,
+          in,  nullptr, p.istride, p.idist,
+          out, nullptr, p.ostride, p.odist,
+          FFTW_ESTIMATE);
+      fftwf_execute(fp);
+      fftwf_destroy_plan(fp);
+      return GPUFFT_SUCCESS;
+  }
+  static inline gpufftResult gpufftExecC2R(gpufftHandle p, gpufftComplex* in, gpufftReal* out) {
+      int n = p.n;
+      fftwf_plan fp = fftwf_plan_many_dft_c2r(
+          1, &n, p.batch,
+          in,  nullptr, p.istride, p.idist,
+          out, nullptr, p.ostride, p.odist,
+          FFTW_ESTIMATE);
+      fftwf_execute(fp);
+      fftwf_destroy_plan(fp);
+      return GPUFFT_SUCCESS;
+  }
+  #define gpufftDestroy(plan) GPUFFT_SUCCESS
+#endif
+
 #endif

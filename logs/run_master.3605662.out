@@ -1,0 +1,117 @@
+Restoring modules from user's unified_dedisp
+Lmod Warning: The system MODULEPATH has changed: please rebuild your saved
+collection.
+
+
+
+=========================================================================
+
+                     GPU Fourier Domain Dedispersion         
+                            By Piyush Panchal         
+
+----------------------------- CLI OPTIONS  ----------------------------
+cmd->lodm = 0.000000
+cmd->hidm = 1000.000000
+cmd->dmstep = 0.010000
+cmd->downsamp = 1
+cmd->numdms = 1000
+cmd->full_cmd_line = /home/panchal/repos/dedisp_tests/.worktrees/nextsilicon/../../../dedisp_master/build/bin/test/testdedisp -lodm 0 -dmstep 0.01 -numdms 1000 -multout -cleanout -nobary -o /scratch/panchal/masterout/out /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+cmd argv = /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+cmd->fftout = 0
+cmd->multout = 1
+cmd->outfile = /scratch/panchal/masterout/out 
+cmd->nobary = 1
+cleanout selected
+No. of infiles = 1
+input file 0: /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits 
+------------------------------ FITS INFO  ----------------------------
+filename         = /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+lo, hi freq      = 138.880004882812500, 169.589996337890625
+No. of HDUs      = 2
+telescope name   = MWA 
+instrument name  = v5.1.8_85efc14 
+object name      = 1255444104 
+right_ascension  = 00:30:27.42 
+declination      = 04:51:39.73 
+observer         = MWA User 
+STT_IMJD         = 58774  
+STT_SMJD         = 52521  
+STT_OFFS         = 0.999999624677002 
+epoch/tlotoa     = 58774.607893518514175
+projid           = G0057   
+dateobs          = 2019-10-18T14:28:06   
+read tbin        = 0.000100
+Nchans read      = 3072
+nsblk            = 10000
+naxis1           = 123002956
+nbin             = 1
+npol             = 4
+data byte width  = 122880000
+offs, scal width = 12288
+naxis2           = 200
+obs              = MW
+rastring         = 00:30:27.4200
+decstring        = 04:51:39.7300
+------------------------ LOADING + REDUCING FITS ------------------------
+
+ldSeq() called. Container will contain only the data from the local fits files. No reshuffling! 
+ldSeq(): Allocated aligned buffer in 2.44295 seconds
+Read fits /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits, in 13.1572 sec, speed: 1783.12 MBps
+reduction finished, time: 0.59836
+
+------------------------------ PLAN CREATION ---------------------------
+
+dt = 0.000100
+f0              = 169.589996
+double ddf      = -0.009999997217544
+df              = -0.009999996982515
+bw              = 30.719991
+
+--------------------------- GENERATING DM LIST --------------------------
+
+Generating equispaced DM list using the provided step size
+----------------------------- DM COMPUTATIONS  ----------------------------
+Computing 1000 DMs from 0.000000 to 9.990000 pc/cm^3
+Max DM delay is 7079 samples (0.708 seconds)
+dt = 0.0001
+Prime factorization of 2016000 is: 2^8 * 3^2 * 5^3 * 7
+Computing 1992920 out of 2000000 total samples (99.65% efficiency)
+Output data array size : 7602 MB
+
+------------------------------ PLAN EXECUTE -----------------------------
+
+nsamp        = 2000000
+nsamp_fft    = 2016000
+nsamp_padded = 2016002
+m_max_delay = 7079
+nsamps_computed = 1992920
+>> Debug
+ndm_buffers     = 16 x 64 DMs
+Device memory total    = 44.4216 Gb
+Device memory free     = 43.2572 Gb
+Device Memory required = 9.12476 Gb
+Host memory total    = 377.142 Gb
+Host memory free     = 331.32 Gb
+dm_job_id_outer = 0
+>> Timings
+Initialization time : 3.878000 sec.
+Input memcpy time   : 1.840000 sec.
+Preprocessing time  : 0.666000 sec.
+Dedispersion time   : 3.254000 sec.
+Postprocessing time : 0.248000 sec.
+Output memcpy time  : 0.616000 sec.
+Runtime             : 4.168000 sec.
+GPU execution time  : 4.720000 sec.
+Total time          : 8.599000 sec.
+
+R2C transforms took 0.002 seconds 
+C2R transforms took 0.001 seconds 
+plan.execute() took 8.61 seconds
+
+----------------------------- WRITING OUTPUT ----------------------------
+
+Writing the output took 0.322407 seconds
+
+------------------------ DEDISPERSION SUCCESSFUL ------------------------
+
+

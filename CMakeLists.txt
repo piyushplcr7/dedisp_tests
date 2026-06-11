@@ -17,8 +17,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 ###############################################################################
 # Select backend
 
-set(GPU_BACKEND "" CACHE STRING "GPU backend (CUDA or HIP)")
-set_property(CACHE GPU_BACKEND PROPERTY STRINGS CUDA HIP)
+set(GPU_BACKEND "" CACHE STRING "GPU backend (CUDA, HIP, or OPENMP)")
+set_property(CACHE GPU_BACKEND PROPERTY STRINGS CUDA HIP OPENMP)
 
 if(GPU_BACKEND STREQUAL "CUDA")
     enable_language(CUDA)
@@ -74,12 +74,7 @@ elseif(GPU_BACKEND STREQUAL "HIP")
     set(GPU_INCLUDE_DIRS ${HIP_INCLUDE_DIRS})
     set(GPU_HOST_RUNTIME_LIBS hip::host)
     set(GPU_LIBRARIES ${HIP_LIBRARIES})
-    add_library(GPU_FFT_LIBS INTERFACE)
-    target_link_libraries(GPU_FFT_LIBS
-        INTERFACE
-        ${HIPFFT_LIBRARIES}
-	${ROCFFT_LIBRARIES}
-    )
+    set(GPU_FFT_LIBS ${HIPFFT_LIBRARIES} ${ROCFFT_LIBRARIES})
     set(GPU_DEFINITIONS USE_HIP)
 
     find_library(ROCTRACERLIB
@@ -129,12 +124,34 @@ elseif(GPU_BACKEND STREQUAL "HIP")
     message("ROCTX_INCLUDE_DIRS: ${ROCTX_INCLUDE_DIRS}")
     message("ROCTX_LIBRARIES: ${ROCTX_LIBRARIES}" )
 
+elseif(GPU_BACKEND STREQUAL "OPENMP")
+    # CPU-only OpenMP backend (NextSilicon Maverick 2 target). No GPU runtime is
+    # enabled, so we do NOT enable_language(CUDA)/find ROCm here. The abstracted
+    # GPU_* variables are stubbed so any downstream CMake that still references
+    # them stays valid; the FDD CPU plan (fdd_cpu) and its drivers link no real
+    # GPU library. The src/ and bin/test/ CMakeLists short-circuit on
+    # GPU_BACKEND STREQUAL "OPENMP" and skip the GPU-only targets.
+    message(STATUS "GPU_BACKEND=OPENMP: building CPU-only OpenMP FDD backend")
+
+    set(GPU_INCLUDE_DIRS "")
+    set(GPU_HOST_RUNTIME_LIBS "")
+    set(GPU_LIBRARIES "")
+    set(GPU_DEFINITIONS USE_OPENMP)
+    set(GPU_LANG CXX)
+
+    # Empty interface libraries so target_link_libraries(... GPU_*) is harmless
+    # for any target that is not skipped under the OPENMP backend.
+    add_library(GPU_TRACER_LIBS INTERFACE)
+    add_library(GPU_FFT_LIBS    INTERFACE)
+    add_library(GPU_XCCL        INTERFACE)
+
 else()
     message(FATAL_ERROR
-        "GPU_BACKEND must be set to CUDA or HIP.\n"
+        "GPU_BACKEND must be set to CUDA, HIP, or OPENMP.\n"
         "Example:\n"
-        "  cmake -DGPU_BACKEND=CUDA ..\n"
-        "  cmake -DGPU_BACKEND=HIP  ..")
+        "  cmake -DGPU_BACKEND=CUDA   ..\n"
+        "  cmake -DGPU_BACKEND=HIP    ..\n"
+        "  cmake -DGPU_BACKEND=OPENMP ..")
 endif()
 
 ###############################################################################

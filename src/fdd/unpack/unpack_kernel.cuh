@@ -1,9 +1,11 @@
 // Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "gpu_vectypes.hpp"
 #define TILE_DIM     32
 #define BLOCK_ROWS   8
 #define EXPANSION    4
 
+#if defined(USE_CUDA) || defined(USE_HIP)
 template<typename WordType>
 __global__
 void transpose_kernel(
@@ -160,3 +162,4 @@ void transpose_unpack_kernel(
         }
     }
 }
+#endif // defined(USE_CUDA) || defined(USE_HIP)

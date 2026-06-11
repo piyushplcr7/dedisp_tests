@@ -7,6 +7,7 @@
 #include "common/helper.h"
 #include "gpu_runtime.hpp"
 
+#if defined(USE_CUDA) || defined(USE_HIP)
 struct aa_gpu_timer {
   gpuEvent_t start;
   gpuEvent_t stop;
@@ -32,6 +33,17 @@ struct aa_gpu_timer {
     return elapsed / 1000.0f;
   }
 };
+#endif // USE_CUDA || USE_HIP
+
+#ifdef USE_OPENMP
+#include <chrono>
+struct aa_gpu_timer {
+    std::chrono::high_resolution_clock::time_point t0, t1;
+    void Start() { t0 = std::chrono::high_resolution_clock::now(); }
+    void Stop()  { t1 = std::chrono::high_resolution_clock::now(); }
+    float Elapsed() { return std::chrono::duration<float>(t1 - t0).count(); }
+};
+#endif // USE_OPENMP
 
 namespace dedisp
 {

@@ -30,5 +30,13 @@
     #define gpu_cos(r,a) \
     ((r) = __cosf((a)))
 #endif
-    
+
+#ifdef USE_OPENMP
+  #include <cmath>
+  #define gpu_fmul_rn(out, a, b)        ((out) = (a) * (b))
+  #define gpu_fma_rn_ftz(out, a, b, c)  ((out) = std::fma((a), (b), (c)))
+  #define gpu_sin(r, a)                 ((r) = std::sin((a)))
+  #define gpu_cos(r, a)                 ((r) = std::cos((a)))
+#endif
+
 #endif

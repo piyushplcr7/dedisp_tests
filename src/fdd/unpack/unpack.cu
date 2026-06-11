@@ -28,6 +28,7 @@ void transpose_unpack(
     float scale,
     gpuStream_t stream)
 {
+#if defined(USE_CUDA) || defined(USE_HIP)
     // Specify thread decomposition (uses up-rounded divisions)
     dim3 tot_block_count((width-1)  / TILE_DIM + 1,
                          (height-1) / TILE_DIM + 1);
@@ -92,7 +93,37 @@ void transpose_unpack(
                     in_nbits,              \
                     scale);
             }
-            
+
         } // end for block_x_offset
     } // end for block_y_offset
+#elif defined(USE_OPENMP)
+    if (in_nbits == 32) {
+        // Pure transpose matching transpose_kernel<float>:
+        //   input layout:  in[height][width]  i.e. in[time][chan], row-stride = in_stride
+        //   output layout: out[width][height] i.e. out[chan][time], row-stride = out_stride
+        //   => d_out[x * out_stride + y] = d_in[y * in_stride + x]
+        //      where x = chan index, y = time index
+        #pragma omp parallel for
+        for (size_t x = 0; x < width; ++x)
+            for (size_t y = 0; y < height; ++y)
+                d_out[x * out_stride + y] = d_in[y * in_stride + x];
+    } else if (in_nbits == 8) {
+        // 8-bit packed words -> EXPANSION channels each, (val-127.5)*scale.
+        // input:  in[time][chan_word], row-stride = in_stride
+        // output: out[chan][time],     row-stride = out_stride  (chan = x*EXPANSION+j)
+        const dedisp_word* in_w = reinterpret_cast<const dedisp_word*>(d_in);
+        dedisp_size in_mask = (1u << in_nbits) - 1;
+        #pragma omp parallel for
+        for (size_t y = 0; y < height; ++y) {
+            for (size_t x = 0; x < width; ++x) {
+                dedisp_word word = in_w[y * in_stride + x];
+                for (unsigned j = 0; j < EXPANSION; ++j) {
+                    dedisp_word val = (word >> (j * in_nbits)) & in_mask;
+                    float result = (((float)val) - 127.5f) * scale;
+                    d_out[(x * EXPANSION + j) * out_stride + y] = result;
+                }
+            }
+        }
+    }
+#endif
 }

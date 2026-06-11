@@ -1,0 +1,136 @@
+[1781155078.069684] [kl008:1823117:0]     ucp_context.c:1234 UCX  WARN  network devices 'mlx5_2:1','mlx5_3:1' are not available, please use one or more of: 'bond0'(tcp), 'bond1'(tcp), 'lo'(tcp), 'mlx5_0:1'(ib), 'mlx5_1:1'(ib), 'mlx5_bond_0:1'(ib)
+[rank 0/1] MPI_Init took 2.590 sec
+[rank 0/1] num_gpus=1, SLURM_LOCALID=0, SLURM_NTASKS_PER_NODE=1, gpu device 0
+=========================================================================
+
+                     GPU Fourier Domain Dedispersion         
+                            By Piyush Panchal         
+
+----------------------------- CLI OPTIONS  ----------------------------
+cmd->lodm = 0.000000
+cmd->hidm = 1000.000000
+cmd->dmstep = 0.010000
+cmd->downsamp = 1
+cmd->numdms = 1000
+cmd->full_cmd_line = /home/panchal/repos/dedisp_tests/.worktrees/nextsilicon/./build/bin/test/testdedisp -lodm 0 -dmstep 0.01 -numdms 1000 -multout -nobary -o /scratch/panchal/cpuout/out /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+cmd argv = /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+cmd->fftout = 0
+cmd->multout = 1
+cmd->outfile = /scratch/panchal/cpuout/out 
+cmd->nobary = 1
+no cleanout
+No. of infiles = 1
+input file 0: /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits 
+Input files are fits files
+nbits not specified, defaulting to 0 bits for fits files
+------------------------------ FITS INFO  ----------------------------
+filename         = /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+lo, hi freq      = 138.880004882812500, 169.589996337890625
+No. of HDUs      = 2
+telescope name   = MWA 
+instrument name  = v5.1.8_85efc14 
+object name      = 1255444104 
+right_ascension  = 00:30:27.42 
+declination      = 04:51:39.73 
+observer         = MWA User 
+STT_IMJD         = 58774  
+STT_SMJD         = 52521  
+STT_OFFS         = 0.999999624677002 
+epoch/tlotoa     = 58774.607893518514175
+projid           = G0057   
+dateobs          = 2019-10-18T14:28:06   
+read tbin        = 0.000100
+Nchans read      = 3072
+nsblk            = 10000
+naxis1           = 123002956
+nbin             = 1
+npol             = 4
+data byte width  = 122880000
+offs, scal width = 12288
+naxis2           = 200
+obs              = MW
+rastring         = 00:30:27.4200
+decstring        = 04:51:39.7300
+------------------------ LOADING + REDUCING FITS ------------------------
+
+ldSeq() called. Container will contain only the data from the local fits files. No reshuffling! 
+ldSeq(): Allocated aligned buffer in 2.40846 seconds
+read 22 chunks (chunksize=1073741824) from /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits, time: 16.593 s, speed: 1482.59 MB/s
+Read file /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits, in 16.5932 sec, speed: 1413.89 MBps
+reduction finished, time: 0.704828
+
+------------------------------ PLAN CREATION ---------------------------
+
+dt = 0.000100
+f0              = 169.589996
+double ddf      = -0.009999997217544
+df              = -0.009999996982515
+bw              = 30.719991
+
+--------------------------- GENERATING DM LIST --------------------------
+
+Generating equispaced DM list using the provided step size
+----------------------------- DM COMPUTATIONS  ----------------------------
+Computing 1000 DMs from 0.000000 to 9.990000 pc/cm^3
+Max DM delay is 7079 samples (0.708 seconds)
+dt = 0.0001
+Prime factorization of 2016000 is: 2^8 * 3^2 * 5^3 * 7
+---------------nsamps_computed_ = nsamps_ + max_delay
+nsamps_ = 2000000
+max_delay = 7079
+Computing 2007079 out of 2000000 total samples (100.35% efficiency)
+Output data array size : 7656 MB
+
+------------------------------ PLAN EXECUTE -----------------------------
+
+>> Running segmented GPU implementation (per-file segments)
+****************************************************
+ Using 32 bit float input. No unpacking needed.
+****************************************************
+Prime factorization of 2016000 is: 2^8 * 3^2 * 5^3 * 7
+nsamp_segment        = 2000000
+nsamp_fft_segment    = 2016000
+nsamp_padded_segment = 2016002
+m_max_delay = 7079
+nsamps_computed = 2007079
+>> Debug
+ndm_buffers     = 1 x 64 DMs
+Device memory total    = 0 Gb
+Device memory free     = 0 Gb
+Device Memory required = 1.91498 Gb
+Host memory total    = 377.098 Gb
+Host memory free     = 331.254 Gb
+dm_job_id_outer = 0
+dm_job_id_outer = 1
+dm_job_id_outer = 2
+dm_job_id_outer = 3
+dm_job_id_outer = 4
+dm_job_id_outer = 5
+dm_job_id_outer = 6
+dm_job_id_outer = 7
+dm_job_id_outer = 8
+dm_job_id_outer = 9
+dm_job_id_outer = 10
+dm_job_id_outer = 11
+dm_job_id_outer = 12
+dm_job_id_outer = 13
+dm_job_id_outer = 14
+dm_job_id_outer = 15
+>> Timings
+Initialization time : 0.002000 sec.
+Input memcpy time   : 0.000000 sec.
+Preprocessing time  : 0.000000 sec.
+Dedispersion time   : 0.000000 sec.
+Postprocessing time : 0.000000 sec.
+Output memcpy time  : 0.000000 sec.
+Runtime             : 0.000000 sec.
+GPU execution time  : 0.000000 sec.
+Total time          : 1008.200000 sec.
+
+R2C transforms took 0.000 seconds 
+C2R transforms took 0.000 seconds 
+plan.execute() took 1008.20 seconds
+
+------------------------ DEDISPERSION SUCCESSFUL ------------------------
+
+

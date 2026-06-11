@@ -1,11 +1,16 @@
 // Copyright (C) 2021 ASTRON (Netherlands Institute for Radio Astronomy)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "gpu_asm.hpp"
+#include "gpu_vectypes.hpp"
 // Constant reference for input data
 // This value is set according to the constant memory size
 // for all NVIDIA GPUs to date, which is 64 KB and sizeof(dedisp_float) = 4
 #define DEDISP_MAX_NCHANS 16384
+#if defined(USE_CUDA) || defined(USE_HIP)
 __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
+#elif defined(USE_OPENMP)
+dedisp_float c_delay_table[DEDISP_MAX_NCHANS];   // plain host array
+#endif
 
 // The number of DMs computed by a single thread block
 #define NDM_BATCH_GRID 8
@@ -25,6 +30,7 @@ __constant__ dedisp_float c_delay_table[DEDISP_MAX_NCHANS];
  * Helper functions
  */
 
+#if defined(USE_CUDA) || defined(USE_HIP)
  // Multiply two float2 operands
 inline __device__ float2 operator*(float2 a, float2 b) {
     float2 c;
@@ -282,3 +288,4 @@ void scale_output_kernel(
         d_data[blockIdx.x * stride + i] *= scale;
     }
 }
+#endif // defined(USE_CUDA) || defined(USE_HIP)

@@ -1,0 +1,82 @@
+[1781100430.843884] [kl009:1625677:0]     ucp_context.c:1234 UCX  WARN  network devices 'mlx5_2:1','mlx5_3:1' are not available, please use one or more of: 'bond0'(tcp), 'bond1'(tcp), 'lo'(tcp), 'mlx5_0:1'(ib), 'mlx5_1:1'(ib), 'mlx5_bond_0:1'(ib)
+=========================================================================
+
+             CPU (OpenMP) Fourier Domain Dedispersion         
+                            By Piyush Panchal         
+
+----------------------------- CLI OPTIONS  ----------------------------
+cmd->lodm = 0.000000
+cmd->hidm = 1000.000000
+cmd->dmstep = 0.010000
+cmd->downsamp = 1
+cmd->numdms = 1000
+cmd->full_cmd_line = /home/panchal/repos/dedisp_tests/.worktrees/nextsilicon/./build/bin/test/testdedisp_omp -lodm 0 -dmstep 0.01 -numdms 1000 -multout -nobary -o /scratch/panchal/cpuout/out /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+cmd argv = /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+cmd->fftout = 0
+cmd->multout = 1
+cmd->outfile = /scratch/panchal/cpuout/out 
+cmd->nobary = 1
+no cleanout
+No. of infiles = 1
+input file 0: /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits 
+Input files are fits files
+nbits not specified, defaulting to 0 bits for fits files
+------------------------------ FITS INFO  ----------------------------
+filename         = /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits
+lo, hi freq      = 138.880004882812500, 169.589996337890625
+No. of HDUs      = 2
+telescope name   = MWA 
+instrument name  = v5.1.8_85efc14 
+object name      = 1255444104 
+right_ascension  = 00:30:27.42 
+declination      = 04:51:39.73 
+observer         = MWA User 
+STT_IMJD         = 58774  
+STT_SMJD         = 52521  
+STT_OFFS         = 0.999999624677002 
+epoch/tlotoa     = 58774.607893518514175
+projid           = G0057   
+dateobs          = 2019-10-18T14:28:06   
+read tbin        = 0.000100
+Nchans read      = 3072
+nsblk            = 10000
+naxis1           = 123002956
+nbin             = 1
+npol             = 4
+data byte width  = 122880000
+offs, scal width = 12288
+naxis2           = 200
+obs              = MW
+rastring         = 00:30:27.4200
+decstring        = 04:51:39.7300
+------------------------ LOADING + REDUCING FITS ------------------------
+
+ldSeq() called. Container will contain only the data from the local fits files. No reshuffling! 
+ldSeq(): Allocated aligned buffer in 2.41227 seconds
+read 22 chunks (chunksize=1073741824) from /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits, time: 12.628 s, speed: 1948.1 MB/s
+Read file /scratch/panchal/chrisdata/G0057_1255444104_00:30:27.42_+04:51:39.73_ch109-132_0001.fits, in 12.6283 sec, speed: 1857.82 MBps
+reduction finished, time: 0.704416
+
+------------------------------ PLAN CREATION ---------------------------
+
+
+--------------------------- GENERATING DM LIST --------------------------
+
+----------------------------- DM COMPUTATIONS  ----------------------------
+Computing 1000 DMs from 0.000000 to 9.990000 pc/cm^3
+Max DM delay is 7079 samples (0.708 seconds)
+dt = 0.0001
+Prime factorization of 2016000 is: 2^8 * 3^2 * 5^3 * 7
+
+------------------------------ PLAN EXECUTE -----------------------------
+
+Prime factorization of 2016000 is: 2^8 * 3^2 * 5^3 * 7
+plan.execute() took 456.10 seconds
+
+----------------------------- WRITING OUTPUT ----------------------------
+
+Writing the output took 0.301035 seconds
+
+------------------------ DEDISPERSION SUCCESSFUL ------------------------
+
+

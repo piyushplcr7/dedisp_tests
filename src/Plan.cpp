@@ -7,7 +7,9 @@
 #include "Plan.hpp"
 #include <cmath>
 #include "common/dedisp_error.hpp"
+#ifndef USE_OPENMP
 #include "common/cuda/CU.h"
+#endif
 #include <iostream>
 #include "gpu_runtime.hpp"
 #include <fstream>

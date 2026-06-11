@@ -4,6 +4,8 @@
 #include "FDDKernel.hpp"
 #include "fdd_kernel.cuh"
 #include "common/cuda/CU.h"
+#include <cstring>
+#include <cmath>
 
 /*
  * Helper functions
@@ -14,11 +16,15 @@ void FDDKernel::copy_delay_table(
     size_t offset,
     gpuStream_t stream)
 {
+#if defined(USE_CUDA) || defined(USE_HIP)
     gpuMemcpyToSymbolAsync(gpuSymbol(
         c_delay_table),
         src,
         count, offset,
         gpuMemcpyDeviceToDevice, stream);
+#elif defined(USE_OPENMP)
+    std::memcpy((char*)gpuSymbol(c_delay_table) + offset, src, count);
+#endif
 }
 
 unsigned long div_round_up(unsigned long a, unsigned long b) {
@@ -45,6 +51,7 @@ void FDDKernel::launch(
     unsigned int         ichan_start,
     gpuStream_t         stream)
 {
+#if defined(USE_CUDA) || defined(USE_HIP)
     // Define thread decomposition
     unsigned grid_x = std::max((int) ((ndm + NDM_BATCH_GRID) / NDM_BATCH_GRID), 1);
     unsigned grid_y = NFREQ_BATCH_GRID;
@@ -84,6 +91,36 @@ void FDDKernel::launch(
         case 128: CALL_KERNEL(128); break;
         case 256: CALL_KERNEL(256); break;
     }
+#elif defined(USE_OPENMP)
+    // Host port of dedisperse_kernel<NCHAN,false>: freq-domain phase rotation,
+    // ACCUMULATING onto d_out (read-modify-write per channel gulp).
+    const float* in  = reinterpret_cast<const float*>(d_in);
+    float*       out = reinterpret_cast<float*>(const_cast<dedisp_float2*>(d_out));
+    // idm_idx is 0-based relative to this job (matches kernel's idm_idx = idm_current + i*idm_offset).
+    // d_out buffer is zeroed fresh per dm_job before the first channel gulp (dm_job.d_data_x_dm->zero()).
+    // d_dm_list is indexed as d_dm_list[idm_start + idm_idx] in the kernel, equivalent to d_dm_list[idm] here.
+    #pragma omp parallel for collapse(2)
+    for (unsigned idm = idm_start; idm < idm_end; ++idm) {
+        for (size_t ifreq = 0; ifreq < nfreq; ++ifreq) {
+            float dm = d_dm_list[idm];
+            float f  = d_spin_frequencies[ifreq];
+            // idm_idx is 0-based: kernel uses idm_idx*out_stride, not (idm_start+idm_idx)*out_stride
+            size_t idm_idx = idm - idm_start;
+            size_t o = (idm_idx * out_stride + ifreq) * 2;
+            float sx = out[o], sy = out[o + 1];
+            for (unsigned ichan = 0; ichan < nchan; ++ichan) {
+                size_t iidx = ((size_t)ichan * in_stride + ifreq) * 2;
+                float bx = in[iidx], by = in[iidx + 1];
+                float tdm   = roundf(dm * c_delay_table[ichan_start + ichan]);
+                float phase = 2.0f * (float)M_PI * f * tdm;
+                float c = cosf(phase), s = sinf(phase);
+                sx += bx * c - by * s;   // sum += sample * phasor (complex)
+                sy += bx * s + by * c;
+            }
+            out[o] = sx; out[o + 1] = sy;
+        }
+    }
+#endif
 }
 
 /*
@@ -97,6 +134,7 @@ void FDDKernel::scale(
     dedisp_float* d_data,
     gpuStream_t  stream)
 {
+#if defined(USE_CUDA) || defined(USE_HIP)
     // Define thread decomposition
     dim3 grid(height);
     dim3 block(128);
@@ -107,4 +145,10 @@ void FDDKernel::scale(
         stride,
         scale,
         d_data);
+#elif defined(USE_OPENMP)
+    #pragma omp parallel for
+    for (size_t row = 0; row < height; ++row)
+        for (size_t i = 0; i < width; ++i)
+            d_data[row * stride + i] *= scale;   // matches scale_output_kernel
+#endif
 }

@@ -1,4 +1,41 @@
 ################################################################################
+# CPU-only OpenMP backend: build just the FDD CPU test driver, skip GPU targets
+################################################################################
+if(GPU_BACKEND STREQUAL "OPENMP")
+    include_directories(${CMAKE_SOURCE_DIR}/src/fdd)
+
+    # Single driver for all backends: the same testdedisp_new.cpp, linked against
+    # the FDD plan compiled under USE_OPENMP (no separate CPU plan/driver).
+    add_executable(testdedisp testdedisp_new.cpp)
+    target_compile_definitions(testdedisp PRIVATE ${GPU_DEFINITIONS})
+    target_include_directories(testdedisp PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/gpu_macros
+        ${CMAKE_SOURCE_DIR}/src/fdd
+        ${CMAKE_SOURCE_DIR}/src/common
+        ${CMAKE_SOURCE_DIR}/src/numa
+        ${CMAKE_SOURCE_DIR}/src/presto
+        ${CMAKE_SOURCE_DIR}/src/dataHandlers
+        ${CMAKE_SOURCE_DIR}/src/dataHandlers/fits
+        ${CFITSIO_INCLUDE_DIR}
+        ${MPI_CXX_INCLUDE_DIRS}
+    )
+    target_link_libraries(testdedisp PRIVATE
+        fdd
+        fdd_gpu_clig
+        libpresto
+        hwlocutils
+        datacontainer
+        fits
+        ${CFITSIO_LIBRARY}
+        MPI::MPI_CXX
+        OpenMP::OpenMP_CXX
+    )
+
+    return()
+endif()
+
+################################################################################
 # test for dedisp c-library
 ################################################################################
 add_executable(ctestdedisp

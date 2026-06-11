@@ -36,6 +36,7 @@
     #define gpuTextureObject_t hipTextureObject_t
 #endif
 
+#if defined(USE_CUDA) || defined(USE_HIP)
 inline void gpu_check_error(gpuError_t x, const char *file, int line){
     if(x != gpuSuccess){
         fprintf(stderr, "GPU error (%s:%d): %s\n", file, line, gpuGetErrorString(x));
@@ -44,6 +45,7 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 }
 #define GPU_CHECK_ERROR(X) \
     do { gpu_check_error((X), __FILE__, __LINE__); } while (0)
+#endif // USE_CUDA || USE_HIP
 
 #ifdef USE_CUDA
 
@@ -197,6 +199,111 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuFloatComplex  hipFloatComplex
 #define make_gpuDoubleComplex make_hipDoubleComplex
 #define make_gpuFloatComplex make_hipFloatComplex
+#endif
+
+#ifdef USE_OPENMP
+    #include <cstring>        // memcpy / memset
+    #include <cstdlib>        // malloc / free
+    #include <chrono>
+    #include <sys/sysinfo.h>  // sysinfo() for host memory query
+
+    // ---- types ----
+    typedef int gpuError_t;
+    #define gpuSuccess 0
+    typedef int gpuEvent_t;
+    typedef int gpuStream_t;
+    struct gpuDeviceProp_t { int major; int minor; size_t totalConstMem; };
+    // flag constants referenced by cu:: classes / drivers
+    #define gpuStreamNonBlocking 0
+    #define gpuEventDefault 0
+    #define gpuHostAllocPortable 0
+    #define gpuHostAllocDefault 0
+    #define gpuMemcpyHostToDevice 0
+    #define gpuMemcpyDeviceToHost 0
+    #define gpuMemcpyDeviceToDevice 0
+    #define gpuMemcpyHostToHost 0
+
+    // ---- memory ----
+    #define gpuMalloc(ptr, size)        (*(ptr) = std::malloc(size))
+    #define gpuHostAlloc(ptr, size, fl) (*(ptr) = std::malloc(size))
+    #define gpuMallocHost(ptr, size)    (*(ptr) = std::malloc(size))
+    #define gpuFree(ptr)                std::free(ptr)
+    #define gpuHostFree(ptr)            std::free(ptr)
+    #define gpuHostRegister(...)        ((void)0)
+    #define gpuHostUnregister(...)      ((void)0)
+
+    // ---- copies (async == sync here) ----
+    #define gpuMemcpy(dst, src, n, kind)            std::memcpy((dst), (src), (n))
+    #define gpuMemcpyAsync(dst, src, n, kind, strm) std::memcpy((dst), (src), (n))
+    #define gpuMemset(ptr, val, n)                  std::memset((ptr), (val), (n))
+    #define gpuMemsetAsync(ptr, val, n, strm)       std::memset((ptr), (val), (n))
+
+    // strided 2D copies: (dst, dpitch, src, spitch, widthBytes, height, [kind], [strm])
+    static inline void gpu_omp_memcpy2d(void* dst, size_t dpitch, const void* src,
+                                        size_t spitch, size_t widthBytes, size_t height) {
+        for (size_t r = 0; r < height; ++r)
+            std::memcpy((char*)dst + r*dpitch, (const char*)src + r*spitch, widthBytes);
+    }
+    #define gpuMemcpy2DAsync(dst, dpitch, src, spitch, w, h, kind, strm) \
+        gpu_omp_memcpy2d((dst), (dpitch), (src), (spitch), (w), (h))
+    static inline void gpu_omp_memset2d(void* dst, size_t dpitch, int val,
+                                        size_t widthBytes, size_t height) {
+        for (size_t r = 0; r < height; ++r)
+            std::memset((char*)dst + r*dpitch, val, widthBytes);
+    }
+    #define gpuMemset2DAsync(dst, dpitch, val, w, h, strm) \
+        gpu_omp_memset2d((dst), (dpitch), (val), (w), (h))
+
+    // ---- streams / events: all synchronous no-ops ----
+    #define gpuStreamCreate(s)            ((void)0)
+    #define gpuStreamCreateWithFlags(...) ((void)0)
+    #define gpuStreamDestroy(s)           ((void)0)
+    #define gpuStreamSynchronize(s)       ((void)0)
+    #define gpuStreamWaitEvent(...)       ((void)0)
+    #define gpuEventCreate(e)             ((void)0)
+    #define gpuEventCreateWithFlags(...)  ((void)0)
+    #define gpuEventDestroy(e)            ((void)0)
+    #define gpuEventRecord(e, s)          ((void)0)
+    #define gpuEventSynchronize(e)        ((void)0)
+    // cu::Event::elapsedTime is not on the FDD timing path (aa_gpu_timer is); 0 is fine.
+    #define gpuEventElapsedTime(ms, a, b) (*(ms) = 0.0f)
+    #define gpuDeviceSynchronize()        ((void)0)
+
+    // ---- device management ----
+    #define gpuGetDeviceCount(n)   (*(n) = 1)
+    #define gpuSetDevice(d)        ((void)0)
+    #define gpuGetDevice(d)        (*(d) = 0)
+    #define gpuGetLastError()      (0)
+    #define gpuPeekAtLastError()   (0)
+    // used by cu::CU.cpp error/device helpers (compiled into the `cu` lib)
+    #define gpuGetErrorString(x)               ("openmp")
+    #define gpuGetDeviceProperties(props, dev) ((void)0)
+    // On the CPU backend "device memory" is host RAM (gpuMalloc == host malloc),
+    // so report real host free/total. This lets the FDD planner's ndm_buffers
+    // sizing loop self-tune to a single outer DM pass when RAM allows, instead
+    // of being pinned to one buffer by a fake zero-memory device.
+    static inline int gpu_omp_meminfo(size_t* freep, size_t* totalp) {
+        struct sysinfo si;
+        if (sysinfo(&si) != 0) {           // fall back to a large value on failure
+            if (totalp) *totalp = (size_t)1 << 40;
+            if (freep)  *freep  = (size_t)1 << 40;
+            return 0;
+        }
+        if (totalp) *totalp = (size_t)si.totalram * si.mem_unit;
+        if (freep)  *freep  = (size_t)si.freeram  * si.mem_unit;
+        return 0;
+    }
+    #define gpuMemGetInfo(freep, totalp)       gpu_omp_meminfo((freep), (totalp))
+    #define GPU_CHECK_ERROR(X)                 ((void)0)
+
+    // ---- constant-memory symbol copy (used by FDDKernel::copy_delay_table) ----
+    // Under OPENMP the "symbol" is a real host array; copy into it directly.
+    #define gpuSymbol(x) (&(x))
+    #define gpuMemcpyToSymbolAsync(sym, src, n, off, kind, strm) \
+        std::memcpy((char*)(sym) + (off), (src), (n))
+
+    // ---- warp shuffle (used in reductions): no-op identity on a single "lane" ----
+    #define gpu_shfl_down(val, delta) (val)
 #endif
 
 #define gpuCheckLastError() GPU_CHECK_ERROR(gpuGetLastError())

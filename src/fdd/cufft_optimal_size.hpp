@@ -6,7 +6,7 @@
 #include <limits>
 
 // Check if n factors only into the allowed factors (2, 3, 5, 7)
-bool isOptimal(size_t n, const std::vector<size_t>& allowedFactors = {2, 3, 5, 7}) {
+inline bool isOptimal(size_t n, const std::vector<size_t>& allowedFactors = {2, 3, 5, 7}) {
     // Edge case: values less than 2 are not considered optimal
     if(n < 2)
         return false;
@@ -22,7 +22,7 @@ bool isOptimal(size_t n, const std::vector<size_t>& allowedFactors = {2, 3, 5, 7
 }
 
 // Helper function to compute and print the full prime factorization of n.
-void printFactorization(size_t n) {
+inline void printFactorization(size_t n) {
     size_t original = n;
     std::cout << "Prime factorization of " << original << " is: ";
     bool firstFactor = true;
@@ -67,7 +67,7 @@ void printFactorization(size_t n) {
 // Finds the closest optimal number (optimal for cuFFT) near n.
 // If searchNextLargest is true, searches upward (n, n+1, ...),
 // otherwise, searches downward (n, n-1, ...).
-size_t closestOptimal(size_t n, bool searchNextLargest = true, const std::vector<size_t>& allowedFactors = {2, 3, 5, 7}) {
+inline size_t closestOptimal(size_t n, bool searchNextLargest = true, const std::vector<size_t>& allowedFactors = {2, 3, 5, 7}) {
     size_t candidate = n;
     
     // Search for an optimal candidate.

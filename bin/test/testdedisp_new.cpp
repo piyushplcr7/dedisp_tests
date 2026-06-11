@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 #include <mpi.h>
 #include "fdd_gpu.h"
 #include "fitscontainer.hpp"
@@ -11,10 +12,21 @@
 #include "gpu_runtime.hpp"
 
 int main(int argc, char **argv) {
+  // Time MPI_Init with a non-MPI clock (MPI_Wtime is invalid before init).
+  auto mpi_init_t0 = std::chrono::steady_clock::now();
   MPI_Init(&argc, &argv);
+  auto mpi_init_t1 = std::chrono::steady_clock::now();
   int mpi_rank = 0, mpi_size = 1;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+#ifdef TESTDEDISP_DEBUG
+  double mpi_init_sec =
+      std::chrono::duration<double>(mpi_init_t1 - mpi_init_t0).count();
+  printf("[rank %d/%d] MPI_Init took %.3f sec\n", mpi_rank, mpi_size,
+         mpi_init_sec);
+  fflush(stdout);
+#endif
 
   int gpu_device_id = 0;
   int num_gpus = 0;
@@ -88,15 +100,30 @@ int main(int argc, char **argv) {
   std::cout << "------------------------ LOADING + REDUCING FITS ------------------------\n" << std::endl;
   size_t chunksize = HALF_MAX_CHUNKSIZE;
   int poln = 0;
+
+  cu::Marker mFileRead("Reading fits files", cu::Marker::red);
+
+  mFileRead.start();
   container.ldSeq(chunksize, poln);
+  mFileRead.end();
+
   if (!cmd->nobaryP) {
+    cu::Marker mBary("Generating barycentering correction", cu::Marker::green);
+
+    mBary.start();
     std::cout << "\n------------------- GENERATING BARYCENTER CORRECTIONS -------------------\n" << std::endl;
     container.barycenter();
+    mBary.end();
   }
   
+  cu::Marker mPlan("Plan creation", cu::Marker::green);
+  mPlan.start();
   std::cout << "\n------------------------------ PLAN CREATION ---------------------------\n" << std::endl;
   dedisp::FDDGPUPlan plan(container, gpu_device_id);
+  mPlan.end();
 
+  cu::Marker mDMlist("Gen DM list", cu::Marker::green);
+  mDMlist.start();
   std::cout << "\n--------------------------- GENERATING DM LIST --------------------------\n" << std::endl;
   // Generate a list of dispersion measures for the plan
   if (cmd->numdms == 0) {
@@ -113,9 +140,13 @@ int main(int argc, char **argv) {
   #endif
     plan.generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
   }
+  mDMlist.end();
 
+  cu::Marker mOutPar("Set output params", cu::Marker::green);
+  mOutPar.start();
   // Set the output parameters for the plan, which also allocates the output buffer
-  plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits);
+  plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits, cmd->outfile, cmd->dmstepW, !cmd->nobaryP);
+  mOutPar.end();
 
   std::cout << "\n------------------------------ PLAN EXECUTE -----------------------------\n" << std::endl;
   aa_gpu_timer timer;

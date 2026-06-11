@@ -279,11 +279,17 @@ void FDDGPUPlan::setOutputParams(
         bool cleanout,
         bool fftout,
         bool multout,
-        int out_nbits) {
+        int out_nbits,
+        char* outfile,
+        int w,
+        bool barycenter) {
   //
   cleanout_ = cleanout;
   fftout_ = fftout;
   multout_ = multout;
+  outfile_ = outfile;
+  w_ = w;
+  barycenter_ = barycenter;
 
   const dedisp_float *dmlist = get_dm_list();
   dedisp_size dm_count = get_dm_count();
@@ -490,7 +496,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   cu::Event eStartGPU, eEndGPU;
   cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
   cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
-  cu::Marker mMPI("MPI Communication and file write", cu::Marker::red);
+  cu::Marker mMPI("MPI Communication and file write thread", cu::Marker::red);
+  cu::Marker mMPI1("Packing into sendbuf", cu::Marker::blue);
+  cu::Marker mMPI2("Unpacking-memadd2d to output", cu::Marker::green);
   cu::Marker mPrepFFT("cufft Plan Many", cu::Marker::yellow);
   cu::Marker mPrepSpinf("spin Frequency generation", cu::Marker::blue);
   cu::Marker mDelayTable("Delay table copy", cu::Marker::black);
@@ -648,6 +656,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   mAllocMem.end();
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
 #ifdef DEDISP_DEBUG
   size_t d_memory_free_after_malloc = m_device->get_free_memory(); // bytes
   size_t h_memory_free_after_malloc = get_free_memory();           // MB
@@ -732,6 +742,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   // Launch thread to manage MPI communication, data reduction and output
   std::thread mpi_thread = std::thread([&]() {
+    mMPI.start();
     // Buffers for communication
     float* sendbuf = new float[max_delay * ndm_batch_max];
     float* recvbuf = new float[max_delay * ndm_batch_max];
@@ -753,9 +764,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // TODO: source outfile_basename and dmstepW from a setter (or extend
     // setOutputParams). Hardcoded defaults below mirror writeOutput().
     // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
-    struct PendingWrite { MPI_File fh; MPI_Request req; };
+    struct PendingWrite { 
+      MPI_File fh; 
+      MPI_Request req; 
+    };
+
     constexpr size_t max_inflight_writes = 32;
+    
     std::deque<PendingWrite> inflight_writes;
+    
     auto drain_one_write = [&]() {
       auto &pw = inflight_writes.front();
       MPI_Wait(&pw.req, MPI_STATUS_IGNORE);
@@ -763,8 +780,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       inflight_writes.pop_front();
     };
 
-    const char* outfile_basename = "/scratch/panchal/segmentout/oot";
-    const int   dmstepW          = 2;
+    //const char* outfile_ = "/scratch/panchal/segmentout/oot";
+    //const int   w_          = 2;
     const dedisp_float* dmlist   = get_dm_list();
 
     // Per-rank slice within each DM row of the paged `out` buffer:
@@ -773,14 +790,64 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // Global byte offset places rank r's slice immediately after rank r-1.
     const size_t local_skip_bytes = (mpi_rank == 0)
         ? (size_t)max_delay * out_bytes_per_sample : 0;
+
     const size_t write_bytes      = (mpi_rank == 0)
         ? (size_t)(nsamps - max_delay) * out_bytes_per_sample
         : (size_t)nsamps * out_bytes_per_sample;
+
     const MPI_Offset global_byte_off = (mpi_rank == 0)
         ? (MPI_Offset)0
         : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
             * out_bytes_per_sample;
+
     const int mpi_count = (int)(write_bytes / sizeof(float));
+
+    // For barycentering, the dedispersed data is the input. The input is
+    // split across multiple procs. 
+    float* barycentered_data;
+
+    int global_input_idx_start,
+        global_input_idx_end,
+        global_output_idx_start,
+        global_output_idx_end,
+        local_Nout;
+
+    MPI_Offset global_byte_off_barycenter = 0;
+
+    // Global resample map (barycentric sample positions) -- the same source the
+    // driver passes to writeOutput(). Safe to fetch unconditionally: it is empty
+    // under -nobary and the barycenter_ blocks below are skipped in that case.
+    const std::vector<int>& inForOut = container_->getInForOut();
+
+    if (barycenter_) {
+      global_input_idx_start = (mpi_rank == 0) ? 0 : mpi_rank * nsamps - max_delay;
+
+      global_input_idx_end = global_input_idx_start
+                           + (mpi_rank > 0 ? nsamps : nsamps - max_delay);
+
+      // Go over the global inForOut to find important positions
+      int out_idx_global;
+      for (out_idx_global = 0 ; out_idx_global < (int)inForOut.size() ; ++out_idx_global) {
+        if (inForOut[out_idx_global] >= global_input_idx_start)
+          break;
+      } 
+
+      // global_output_idx_start contains the position in the output, from where
+      // the contributions by the current MPI proc start.  
+      global_output_idx_start = out_idx_global;
+
+      for (; out_idx_global < inForOut.size(); ++out_idx_global) {
+        if (inForOut[out_idx_global] >= global_input_idx_end)
+          break;
+      }
+
+      // global_output_idx_end contains position in the output, from where
+      // the contributions by another MPI proc start.
+      global_output_idx_end = out_idx_global;
+      local_Nout = global_output_idx_end - global_output_idx_start;
+
+      barycentered_data = new float[(size_t)local_Nout * ndm_batch_max];
+    }
 
     // Go over all DM jobs
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
@@ -793,7 +860,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
       // Try to acquire the out_lock. It can be done only when the output buffer is populated
       dm_job.out_lock.lock();
-
+      mMPI1.start();
       // Perform MPI communication for current DM job
       // We first pack the R data into the contiguous buffer sendbuf
       if (mpi_rank != mpi_size - 1) {
@@ -805,6 +872,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                 dm_job.ndm_current); // height
       }
 
+      mMPI1.end();
+
       // Send recv call for communication
       MPI_Sendrecv(
           sendbuf, max_delay * ndm_batch_max, MPI_FLOAT, dest,   mpi_rank, // mpi_rank_ sends this message
@@ -812,6 +881,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           MPI_COMM_WORLD, MPI_STATUS_IGNORE
       );
 
+      mMPI2.start();
       // Unpacking the data and doing memadd2D if rank not first
       if (mpi_rank != 0) {
         memadd2D(out_curr_dmjob,             // dst
@@ -821,44 +891,92 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                 max_delay * out_bytes_per_sample,            // width bytes
                 dm_job.ndm_current); // height
       }
+      mMPI2.end();
 
-      // Output buffer for current DM batch is ready. Launch non-blocking
-      // per-DM writes (one file per DM, MPI_COMM_SELF so ranks proceed
-      // independently). Disjoint byte ranges per rank → no shared-file
-      // consistency concern. Ring-drain throttles outstanding writes.
-      for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-        if (inflight_writes.size() >= max_inflight_writes) {
-          drain_one_write();
+      // Output buffer ready with dedispersed data. Perform barycentering if needed
+      if (barycenter_) {
+        // Resample loop
+        for (unsigned j = 0 ; j < dm_job.ndm_current; ++j) {
+          // Do the resample
+          float* barycentered_data_row_j = barycentered_data + local_Nout * j;
+          float* dedispersed_data_row_j = (float*)(out_curr_dmjob + (size_t)j * out_stride + local_skip_bytes);
+
+          for (int I = global_output_idx_start ; I < global_output_idx_end ; ++I) {
+            barycentered_data_row_j[I-global_output_idx_start] = 
+              dedispersed_data_row_j[inForOut[I]-global_input_idx_start];
+          }
         }
 
-        const unsigned idm = dm_job.idm_start + j;
-        char outname[256];
-        snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
-                 outfile_basename, dmstepW, dmlist[idm]);
+        // MPI write loop
+        for (unsigned j = 0 ; j < dm_job.ndm_current; ++j) {
+          float* barycentered_data_row_j = barycentered_data + local_Nout * j;
 
-        PendingWrite pw;
-        MPI_File_open(MPI_COMM_SELF, outname,
-                      MPI_MODE_CREATE | MPI_MODE_WRONLY,
-                      MPI_INFO_NULL, &pw.fh);
+          // Preparing the file name
+          const unsigned idm = dm_job.idm_start + j;
+          char outname[256];
+          snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
+                  outfile_, w_, dmlist[idm]);
 
-        const char* row_base =
-            (const char*)out_curr_dmjob + (size_t)j * out_stride;
-        MPI_File_iwrite_at(pw.fh, global_byte_off,
-                           row_base + local_skip_bytes,
-                           mpi_count, MPI_FLOAT, &pw.req);
+          // TODO: Use synchronous MPI write call
+          MPI_File fh; 
+          MPI_File_open(MPI_COMM_SELF, outname,
+                        MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                        MPI_INFO_NULL, &fh);
 
-        inflight_writes.push_back(pw);
+          MPI_File_write_at(fh, global_output_idx_start,
+                            barycentered_data_row_j,
+                            local_Nout, MPI_FLOAT, MPI_STATUS_IGNORE);
+
+          MPI_File_close(&fh);
+        }
+
       }
-    }
+      else {
+        // Output buffer for current DM batch is ready. Launch non-blocking
+        // per-DM writes (one file per DM, MPI_COMM_SELF so ranks proceed
+        // independently). Disjoint byte ranges per rank → no shared-file
+        // consistency concern. Ring-drain throttles outstanding writes.
+        for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
+          if (inflight_writes.size() >= max_inflight_writes) {
+            drain_one_write();
+          }
 
-    // Drain any remaining in-flight writes before exiting the thread.
-    while (!inflight_writes.empty()) {
-      drain_one_write();
+          const unsigned idm = dm_job.idm_start + j;
+          char outname[256];
+          snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
+                  outfile_, w_, dmlist[idm]);
+
+          PendingWrite pw;
+          MPI_File_open(MPI_COMM_SELF, outname,
+                        MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                        MPI_INFO_NULL, &pw.fh);
+
+          const char* row_base =
+              (const char*)out_curr_dmjob + (size_t)j * out_stride;
+          MPI_File_iwrite_at(pw.fh, global_byte_off,
+                            row_base + local_skip_bytes,
+                            mpi_count, MPI_FLOAT, &pw.req);
+
+          inflight_writes.push_back(pw);
+        }
+      }
+      
+    } // Loop over dm jobs
+
+    if (barycenter_) {
+      delete[] barycentered_data;
+    }
+    else {
+      // Drain any remaining in-flight writes before exiting the thread.
+      while (!inflight_writes.empty()) {
+        drain_one_write();
+      }
     }
 
     // De-allocate the buffers
     delete[] sendbuf;
     delete[] recvbuf;
+    mMPI.end();
   });
 
   // Launch thread to copy output data from device to host for each dm_job

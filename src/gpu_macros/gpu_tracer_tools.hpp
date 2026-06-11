@@ -24,4 +24,12 @@
   #define gpuRangeId_t uint32_t
 #endif
 
+#ifdef USE_OPENMP
+  typedef int gpuEventAttributes_t;
+  typedef int gpuRangeId_t;
+  #define gpuRangePushA(msg)  (0)
+  #define gpuRangePop()       (0)
+  #define gpuMarkA(msg)       ((void)0)
+#endif
+
 #endif

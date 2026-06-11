@@ -70,6 +70,9 @@ cmake .. -DGPU_BACKEND=CUDA -DCMAKE_INSTALL_PREFIX=<install_dir>
 # Or with HIP/ROCm backend (requires ROCM_PATH env var)
 cmake .. -DGPU_BACKEND=HIP -DCMAKE_INSTALL_PREFIX=<install_dir>
 
+# Or CPU-only OpenMP backend (no CUDA/HIP toolkit required; needs OpenMP + FFTW3)
+cmake .. -DGPU_BACKEND=OPENMP -DCMAKE_INSTALL_PREFIX=<install_dir>
+
 # Optional flags
 cmake .. -DGPU_BACKEND=CUDA \
          -DENABLE_BENCHMARK=ON \
@@ -81,6 +84,23 @@ make -j$(nproc) install
 ```
 
 CUDA target architectures: Volta (70), Ampere (80), Ada (89), Hopper (90).
+
+### OpenMP (CPU-only) backend
+
+`-DGPU_BACKEND=OPENMP` configures a GPU-free build of the FDD CPU compute path
+(`FDDCPUPlan`), intended for portable OpenMP execution (e.g. NextSilicon Maverick 2).
+It descends only into the GPU-independent subset (`common`, `Plan`, a lean `fdd_cpu`
+library) and skips all CUDA/HIP/NCCL/MPI/NUMA dependencies; only OpenMP and FFTW3 are
+required. It builds a single CPU test driver:
+
+```bash
+USE_CPU=1 ./bin/test/testfdd_omp           # default (non-segmented) FDD on CPU
+USE_CPU=1 USE_SEGMENTED=1 ./bin/test/testfdd_omp   # segmented (overlap-add) path
+USE_CPU=1 USE_REFERENCE=1 ./bin/test/testfdd_omp   # straightforward reference kernel
+```
+
+The CPU compute is kept numerically identical to `FDDGPUPlan` (the reference
+implementation) so outputs match the GPU backend.
 
 ## Usage
 
