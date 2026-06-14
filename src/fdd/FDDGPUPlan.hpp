@@ -43,7 +43,10 @@ public:
         bool cleanout,
         bool fftout,
         bool multout,
-        int out_nbits);
+        int out_nbits,
+        char* outfile,
+        int w,
+        bool barycenter);
 
     std::unique_ptr<float[]> output_buffer_;
 
@@ -92,6 +95,10 @@ private:
     double dt_;
 
     int device_idx_;
+
+    int w_;
+    bool barycenter_;
+    char* outfile_;
 
     // Set by the dataLoader-aware constructor; needed by USE_SEGMENTED mode
     // to fetch per-segment input pointers via getSegmentPtr().
