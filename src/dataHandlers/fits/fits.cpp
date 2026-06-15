@@ -141,7 +141,7 @@ Fits::Fits(const char* filename) {
   fits_header_bytesize_ = (size_t)i * 2880;
   fits_data_bytesize_ = (size_t)naxis1_ * naxis2_;
   file_size_ = fits_header_bytesize_+ fits_data_bytesize_;
-  file_size_aligned_ = ((file_size_ + 4095) / 4096) * 4096;
+  file_size_aligned_ = alignUpTo(file_size_, directIOAlignment());
   timeseries_col_byte_offset_ =
     (size_t)naxis1_ - (size_t)4 * nchans_read_ - (size_t)2 * 4 * scal_offs_width_ - data_byte_width_;
 

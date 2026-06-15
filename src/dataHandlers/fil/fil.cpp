@@ -118,7 +118,7 @@ void Fil::parseHeader() {
     // downsampling check (nsblk % downsamp == 0) maps to (nsamp % downsamp == 0).
     dimTime_ = (int)(buffersize_ / ((size_t)nchans_read_ * npol_ * (nbit_ / 8)));
 
-    file_size_aligned_ = ((file_size_ + 4095) / 4096) * 4096;
+    file_size_aligned_ = alignUpTo(file_size_, directIOAlignment());
 }
 
 // -------------------------------------------------------------------------

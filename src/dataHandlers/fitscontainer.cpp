@@ -161,8 +161,8 @@ void dataLoader::ldSeq(size_t chunksize, int poln) {
     }
 
     std::unique_ptr<unsigned char, void (*)(unsigned char*)> alignedBuf(
-        static_cast<unsigned char*>( ::operator new(listFiles_[0]->fileSizeAligned() , std::align_val_t(4096))),
-        [] (unsigned char* x) { ::operator delete(x, std::align_val_t(4096)); }
+        static_cast<unsigned char*>( ::operator new(listFiles_[0]->fileSizeAligned() , std::align_val_t(ALIGNMENT))),
+        [] (unsigned char* x) { ::operator delete(x, std::align_val_t(ALIGNMENT)); }
     );
 
 #ifdef TESTDEDISP_DEBUG

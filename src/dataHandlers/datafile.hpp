@@ -3,10 +3,29 @@
 
 #include <vector>
 #include <iostream>
+#include <cstddef>
+#include <unistd.h>
 
 // Longest chunksize 2147479552 for direct read (linux read documentation)
 #define MAX_CHUNKSIZE 2147479552
 #define HALF_MAX_CHUNKSIZE 1073741824
+
+// O_DIRECT requires the IO buffer address, file offsets and transfer sizes to
+// be aligned to the underlying device block size, which on Linux is bounded by
+// the system page size. That page size is not always 4096 (e.g. 64 KiB on some
+// POWER/aarch64 hosts), so query it at runtime and use the same value for both
+// buffer allocation and size rounding. A 4096-byte floor is kept so behaviour
+// is unchanged on the common 4 KiB-page case.
+inline size_t directIOAlignment() {
+    long pg = sysconf(_SC_PAGESIZE);
+    size_t page = (pg > 0) ? static_cast<size_t>(pg) : 4096;
+    return page < 4096 ? 4096 : page;
+}
+
+// Round n up to the next multiple of the (power-of-two) alignment a.
+inline size_t alignUpTo(size_t n, size_t a) {
+    return ((n + a - 1) / a) * a;
+}
 
 class dataFile {
 protected:
@@ -45,7 +64,7 @@ protected:
 
     // File layout
     size_t file_size_         = 0;
-    size_t file_size_aligned_ = 0;   // aligned to 4096
+    size_t file_size_aligned_ = 0;   // rounded up to directIOAlignment()
 
     // Channel frequencies in ascending order
     std::vector<double> freqs_;

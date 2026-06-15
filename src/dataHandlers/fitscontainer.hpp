@@ -8,7 +8,9 @@
 #include <iostream>
 #include "matrix_view.hpp"
 
-#define ALIGNMENT 4096
+// Runtime O_DIRECT alignment (page size, see datafile.hpp). Kept as a macro
+// for the existing call sites that build std::align_val_t(ALIGNMENT).
+#define ALIGNMENT directIOAlignment()
 
 /*
 * This class is a distributed storage of Fits data.
