@@ -305,13 +305,15 @@ void FDDGPUPlan::setOutputParams(
   dedisp_size max_delay = get_max_delay();
 
 #ifdef TESTDEDISP_DEBUG
-  printf("----------------------------- DM COMPUTATIONS  "
-         "----------------------------\n");
-  printf("Computing %lu DMs from %f to %f pc/cm^3\n", dm_count, dmlist[0],
-         dmlist[dm_count - 1]);
-  printf("Max DM delay is %lu samples (%.3f seconds)\n", max_delay,
-         max_delay * dt_);
-  std::cout << "dt = " << dt_ << std::endl;
+  if (container_->getMPIRank() == 0) {
+    printf("----------------------------- DM COMPUTATIONS  "
+           "----------------------------\n");
+    printf("Computing %lu DMs from %f to %f pc/cm^3\n", dm_count, dmlist[0],
+           dmlist[dm_count - 1]);
+    printf("Max DM delay is %lu samples (%.3f seconds)\n", max_delay,
+           max_delay * dt_);
+    std::cout << "dt = " << dt_ << std::endl;
+  }
 #endif
   
   // nsamp_fft is the fft size. Keeping this bigger than nsamps is implicitly
@@ -333,9 +335,11 @@ void FDDGPUPlan::setOutputParams(
   // output dirty timeseries
   else {
   #ifdef TESTDEDISP_DEBUG
+    if (container_->getMPIRank() == 0) {
       std::cout << "---------------nsamps_computed_ = nsamps_ + max_delay" << std::endl;
       std::cout << "nsamps_ = " << nsamps_ << std::endl;
       std::cout << "max_delay = " << max_delay << std::endl;
+    }
   #endif
       nsamps_computed_ = nsamps_ + max_delay;
   }
@@ -345,11 +349,13 @@ void FDDGPUPlan::setOutputParams(
 
   if (fftout) {
   #ifdef TESTDEDISP_DEBUG
-    printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
-          "(adjusting for max delay)\n",
-          nsamp_fft_);
-    printf("Output data array size : %lu MB\n",
-          (dm_count * nsamp_fft_ * sizeof(float)) / (1 << 20));
+    if (container_->getMPIRank()) {
+      printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
+            "(adjusting for max delay)\n",
+            nsamp_fft_);
+      printf("Output data array size : %lu MB\n",
+            (dm_count * nsamp_fft_ * sizeof(float)) / (1 << 20));
+    }
   #endif
 
     // Output is chosen such that it is able to hold all the FFT coefficients
@@ -357,11 +363,13 @@ void FDDGPUPlan::setOutputParams(
   }
   else {
   #ifdef TESTDEDISP_DEBUG
-    printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
-         nsamps_computed_, nsamps_,
-         100.0 * (dedisp_float)nsamps_computed_ / nsamps_);
-    printf("Output data array size : %lu MB\n",
-          (dm_count * nsamps_computed_ * sizeof(float)) / (1 << 20));
+    if (container_->getMPIRank() == 0){
+      printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
+           nsamps_computed_, nsamps_,
+           100.0 * (dedisp_float)nsamps_computed_ / nsamps_);
+      printf("Output data array size : %lu MB\n",
+            (dm_count * nsamps_computed_ * sizeof(float)) / (1 << 20));
+    }
   #endif
   
     output_buffer_ = std::make_unique<float[]>(nsamps_computed_ * dm_count);
@@ -792,8 +800,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     float* sendbuf = new float[max_delay * ndm_batch_max];
     float* recvbuf = new float[max_delay * ndm_batch_max];
 
-    //int mpi_rank = container_->getMPIRank();
-    //int mpi_size = container_->getMPISize();
+    int mpi_rank = container_->getMPIRank();
+    int mpi_size = container_->getMPISize();
 
     // If last rank, no destination, otherwise the next rank is the dest
     int dest = (mpi_rank == mpi_size - 1) ? MPI_PROC_NULL : mpi_rank + 1;
