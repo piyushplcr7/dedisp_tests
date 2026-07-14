@@ -62,10 +62,12 @@ int main(int argc, char **argv) {
   char **fitsfiles = cmd->argv;
 
 #ifdef TESTDEDISP_DEBUG
-  showOptionValues();
-  printf("No. of infiles = %d\n", nfiles);
-  for (int i = 0; i < nfiles; ++i) {
-    printf("input file %d: %s \n", i, fitsfiles[i]);
+  if (mpi_rank == 0) {
+    showOptionValues();
+    printf("No. of infiles = %d\n", nfiles);
+    for (int i = 0; i < nfiles; ++i) {
+      printf("input file %d: %s \n", i, fitsfiles[i]);
+    }
   }
 #endif
 
@@ -97,7 +99,8 @@ int main(int argc, char **argv) {
   // If nbits is not specified, use the nbits from the container (which is determined from the input files)
   in_nbits = in_nbits == 0 ? container.nbits() : in_nbits;
 
-  std::cout << "------------------------ LOADING + REDUCING FITS ------------------------\n" << std::endl;
+  if (mpi_rank == 0)
+    std::cout << "------------------------ LOADING + REDUCING FITS ------------------------\n" << std::endl;
   size_t chunksize = HALF_MAX_CHUNKSIZE;
   int poln = 0;
 
@@ -111,20 +114,27 @@ int main(int argc, char **argv) {
     cu::Marker mBary("Generating barycentering correction", cu::Marker::green);
 
     mBary.start();
-    std::cout << "\n------------------- GENERATING BARYCENTER CORRECTIONS -------------------\n" << std::endl;
+
+    if (mpi_rank == 0)
+      std::cout << "\n------------------- GENERATING BARYCENTER CORRECTIONS -------------------\n" << std::endl;
     container.barycenter();
     mBary.end();
   }
   
   cu::Marker mPlan("Plan creation", cu::Marker::green);
   mPlan.start();
-  std::cout << "\n------------------------------ PLAN CREATION ---------------------------\n" << std::endl;
+
+  if (mpi_rank == 0)
+    std::cout << "\n------------------------------ PLAN CREATION ---------------------------\n" << std::endl;
+
   dedisp::FDDGPUPlan plan(container, gpu_device_id);
   mPlan.end();
 
   cu::Marker mDMlist("Gen DM list", cu::Marker::green);
   mDMlist.start();
-  std::cout << "\n--------------------------- GENERATING DM LIST --------------------------\n" << std::endl;
+
+  if (mpi_rank == 0)
+    std::cout << "\n--------------------------- GENERATING DM LIST --------------------------\n" << std::endl;
   // Generate a list of dispersion measures for the plan
   if (cmd->numdms == 0) {
   #ifdef TESTDEDISP_DEBUG
@@ -135,8 +145,9 @@ int main(int argc, char **argv) {
     plan.generate_dm_list(cmd->lodm, cmd->hidm, cmd->pwidth, dm_tol);
   } else {
   #ifdef TESTDEDISP_DEBUG
-    std::cout << "Generating equispaced DM list using the provided step size"
-              << std::endl;
+    if (mpi_rank == 0)
+      std::cout << "Generating equispaced DM list using the provided step size"
+                << std::endl;
   #endif
     plan.generate_dm_list_equispaced(cmd->lodm, cmd->dmstep, cmd->numdms);
   }
@@ -148,7 +159,8 @@ int main(int argc, char **argv) {
   plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits, cmd->outfile, cmd->dmstepW, !cmd->nobaryP);
   mOutPar.end();
 
-  std::cout << "\n------------------------------ PLAN EXECUTE -----------------------------\n" << std::endl;
+  if (mpi_rank == 0)
+    std::cout << "\n------------------------------ PLAN EXECUTE -----------------------------\n" << std::endl;
   aa_gpu_timer timer;
   timer.Start();
   dedisp_byte *input = reinterpret_cast<dedisp_byte *> (container.getAssembledDataBfr().get());
@@ -161,8 +173,11 @@ int main(int argc, char **argv) {
     cmd->dmstepW = 2;
   //plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
   plan.writeInfs(cmd->outfile, container.getFileVector()[0].get(), container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
-  std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
-
+  
   MPI_Finalize();
+
+  if (mpi_rank == 0)
+    std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
+
   return 0;
 }

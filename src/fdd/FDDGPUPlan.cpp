@@ -130,7 +130,6 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
     
   } 
   else if (multout_ && !fftout_ && !barycenter) {
-    std::cout << "**********************Check for writing function" << std::endl;
     #pragma omp parallel
     {
       #pragma omp for
@@ -333,9 +332,11 @@ void FDDGPUPlan::setOutputParams(
   }
   // output dirty timeseries
   else {
+  #ifdef TESTDEDISP_DEBUG
       std::cout << "---------------nsamps_computed_ = nsamps_ + max_delay" << std::endl;
       std::cout << "nsamps_ = " << nsamps_ << std::endl;
       std::cout << "max_delay = " << max_delay << std::endl;
+  #endif
       nsamps_computed_ = nsamps_ + max_delay;
   }
 
@@ -343,22 +344,26 @@ void FDDGPUPlan::setOutputParams(
   //nsamps_computed_ = (nsamps_computed_/2) * 2;
 
   if (fftout) {
+  #ifdef TESTDEDISP_DEBUG
     printf("Computing %lu Fourier Coefficients of dedispersed timeseries "
           "(adjusting for max delay)\n",
           nsamp_fft_);
     printf("Output data array size : %lu MB\n",
           (dm_count * nsamp_fft_ * sizeof(float)) / (1 << 20));
+  #endif
 
     // Output is chosen such that it is able to hold all the FFT coefficients
     output_buffer_ = std::make_unique<float[]>(nsamp_padded_ * dm_count);
   }
   else {
+  #ifdef TESTDEDISP_DEBUG
     printf("Computing %lu out of %lu total samples (%.2f%% efficiency)\n",
          nsamps_computed_, nsamps_,
          100.0 * (dedisp_float)nsamps_computed_ / nsamps_);
     printf("Output data array size : %lu MB\n",
           (dm_count * nsamps_computed_ * sizeof(float)) / (1 << 20));
-    
+  #endif
+  
     output_buffer_ = std::make_unique<float[]>(nsamps_computed_ * dm_count);
   }
 
@@ -421,16 +426,27 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   //aa_gpu_timer R2Ctimer;
   double r2ctime = 0;
 
+  int mpi_rank = container_->getMPIRank();
+  int mpi_size = container_->getMPISize();
+
   // Original code. Commented out to allow working directly with floats
   if (in_nbits == 8) {
+  #ifdef TESTDEDISP_DEBUG
+  if (mpi_rank == 0) {
     std::cout << "****************************************************\n";
     std::cout << " Using 8 bit input. Unpacking to 32 bit floats on GPU.\n";
     std::cout << "****************************************************\n";
   }
+  #endif
+  }
   else if (in_nbits == 32) {
-    std::cout << "****************************************************\n";
-    std::cout << " Using 32 bit float input. No unpacking needed.\n";
-    std::cout << "****************************************************\n";
+  #ifdef TESTDEDISP_DEBUG
+    if (mpi_rank == 0) {
+      std::cout << "****************************************************\n";
+      std::cout << " Using 32 bit float input. No unpacking needed.\n";
+      std::cout << "****************************************************\n";
+    }
+  #endif
   }
   else {
     std::cerr << "Unsupported input bit depth: " << in_nbits << std::endl;
@@ -452,12 +468,17 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   size_t nfreq = (nsamp_fft_segment / 2 + 1);    // number of spin frequencies
   //size_t nsamps_computed_segment = nsamp + max_delay;
 
-  std::cout << "nsamp_segment        = " << nsamp << std::endl;
-  std::cout << "nsamp_fft_segment    = " << nsamp_fft_segment << std::endl;
-  std::cout << "nsamp_padded_segment = " << nsamp_padded_segment << std::endl;
+#ifdef TESTDEDISP_DEBUG
+  if (mpi_rank == 0) {
+    std::cout << "nsamp_segment        = " << nsamp << std::endl;
+    std::cout << "nsamp_fft_segment    = " << nsamp_fft_segment << std::endl;
+    std::cout << "nsamp_padded_segment = " << nsamp_padded_segment << std::endl;
+  
+    std::cout << "m_max_delay = " << m_max_delay << std::endl;
+    std::cout << "nsamps_computed = " << nsamps_computed_ << std::endl;
+  }
+#endif
 
-  std::cout << "m_max_delay = " << m_max_delay << std::endl;
-  std::cout << "nsamps_computed = " << nsamps_computed_ << std::endl;
 #ifdef DEDISP_DEBUG
   std::cout << debug_str << std::endl;
   std::cout << "nsamp_fft    = " << nsamp_fft_ << std::endl;
@@ -620,23 +641,25 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   };
 
   // Debug
-//#ifdef DEDISP_DEBUG
-  std::cout << debug_str << std::endl;
-  std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
-            << " DMs" << std::endl;
-  /* std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
-            << " channels" << std::endl; */
-  std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3)
-            << " Gb" << std::endl;
-  std::cout << "Device memory free     = " << d_memory_free / std::pow(1024, 3)
-            << " Gb" << std::endl;
-  std::cout << "Device Memory required = "
-            << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
-  std::cout << "Host memory total    = "
-            << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-  std::cout << "Host memory free     = "
-            << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-//#endif
+#ifdef TESTDEDISP_DEBUG
+  if (mpi_rank == 0) {
+    std::cout << debug_str << std::endl;
+    std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
+              << " DMs" << std::endl;
+    /* std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
+              << " channels" << std::endl; */
+    std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3)
+              << " Gb" << std::endl;
+    std::cout << "Device memory free     = " << d_memory_free / std::pow(1024, 3)
+              << " Gb" << std::endl;
+    std::cout << "Device Memory required = "
+              << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Host memory total    = "
+              << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+    std::cout << "Host memory free     = "
+              << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+  }
+#endif
 
   // Allocate memory
 #ifdef DEDISP_DEBUG
@@ -769,8 +792,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     float* sendbuf = new float[max_delay * ndm_batch_max];
     float* recvbuf = new float[max_delay * ndm_batch_max];
 
-    int mpi_rank = container_->getMPIRank();
-    int mpi_size = container_->getMPISize();
+    //int mpi_rank = container_->getMPIRank();
+    //int mpi_size = container_->getMPISize();
 
     // If last rank, no destination, otherwise the next rank is the dest
     int dest = (mpi_rank == mpi_size - 1) ? MPI_PROC_NULL : mpi_rank + 1;
@@ -1059,7 +1082,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Process all dm batches (outer dm jobs)
   for (unsigned dm_job_id_outer = 0; dm_job_id_outer < dm_jobs.size();
        dm_job_id_outer += ndm_buffers) {
-        std::cout << "dm_job_id_outer = " << dm_job_id_outer << std::endl;
     // Process all channel batches
     for (unsigned channel_job_id = 0; channel_job_id < channel_jobs.size();
          channel_job_id++) {
@@ -1308,7 +1330,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   dtohstream->record(eEndGPU);
   mExeGPU.end(eEndGPU);
-#ifdef DEDISP_BENCHMARK
+#ifdef TESTDEDISP_DEBUG
   total_timer->Pause();
 
   gpuexec_timer->Add(eEndGPU.elapsedTime(eStartGPU));
