@@ -469,6 +469,18 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
   unsigned int ndm_fft_batch = 32;
   ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
+  // The inverse C2R FFT loop runs (ndm_batch_max / ndm_fft_batch) iterations of
+  // ndm_fft_batch transforms each (see below). With integer division, any
+  // remainder DM rows in a batch are never inverse-transformed -> silent
+  // corruption. Require exact divisibility. With the current sizing this holds
+  // for ndm <= 131 (ndm_batch_max <= 32) or ndm >= 256 (ndm_batch_max == 64);
+  // it fails for ndm in [132, 255], which is why the caller requires >= 256.
+  if (ndm_batch_max % ndm_fft_batch != 0) {
+    std::cerr << "ndm_batch_max (" << ndm_batch_max
+              << ") must be a multiple of ndm_fft_batch (" << ndm_fft_batch
+              << "); choose numdms so this holds (e.g. >= 256)." << std::endl;
+    exit(1);
+  }
   // The number of buffers for DM results is configured below based on the
   // amount of available GPU memory.
   unsigned int ndm_buffers = 1;
