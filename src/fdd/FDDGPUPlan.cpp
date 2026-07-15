@@ -286,10 +286,10 @@ void FDDGPUPlan::setOutputParams(
   // (nsamps_computed_ = nsamps + max_delay). cleanout shrinks the row to
   // nsamps - max_delay, which makes the overlap-tail offset and resample
   // reads run past the end of each DM row → silent corruption.
-  if (cleanout) {
+  if (cleanout || fftout) {
     fprintf(stderr,
-            "[FDDGPUPlan] cleanout is NOT SUPPORTED in the MPI/segmented "
-            "path (it breaks the overlap-add output layout). Aborting.\n");
+            "[FDDGPUPlan] cleanout/fftout is NOT SUPPORTED in the MPI/segmented "
+            "path. Aborting.\n");
     MPI_Abort(MPI_COMM_WORLD, 1);
   }
   //
@@ -842,16 +842,21 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     const size_t local_skip_bytes = (mpi_rank == 0)
         ? (size_t)max_delay * out_bytes_per_sample : 0;
 
-    const size_t write_bytes      = (mpi_rank == 0)
-        ? (size_t)(nsamps - max_delay) * out_bytes_per_sample
-        : (size_t)nsamps * out_bytes_per_sample;
+    int mpi_count = (mpi_rank == 0)
+        ? (size_t)(nsamps - max_delay) : (size_t)nsamps;
+
+    // To enforce even length of written data, we reduce the mpi_count by 1
+    // for the last process if the length is odd
+    if ((mpi_size * nsamps - max_delay)%2 != 0 && (mpi_rank == mpi_size - 1)) 
+      mpi_count -= 1;
+    
+
+    const size_t write_bytes = mpi_count * out_bytes_per_sample;
 
     const MPI_Offset global_byte_off = (mpi_rank == 0)
         ? (MPI_Offset)0
         : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
             * out_bytes_per_sample;
-
-    const int mpi_count = (int)(write_bytes / sizeof(float));
 
     // For barycentering, the dedispersed data is the input. The input is
     // split across multiple procs. 
@@ -890,8 +895,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // global_output_idx_end contains position in the output, from where
       // the contributions by another MPI proc start.
       global_output_idx_end = out_idx_global;
+      
+      // Just as in the non barycenter case, check if series length is 
+      // odd and adjust the size on the last process
+      if ((mpi_rank == mpi_size - 1) && global_output_idx_end%2 !=0 )
+        global_output_idx_end -= 1;
+      
       local_Nout = global_output_idx_end - global_output_idx_start;
-
+      
       barycentered_data = new float[local_Nout * ndm_batch_max];
     }
 
