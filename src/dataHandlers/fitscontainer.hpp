@@ -63,6 +63,7 @@ public:
     const std::vector<int>& getDiffbins() const { return diffbins_; }
     const int getMPIRank() const {return world_rank_;}
     const int getMPISize() const {return world_size_;}
+    const dataFile* getFirstFile() const {return firstFile_.get();}
 
     /*
     * Constructor for the distributed Fits data storage. The input is the list

@@ -155,6 +155,10 @@ int main(int argc, char **argv) {
 
   cu::Marker mOutPar("Set output params", cu::Marker::green);
   mOutPar.start();
+  // Default DM width must be set before setOutputParams so the .dat files
+  // (named with w_ during execute) pair with the .inf files from writeInfs
+  if (cmd->dmstepW == 0)
+    cmd->dmstepW = 2;
   // Set the output parameters for the plan, which also allocates the output buffer
   plan.setOutputParams(cmd->cleanoutP, cmd->fftoutP, cmd->multoutP, out_nbits, cmd->outfile, cmd->dmstepW, !cmd->nobaryP);
   mOutPar.end();
@@ -169,10 +173,11 @@ int main(int argc, char **argv) {
   timer.Stop();
   printf("plan.execute() took %.2f seconds\n", timer.Elapsed());
 
-  if (cmd->dmstepW == 0)
-    cmd->dmstepW = 2;
   //plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
-  plan.writeInfs(cmd->outfile, container.getFileVector()[0].get(), container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
+
+  // Write infs using last MPI proc
+  if (mpi_rank == mpi_size-1 )
+    plan.writeInfs(cmd->outfile, container.getFirstFile(), container.nsampsGlobal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
   
   MPI_Finalize();
 

@@ -91,6 +91,7 @@ private:
     size_t nsamp_fft_;
     size_t nsamps_computed_;
     size_t nsamp_padded_;
+    size_t outlen_ = 0;
 
     double dt_;
 

@@ -249,11 +249,11 @@ void FDDGPUPlan::writeInfs(char* outfile, const dataFile* file, size_t nsamps, d
     }
     fprintf(inf_out,"%-40s=  %.15f\n", " Epoch of observation (MJD)", epoch);
     fprintf(inf_out,"%-40s=  %d\n", " Barycentered?           (1 yes, 0 no)", barycenter ? 1 : 0);
-    fprintf(inf_out,"%-40s=  %ld\n", " Number of bins in the time series", nsamps);
+    fprintf(inf_out,"%-40s=  %ld\n", " Number of bins in the time series", outlen_); // outlen_ is assigned after execute()!
     fprintf(inf_out,"%-40s=  %.4f\n", " Width of each time series bin (sec)", dt);
     fprintf(inf_out,"%-40s=  1\n", " Any breaks in the data? (1 yes, 0 no)");
-    fprintf(inf_out,"%-40s=  0, %ld\n", " On/Off bin pair #  1 ", nsamps-1); // Check!
-    fprintf(inf_out,"%-40s=  %ld, %ld\n", " On/Off bin pair #  2", nsamps-1, nsamps-1);
+    fprintf(inf_out,"%-40s=  0, %ld\n", " On/Off bin pair #  1 ", outlen_-1); // Check!
+    fprintf(inf_out,"%-40s=  %ld, %ld\n", " On/Off bin pair #  2", outlen_-1, outlen_-1);
     fprintf(inf_out,"%-40s=  Radio\n", " Type of observation (EM band)  ");
     fprintf(inf_out,"%-40s=  900\n", " Beam diameter (arcsec)");
     fprintf(inf_out,"%-40s=  %.*f\n", " Dispersion measure (cm-3 pc)", w, dmlist[out_file_idx]);
@@ -845,11 +845,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     int mpi_count = (mpi_rank == 0)
         ? (size_t)(nsamps - max_delay) : (size_t)nsamps;
 
+    if (mpi_rank == mpi_size - 1)
+      outlen_ = mpi_size * nsamps - max_delay;
     // To enforce even length of written data, we reduce the mpi_count by 1
     // for the last process if the length is odd
-    if ((mpi_size * nsamps - max_delay)%2 != 0 && (mpi_rank == mpi_size - 1)) 
+    if ((mpi_rank == mpi_size - 1) && outlen_%2 != 0 ) {
       mpi_count -= 1;
-    
+      outlen_ -= 1;
+    }
+     
 
     const size_t write_bytes = mpi_count * out_bytes_per_sample;
 
@@ -900,6 +904,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // odd and adjust the size on the last process
       if ((mpi_rank == mpi_size - 1) && global_output_idx_end%2 !=0 )
         global_output_idx_end -= 1;
+
+      // Store the barycentered output length from the last MPI process
+      if (mpi_rank == mpi_size - 1)
+        outlen_ =  global_output_idx_end;
       
       local_Nout = global_output_idx_end - global_output_idx_start;
       
