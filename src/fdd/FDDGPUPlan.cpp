@@ -82,6 +82,10 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
         break;
       }
     }
+
+    // Make Nout even
+    Nout = (Nout/2) * 2;
+    outlen_ = Nout;
     
     #pragma omp parallel
     {
@@ -139,6 +143,10 @@ void FDDGPUPlan::writeOutput(char* outfile, int w, bool barycenter, const std::v
             std::cerr << "Open failed\n";
             std::exit(1);
         }
+
+        // nsamps_computed_ is already even
+        outlen_ = nsamps_computed_;
+
         size_t numtowrite = (size_t)nsamps_computed_ * out_nbits / 8;
 
         ssize_t written = write(
@@ -245,11 +253,11 @@ void FDDGPUPlan::writeInfs(char* outfile, const Fits& fits, size_t nsamps, doubl
     }
     fprintf(inf_out,"%-40s=  %.15f\n", " Epoch of observation (MJD)", epoch);
     fprintf(inf_out,"%-40s=  %d\n", " Barycentered?           (1 yes, 0 no)", barycenter ? 1 : 0);
-    fprintf(inf_out,"%-40s=  %ld\n", " Number of bins in the time series", nsamps);
+    fprintf(inf_out,"%-40s=  %ld\n", " Number of bins in the time series", outlen_);
     fprintf(inf_out,"%-40s=  %.4f\n", " Width of each time series bin (sec)", dt);
     fprintf(inf_out,"%-40s=  1\n", " Any breaks in the data? (1 yes, 0 no)");
-    fprintf(inf_out,"%-40s=  0, %ld\n", " On/Off bin pair #  1 ", nsamps-1); // Check!
-    fprintf(inf_out,"%-40s=  %ld, %ld\n", " On/Off bin pair #  2", nsamps-1, nsamps-1);
+    fprintf(inf_out,"%-40s=  0, %ld\n", " On/Off bin pair #  1 ", outlen_-1); // Check!
+    fprintf(inf_out,"%-40s=  %ld, %ld\n", " On/Off bin pair #  2", outlen_-1, outlen_-1);
     fprintf(inf_out,"%-40s=  Radio\n", " Type of observation (EM band)  ");
     fprintf(inf_out,"%-40s=  900\n", " Beam diameter (arcsec)");
     fprintf(inf_out,"%-40s=  %.*f\n", " Dispersion measure (cm-3 pc)", w, dmlist[out_file_idx]);

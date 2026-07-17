@@ -99,6 +99,8 @@ int main(int argc, char **argv) {
   if (cmd->dmstepW == 0)
     cmd->dmstepW = 2;
   plan.writeOutput(cmd->outfile, cmd->dmstepW, !cmd->nobaryP, container.getInForOut());
+
+  // writeInfs needs to be after writeOutput! outlen_ is assigned by the output function
   plan.writeInfs(cmd->outfile, container.getFitsVector()[0], container.nsampsLocal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
   std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 
 
