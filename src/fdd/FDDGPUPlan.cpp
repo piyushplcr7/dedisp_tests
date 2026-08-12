@@ -230,7 +230,7 @@ void FDDGPUPlan::writeInfs(char* outfile, const dataFile* file, size_t nsamps, d
     FILE* inf_out = fopen(out_inf_name,"w");
 
     // Writing the inf data
-    fprintf(inf_out,"%-40s=  %s_DM_%.*f\n", " Data file name without suffix", outfiles_basename, w, dmlist[out_file_idx]);
+    fprintf(inf_out,"%-40s=  %s_DM%.*f\n", " Data file name without suffix", outfiles_basename, w, dmlist[out_file_idx]);
     fprintf(inf_out,"%-40s=  %s\n", " Telescope used", file->telescope());
     fprintf(inf_out,"%-40s=  %s\n", " Instrument used", file->instrument());
     fprintf(inf_out,"%-40s=  %s\n", " Object being observed", file->objectName());
