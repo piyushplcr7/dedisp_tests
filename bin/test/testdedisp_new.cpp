@@ -178,8 +178,48 @@ int main(int argc, char **argv) {
   // Write infs using last MPI proc
   if (mpi_rank == mpi_size-1 )
     plan.writeInfs(cmd->outfile, container.getFirstFile(), container.nsampsGlobal(), container.sampletime(), cmd->dmstepW, !cmd->nobaryP, container.blotoa(), container.avgvoverc());
-  
+
+  // ---- Runtime reporting -------------------------------------------------
+  // Two numbers, both max-over-ranks (the run is finished only when the
+  // slowest rank is):
+  //   SOLVER  MPI_Init exit -> here, i.e. the work, MPI startup/teardown out
+  //   MAIN    process start -> after MPI_Finalize, the whole program
+  // MPI_Init is a barrier, so ranks enter the timed region together and the
+  // max is meaningful rather than a launch-skew artefact.
+  //
+  // These replace reconstructing the same numbers from nsys reports: the
+  // profiler is still needed for per-call breakdowns, but not for runtime.
+  auto solver_t1 = std::chrono::steady_clock::now();
+  double solver_sec =
+      std::chrono::duration<double>(solver_t1 - mpi_init_t1).count();
+  double init_sec =
+      std::chrono::duration<double>(mpi_init_t1 - mpi_init_t0).count();
+
+  double solver_max = 0.0, init_max = 0.0;
+  MPI_Reduce(&solver_sec, &solver_max, 1, MPI_DOUBLE, MPI_MAX, 0,
+             MPI_COMM_WORLD);
+  MPI_Reduce(&init_sec, &init_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
   MPI_Finalize();
+
+  // After MPI_Finalize no collective is legal, so `main` is rank 0's own
+  // whole-program time. It differs from the true max only by the spread in
+  // MPI_Finalize, which is small next to the run itself.
+  auto main_t1 = std::chrono::steady_clock::now();
+  double main_sec =
+      std::chrono::duration<double>(main_t1 - mpi_init_t0).count();
+  double finalize_sec =
+      std::chrono::duration<double>(main_t1 - solver_t1).count();
+
+  if (mpi_rank == 0) {
+    // solver_max and init_max are over all ranks; main and finalize are
+    // rank 0's own -- do not subtract one from the other, they are not on
+    // the same rank.
+    printf("RUNTIME ranks=%d solver_max=%.3f main_rank0=%.3f "
+           "init_max=%.3f finalize_rank0=%.3f\n",
+           mpi_size, solver_max, main_sec, init_max, finalize_sec);
+    fflush(stdout);
+  }
 
   if (mpi_rank == 0)
     std::cout << "\n------------------------ DEDISPERSION SUCCESSFUL ------------------------\n\n" << std::endl; 

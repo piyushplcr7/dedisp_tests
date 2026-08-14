@@ -218,10 +218,6 @@ void FDDGPUPlan::writeInfs(char* outfile, const dataFile* file, size_t nsamps, d
   unsigned dm_count = m_dm_count;
   const float* dmlist = get_dm_list();
 
-  // No infs to be written if multout is not set
-  if (!multout_)
-    return;
-
   #pragma omp parallel for 
   for (unsigned int out_file_idx = 0 ; out_file_idx < dm_count ; ++out_file_idx) {
     char out_inf_name[256];
@@ -290,6 +286,13 @@ void FDDGPUPlan::setOutputParams(
     fprintf(stderr,
             "[FDDGPUPlan] cleanout/fftout is NOT SUPPORTED in the MPI/segmented "
             "path. Aborting.\n");
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
+  if (barycenter && !multout) {
+    fprintf(stderr,
+            "[FDDGPUPlan] barycenter without multout is NOT SUPPORTED in the "
+            "MPI/segmented path (single-shared-file output is not implemented "
+            "for the barycentered write path yet). Aborting.\n");
     MPI_Abort(MPI_COMM_WORLD, 1);
   }
   //
@@ -809,27 +812,40 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // If first rank, no source, otherwise the previous rank is source
     int source = (mpi_rank == 0) ? MPI_PROC_NULL : mpi_rank - 1;
 
-    // Bounded ring of in-flight per-DM file writes. Each entry owns one
-    // MPI_File handle and its outstanding MPI_File_iwrite_at request. We
-    // close (which waits) once the ring is full or at the end of the run.
+    // Bounded ring of in-flight per-DM row writes, shared by both output
+    // layouts. An entry always owns its outstanding MPI_File_iwrite_at
+    // request; it owns the MPI_File handle only when writing one file per DM
+    // (multout). On the single-shared-file path the handle outlives every
+    // entry, so entries there carry MPI_FILE_NULL and close nothing.
+    // We drain (which waits) once the ring is full or at the end of the run.
     // Sized small enough to stay clear of common fd limits even with
     // hundreds of ranks * tens of DMs in flight per rank.
     // TODO: source outfile_basename and dmstepW from a setter (or extend
     // setOutputParams). Hardcoded defaults below mirror writeOutput().
     // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
-    struct PendingWrite { 
-      MPI_File fh; 
-      MPI_Request req; 
+    struct PendingWrite {
+      MPI_File fh;
+      MPI_Request req;
     };
 
     constexpr size_t max_inflight_writes = 32;
-    
+
+    // NOTE (measurement caveat, no MPI_File_sync here on purpose): close()
+    // does not push data to storage and neither does MPI_Finalize, so part
+    // of the write cost is deferred into kernel writeback, outside every
+    // timer in this program. Measured on GPFS: this path appeared to write
+    // 8 GB/rank in 0.15 s (53 GB/s/rank, ~640 GB/s aggregate) while the same
+    // filesystem reads at 1.8 GB/s/rank -- the bytes had not reached storage
+    // inside the timed region. Add MPI_File_sync before close if the write
+    // cost must be attributed honestly.
     std::deque<PendingWrite> inflight_writes;
-    
+
     auto drain_one_write = [&]() {
       auto &pw = inflight_writes.front();
       MPI_Wait(&pw.req, MPI_STATUS_IGNORE);
-      MPI_File_close(&pw.fh);
+      if (pw.fh != MPI_FILE_NULL) {
+        MPI_File_close(&pw.fh);
+      }
       inflight_writes.pop_front();
     };
 
@@ -845,15 +861,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     int mpi_count = (mpi_rank == 0)
         ? (size_t)(nsamps - max_delay) : (size_t)nsamps;
 
-    if (mpi_rank == mpi_size - 1)
-      outlen_ = mpi_size * nsamps - max_delay;
+    outlen_ = (size_t)mpi_size * nsamps - max_delay;
     // To enforce even length of written data, we reduce the mpi_count by 1
     // for the last process if the length is odd
-    if ((mpi_rank == mpi_size - 1) && outlen_%2 != 0 ) {
-      mpi_count -= 1;
+    if (outlen_ % 2 != 0) {
       outlen_ -= 1;
+      if (mpi_rank == mpi_size - 1) {
+        mpi_count -= 1;
+      }
     }
-     
 
     const size_t write_bytes = mpi_count * out_bytes_per_sample;
 
@@ -861,6 +877,27 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         ? (MPI_Offset)0
         : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
             * out_bytes_per_sample;
+
+    // When multout_ is off, all DMs are written into one shared file instead
+    // of one file per DM. Opened once, up front, and closed once at the end.
+    // Each DM row is written on its own with an explicit file offset; see the
+    // write branch below for why no file view is installed.
+    //
+    // Ranks write strictly disjoint byte ranges of this file, so MPI_COMM_SELF
+    // is correct: the opens need not be collective, and a file view is a
+    // per-process property anyway, so a shared communicator bought nothing.
+    MPI_File single_fh = MPI_FILE_NULL;
+    // Resource lifecycle depends only on multout_, not barycenter_: today
+    // only the non-barycenter write path below uses single_fh, but keeping
+    // this orthogonal to barycenter_ means barycenter support can plug into
+    // the same handle later without touching this setup/teardown.
+    if (!multout_) {
+      char single_outname[256];
+      snprintf(single_outname, sizeof(single_outname), "%s.dat", outfile_);
+      MPI_File_open(MPI_COMM_SELF, single_outname,
+                    MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                    MPI_INFO_NULL, &single_fh);
+    }
 
     // For barycentering, the dedispersed data is the input. The input is
     // split across multiple procs. 
@@ -998,7 +1035,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         }
 
       }
-      else {
+      else if (multout_) {
         // Output buffer for current DM batch is ready. Launch non-blocking
         // per-DM writes (one file per DM, MPI_COMM_SELF so ranks proceed
         // independently). Disjoint byte ranges per rank → no shared-file
@@ -1027,17 +1064,71 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           inflight_writes.push_back(pw);
         }
       }
-      
+      else {
+        // Single shared output file, one nonblocking write per DM row into
+        // the same handle, throttled by the same ring the multout path uses.
+        //
+        // WHY NO FILE VIEW. This rank's slice of a DM row is contiguous in
+        // the file, so its position is just an offset — a derived datatype
+        // only ever existed to batch several rows into one call. Dropping it
+        // is what raises the queue depth: MPI-IO forbids changing a handle's
+        // view while a nonblocking operation is outstanding on it, which
+        // forced the batched version to MPI_Wait on the previous job before
+        // installing the next view, pinning it at one write in flight. With
+        // no view to change there is nothing to serialise against, so up to
+        // max_inflight_writes rows are in flight at once.
+        //
+        // Removing the view also removes an MPI_File_set_view per DM job.
+        // That call is collective over the communicator used at open, and on
+        // this system it behaves as a barrier — measured at 4.5 s/rank with a
+        // ~100x spread between the fastest and slowest rank.
+        //
+        // Offsets are in BYTES: with no view installed the default view is in
+        // force (displacement 0, etype MPI_BYTE), so MPI_File_iwrite_at takes
+        // a byte offset rather than an offset in MPI_FLOATs.
+        for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
+          if (inflight_writes.size() >= max_inflight_writes) {
+            drain_one_write();
+          }
+
+          const unsigned idm = dm_job.idm_start + j;
+
+          PendingWrite pw;
+          // The shared handle is owned by the enclosing scope, not the ring.
+          pw.fh = MPI_FILE_NULL;
+
+          // DM idm occupies one contiguous block of outlen_ samples spanning
+          // every rank; this rank's slice sits global_byte_off into it.
+          const MPI_Offset row_off =
+              (MPI_Offset)idm * outlen_ * out_bytes_per_sample
+                  + global_byte_off;
+
+          const char* row_base =
+              (const char*)out_curr_dmjob + (size_t)j * out_stride;
+
+          MPI_File_iwrite_at(single_fh, row_off,
+                             row_base + local_skip_bytes,
+                             mpi_count, MPI_FLOAT, &pw.req);
+
+          inflight_writes.push_back(pw);
+        }
+      }
+
     } // Loop over dm jobs
 
     if (barycenter_) {
       delete[] barycentered_data;
     }
-    else {
-      // Drain any remaining in-flight writes before exiting the thread.
-      while (!inflight_writes.empty()) {
-        drain_one_write();
-      }
+
+    // Drain any remaining in-flight writes before exiting the thread. Both
+    // output layouts feed the same ring, so this is unconditional; only the
+    // shared handle needs an explicit close, and only after the ring is empty
+    // (its entries hold requests outstanding against that handle).
+    while (!inflight_writes.empty()) {
+      drain_one_write();
+    }
+    if (!multout_) {
+      MPI_File_close(&single_fh);
     }
 
     // De-allocate the buffers
