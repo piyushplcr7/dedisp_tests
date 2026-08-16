@@ -813,7 +813,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     int source = (mpi_rank == 0) ? MPI_PROC_NULL : mpi_rank - 1;
 
     // Bounded ring of in-flight per-DM row writes, shared by both output
-    // layouts. An entry always owns its outstanding MPI_File_iwrite_at
+    // layouts. An entry always owns its outstanding MPI_File_iwrite_at_all
     // request; it owns the MPI_File handle only when writing one file per DM
     // (multout). On the single-shared-file path the handle outlives every
     // entry, so entries there carry MPI_FILE_NULL and close nothing.
@@ -840,6 +840,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // cost must be attributed honestly.
     std::deque<PendingWrite> inflight_writes;
 
+    // ORDERING REQUIREMENT of the collective writes below: every rank must
+    // initiate the same collective operations on a handle in the same order,
+    // and the opens/closes are collective too. ndm_jobs and ndm_current derive
+    // only from ndm and ndm_batch_max, with no rank-dependent term, so every
+    // rank runs an identical loop nest and fills and drains this ring at
+    // identical points. Anything that makes the DM decomposition depend on the
+    // rank breaks that and deadlocks. Differing mpi_count per rank (rank 0
+    // skips max_delay, the last rank may drop a sample) is fine -- collective
+    // writes do not require equal counts.
     auto drain_one_write = [&]() {
       auto &pw = inflight_writes.front();
       MPI_Wait(&pw.req, MPI_STATUS_IGNORE);
@@ -883,9 +892,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // Each DM row is written on its own with an explicit file offset; see the
     // write branch below for why no file view is installed.
     //
-    // Ranks write strictly disjoint byte ranges of this file, so MPI_COMM_SELF
-    // is correct: the opens need not be collective, and a file view is a
-    // per-process property anyway, so a shared communicator bought nothing.
+    // Opened on MPI_COMM_WORLD because the writes below are COLLECTIVE: a
+    // collective write requires a handle opened on a communicator spanning
+    // every rank that participates, which here is all of them. MPI_File_open
+    // duplicates the communicator internally, so this shares no message
+    // context with the MPI_Sendrecv above.
     MPI_File single_fh = MPI_FILE_NULL;
     // Resource lifecycle depends only on multout_, not barycenter_: today
     // only the non-barycenter write path below uses single_fh, but keeping
@@ -894,7 +905,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     if (!multout_) {
       char single_outname[256];
       snprintf(single_outname, sizeof(single_outname), "%s.dat", outfile_);
-      MPI_File_open(MPI_COMM_SELF, single_outname,
+      MPI_File_open(MPI_COMM_WORLD, single_outname,
                     MPI_MODE_CREATE | MPI_MODE_WRONLY,
                     MPI_INFO_NULL, &single_fh);
     }
@@ -1036,10 +1047,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
       }
       else if (multout_) {
-        // Output buffer for current DM batch is ready. Launch non-blocking
-        // per-DM writes (one file per DM, MPI_COMM_SELF so ranks proceed
-        // independently). Disjoint byte ranges per rank → no shared-file
-        // consistency concern. Ring-drain throttles outstanding writes.
+        // Output buffer for current DM batch is ready. One file per DM, each
+        // written collectively by every rank into its own disjoint byte range.
+        // The open is on MPI_COMM_WORLD and therefore collective, which the
+        // collective write below requires; it also replaces mpi_size separate
+        // opens of the same file with one. Ring-drain throttles outstanding
+        // writes exactly as before -- the requests are nonblocking collective
+        // rather than nonblocking individual, but complete the same way.
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
           if (inflight_writes.size() >= max_inflight_writes) {
             drain_one_write();
@@ -1051,22 +1065,31 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                   outfile_, w_, dmlist[idm]);
 
           PendingWrite pw;
-          MPI_File_open(MPI_COMM_SELF, outname,
+          MPI_File_open(MPI_COMM_WORLD, outname,
                         MPI_MODE_CREATE | MPI_MODE_WRONLY,
                         MPI_INFO_NULL, &pw.fh);
 
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
-          MPI_File_iwrite_at(pw.fh, global_byte_off,
-                            row_base + local_skip_bytes,
-                            mpi_count, MPI_FLOAT, &pw.req);
+          MPI_File_iwrite_at_all(pw.fh, global_byte_off,
+                                 row_base + local_skip_bytes,
+                                 mpi_count, MPI_FLOAT, &pw.req);
 
           inflight_writes.push_back(pw);
         }
       }
       else {
-        // Single shared output file, one nonblocking write per DM row into
-        // the same handle, throttled by the same ring the multout path uses.
+        // Single shared output file, one nonblocking COLLECTIVE write per DM
+        // row into the same handle, throttled by the same ring the multout
+        // path uses.
+        //
+        // WHY COLLECTIVE. DM row idm occupies one contiguous block of
+        // outlen_ samples spanning every rank, and the ranks' slices sit in
+        // rank order within it. An individual write per rank therefore hands
+        // the filesystem mpi_size scattered pieces per row; the collective
+        // form lets MPI exchange them first and issue one large contiguous
+        // write from an aggregator subset. This is the only change here that
+        // alters WHAT the filesystem is asked to do rather than when.
         //
         // WHY NO FILE VIEW. This rank's slice of a DM row is contiguous in
         // the file, so its position is just an offset — a derived datatype
@@ -1106,9 +1129,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
 
-          MPI_File_iwrite_at(single_fh, row_off,
-                             row_base + local_skip_bytes,
-                             mpi_count, MPI_FLOAT, &pw.req);
+          MPI_File_iwrite_at_all(single_fh, row_off,
+                                 row_base + local_skip_bytes,
+                                 mpi_count, MPI_FLOAT, &pw.req);
 
           inflight_writes.push_back(pw);
         }
