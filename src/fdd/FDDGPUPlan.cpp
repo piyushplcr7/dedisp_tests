@@ -712,7 +712,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   mAllocMem.end();
 
-  MPI_Barrier(MPI_COMM_WORLD);
+  // MPI_Barrier(MPI_COMM_WORLD);
 
 #ifdef DEDISP_DEBUG
   size_t d_memory_free_after_malloc = m_device->get_free_memory(); // bytes
@@ -796,6 +796,41 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     }
   }
 
+  struct PendingWrite {
+      MPI_File fh;
+      MPI_Request req;
+#ifdef TESTDEDISP_DEBUG
+      unsigned idm; // DM index this write belongs to, for trace logging
+#endif
+    };
+
+  constexpr size_t max_inflight_writes = 32;
+
+#ifdef TESTDEDISP_DEBUG
+  // DEBUG TRACE: per-rank, unbuffered, timestamped log of which call each
+  // rank is inside, so a hung run shows exactly which job_id/idm/call every
+  // rank was last on. fflush after every line -- buffered stdio can sit on
+  // this for minutes on an infrequent-syscall path, hiding it from a reader
+  // tailing the file live while the rank is actually stuck.
+  char tlogname[256];
+  snprintf(tlogname, sizeof(tlogname), "mpi_trace_rank%d.log", mpi_rank);
+  FILE* tlog = fopen(tlogname, "w");
+#define TRACE(...) do { fprintf(tlog, __VA_ARGS__); fflush(tlog); } while (0)
+#endif
+
+  std::deque<PendingWrite> inflight_writes;
+
+  auto progress_writes = [&]() {
+      int flag;
+      MPI_Status status;
+      for (auto &pw : inflight_writes) {
+        int rc = MPI_Test(&pw.req, &flag, &status);
+        if (rc != MPI_SUCCESS) {
+          std::cerr << "MPI_SUCCESS not found" << std::endl;
+        }
+      }
+    };
+
   // Launch thread to manage MPI communication, data reduction and output
   std::thread mpi_thread = std::thread([&]() {
     mMPI.start();
@@ -823,13 +858,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // TODO: source outfile_basename and dmstepW from a setter (or extend
     // setOutputParams). Hardcoded defaults below mirror writeOutput().
     // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
-    struct PendingWrite {
-      MPI_File fh;
-      MPI_Request req;
-    };
-
-    constexpr size_t max_inflight_writes = 32;
-
+    
     // NOTE (measurement caveat, no MPI_File_sync here on purpose): close()
     // does not push data to storage and neither does MPI_Finalize, so part
     // of the write cost is deferred into kernel writeback, outside every
@@ -838,7 +867,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // filesystem reads at 1.8 GB/s/rank -- the bytes had not reached storage
     // inside the timed region. Add MPI_File_sync before close if the write
     // cost must be attributed honestly.
-    std::deque<PendingWrite> inflight_writes;
+    
 
     // ORDERING REQUIREMENT of the collective writes below: every rank must
     // initiate the same collective operations on a handle in the same order,
@@ -851,10 +880,22 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // writes do not require equal counts.
     auto drain_one_write = [&]() {
       auto &pw = inflight_writes.front();
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f drain: MPI_Wait BEGIN idm=%u (queue depth=%zu)\n",
+            mpi_rank, MPI_Wtime(), pw.idm, inflight_writes.size());
+#endif
       MPI_Wait(&pw.req, MPI_STATUS_IGNORE);
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f drain: MPI_Wait END   idm=%u\n",
+            mpi_rank, MPI_Wtime(), pw.idm);
+#endif
       if (pw.fh != MPI_FILE_NULL) {
         MPI_File_close(&pw.fh);
       }
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f drain: MPI_File_closed   idm=%u\n",
+            mpi_rank, MPI_Wtime(), pw.idm);
+#endif
       inflight_writes.pop_front();
     };
 
@@ -902,12 +943,20 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // only the non-barycenter write path below uses single_fh, but keeping
     // this orthogonal to barycenter_ means barycenter support can plug into
     // the same handle later without touching this setup/teardown.
+    
+    MPI_Info info;
+    MPI_Info_create(&info);
+
+    MPI_Info_set(info, "striping_factor", std::to_string(mpi_size).c_str());      // stripe_count
+    long stripe_unit = ((nsamps * out_bytes_per_sample + 65535) / 65536) * 65536; //((write_bytes + 65535) / 65536) * 65536;
+    MPI_Info_set(info, "striping_unit", std::to_string(stripe_unit).c_str());    
+
     if (!multout_) {
       char single_outname[256];
       snprintf(single_outname, sizeof(single_outname), "%s.dat", outfile_);
       MPI_File_open(MPI_COMM_WORLD, single_outname,
                     MPI_MODE_CREATE | MPI_MODE_WRONLY,
-                    MPI_INFO_NULL, &single_fh);
+                    info, &single_fh);
     }
 
     // For barycentering, the dedispersed data is the input. The input is
@@ -921,6 +970,39 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         local_Nout;
 
     MPI_Offset global_byte_off_barycenter = 0;
+
+    if (multout_) {
+      for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
+          auto &dm_job = dm_jobs[job_id];
+          for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
+              const unsigned idm = dm_job.idm_start + j;
+              if ((int)(idm % mpi_size) != mpi_rank) {
+                  continue;
+              }
+              char outname[256];
+              snprintf(outname, sizeof(outname), "%s_DM%.*f.dat", outfile_, w_, dmlist[idm]);
+
+              MPI_File fh;
+#ifdef TESTDEDISP_DEBUG
+              TRACE("[rank %d] %.3f job_id=%u idm=%u Precreate: MPI_File_open BEGIN %s\n",
+                    mpi_rank, MPI_Wtime(), job_id, idm, outname);
+#endif
+              MPI_File_open(MPI_COMM_SELF, outname,
+                            MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                            info, &fh);
+#ifdef TESTDEDISP_DEBUG
+              TRACE("[rank %d] %.3f job_id=%u idm=%u Precreate: MPI_File_open END %s\n",
+                    mpi_rank, MPI_Wtime(), job_id, idm, outname);
+#endif
+              MPI_File_close(&fh);
+#ifdef TESTDEDISP_DEBUG
+              TRACE("[rank %d] %.3f job_id=%u idm=%u Precreate: MPI_File_closed %s\n",
+                    mpi_rank, MPI_Wtime(), job_id, idm, outname);
+#endif
+          }
+      }
+      MPI_Barrier(MPI_COMM_WORLD);
+    }
 
     if (barycenter_) {
       global_input_idx_start = (mpi_rank == 0) ? 0 : mpi_rank * nsamps - max_delay;
@@ -972,7 +1054,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
 
       // Try to acquire the out_lock. It can be done only when the output buffer is populated
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f job_id=%u out_lock BEGIN\n", mpi_rank, MPI_Wtime(), job_id);
+#endif
       dm_job.out_lock.lock();
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f job_id=%u out_lock END\n", mpi_rank, MPI_Wtime(), job_id);
+#endif
       mMPI1.start();
       // Perform MPI communication for current DM job
       // We first pack the R data into the contiguous buffer sendbuf
@@ -988,11 +1076,18 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       mMPI1.end();
 
       // Send recv call for communication
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f job_id=%u Sendrecv BEGIN (dest=%d source=%d)\n",
+            mpi_rank, MPI_Wtime(), job_id, dest, source);
+#endif
       MPI_Sendrecv(
           sendbuf, max_delay * ndm_batch_max, MPI_FLOAT, dest,   mpi_rank, // mpi_rank_ sends this message
           recvbuf, max_delay * ndm_batch_max, MPI_FLOAT, source, mpi_rank - 1,
           MPI_COMM_WORLD, MPI_STATUS_IGNORE
       );
+#ifdef TESTDEDISP_DEBUG
+      TRACE("[rank %d] %.3f job_id=%u Sendrecv END\n", mpi_rank, MPI_Wtime(), job_id);
+#endif
 
       mMPI2.start();
       // Unpacking the data and doing memadd2D if rank not first
@@ -1055,27 +1150,43 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         // writes exactly as before -- the requests are nonblocking collective
         // rather than nonblocking individual, but complete the same way.
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          if (inflight_writes.size() >= max_inflight_writes) {
+          /* if (inflight_writes.size() >= max_inflight_writes) {
             drain_one_write();
-          }
+          } */
 
           const unsigned idm = dm_job.idm_start + j;
           char outname[256];
           snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
                   outfile_, w_, dmlist[idm]);
-
+          
           PendingWrite pw;
-          MPI_File_open(MPI_COMM_WORLD, outname,
-                        MPI_MODE_CREATE | MPI_MODE_WRONLY,
+#ifdef TESTDEDISP_DEBUG
+          pw.idm = idm;
+          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_open BEGIN %s\n",
+                mpi_rank, MPI_Wtime(), job_id, idm, outname);
+#endif
+          MPI_File_open(MPI_COMM_SELF, outname,
+                        MPI_MODE_CREATE | MPI_MODE_WRONLY, // MPI_MODE_WRONLY, //
                         MPI_INFO_NULL, &pw.fh);
-
+#ifdef TESTDEDISP_DEBUG
+          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_open END\n",
+                mpi_rank, MPI_Wtime(), job_id, idm);
+#endif
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
-          MPI_File_iwrite_at_all(pw.fh, global_byte_off,
+#ifdef TESTDEDISP_DEBUG
+          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_iwrite_at POST\n",
+                mpi_rank, MPI_Wtime(), job_id, idm);
+#endif
+          MPI_File_iwrite_at(pw.fh, global_byte_off,
                                  row_base + local_skip_bytes,
                                  mpi_count, MPI_FLOAT, &pw.req);
-
+#ifdef TESTDEDISP_DEBUG
+          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_iwrite_at POST Finished\n",
+                mpi_rank, MPI_Wtime(), job_id, idm);
+#endif
           inflight_writes.push_back(pw);
+          progress_writes();
         }
       }
       else {
@@ -1110,9 +1221,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         // force (displacement 0, etype MPI_BYTE), so MPI_File_iwrite_at takes
         // a byte offset rather than an offset in MPI_FLOATs.
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          if (inflight_writes.size() >= max_inflight_writes) {
+          /* if (inflight_writes.size() >= max_inflight_writes) {
             drain_one_write();
-          }
+          } */
+           progress_writes();
 
           const unsigned idm = dm_job.idm_start + j;
 
@@ -1153,11 +1265,16 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     if (!multout_) {
       MPI_File_close(&single_fh);
     }
-
+    MPI_Info_free(&info);
     // De-allocate the buffers
     delete[] sendbuf;
     delete[] recvbuf;
     mMPI.end();
+#ifdef TESTDEDISP_DEBUG
+    TRACE("[rank %d] %.3f MPI thread EXIT (clean)\n", mpi_rank, MPI_Wtime());
+    fclose(tlog);
+#undef TRACE
+#endif
   });
 
   // Launch thread to copy output data from device to host for each dm_job
@@ -1166,7 +1283,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
       auto &dm_job = dm_jobs[job_id];
-
+      
       // Wait for DtoH copy to finish for this job
       dm_job.cpu_lock.lock();
       dm_job.outputEnd.synchronize();
