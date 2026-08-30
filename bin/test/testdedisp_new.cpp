@@ -13,12 +13,37 @@
 
 int main(int argc, char **argv) {
   // Time MPI_Init with a non-MPI clock (MPI_Wtime is invalid before init).
+  // Plain MPI_Init only promises that the thread which called it may safely
+  // call MPI -- but FDDGPUPlan::execute_gpu() moves every MPI_Sendrecv /
+  // MPI_File_iwrite_at / MPI_Wait / MPI_File_write_at call onto a dedicated
+  // background std::thread ("mpi_thread"), never the thread that inits MPI
+  // here. That is undefined behavior under plain MPI_Init and is the
+  // suspected root cause of the multi-node hangs (Cray MPICH/CXI: lost
+  // completion, silent spin) and segfaults (OpenMPI/PSM2: crash inside
+  // ompi_request_default_wait) seen on Daint and OzSTAR respectively.
+  // Request MPI_THREAD_MULTIPLE explicitly and verify it was actually
+  // granted -- do not assume the request succeeded.
   auto mpi_init_t0 = std::chrono::steady_clock::now();
-  MPI_Init(&argc, &argv);
+  int mpi_thread_provided = MPI_THREAD_SINGLE;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &mpi_thread_provided);
   auto mpi_init_t1 = std::chrono::steady_clock::now();
   int mpi_rank = 0, mpi_size = 1;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+  if (mpi_thread_provided < MPI_THREAD_MULTIPLE) {
+    const char *level_name =
+        mpi_thread_provided == MPI_THREAD_SINGLE     ? "MPI_THREAD_SINGLE" :
+        mpi_thread_provided == MPI_THREAD_FUNNELED   ? "MPI_THREAD_FUNNELED" :
+        mpi_thread_provided == MPI_THREAD_SERIALIZED ? "MPI_THREAD_SERIALIZED" :
+                                                        "unknown";
+    fprintf(stderr,
+            "[rank %d/%d] WARNING: requested MPI_THREAD_MULTIPLE but only "
+            "%s was provided -- FDDGPUPlan's background mpi_thread calls "
+            "MPI from a non-init thread and is not safe at this level.\n",
+            mpi_rank, mpi_size, level_name);
+    fflush(stderr);
+  }
 
 #ifdef TESTDEDISP_DEBUG
   double mpi_init_sec =
@@ -101,7 +126,7 @@ int main(int argc, char **argv) {
 
   if (mpi_rank == 0)
     std::cout << "------------------------ LOADING + REDUCING FITS ------------------------\n" << std::endl;
-  size_t chunksize = HALF_MAX_CHUNKSIZE;
+  size_t chunksize = HALF_MAX_CHUNKSIZE/2;
   int poln = 0;
 
   cu::Marker mFileRead("Reading fits files", cu::Marker::red);
