@@ -30,8 +30,10 @@
 #include "cufft_optimal_size.hpp"
 #include "fitscontainer.hpp"
 
-#include <unistd.h>   
-#include <fcntl.h>    
+#include <unistd.h>
+#include <fcntl.h>
+#include <aio.h>
+#include <cerrno>
 #include <mpi.h>
 
 namespace dedisp {
@@ -712,8 +714,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   mAllocMem.end();
 
-  // MPI_Barrier(MPI_COMM_WORLD);
-
 #ifdef DEDISP_DEBUG
   size_t d_memory_free_after_malloc = m_device->get_free_memory(); // bytes
   size_t h_memory_free_after_malloc = get_free_memory();           // MB
@@ -796,41 +796,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     }
   }
 
-  struct PendingWrite {
-      MPI_File fh;
-      MPI_Request req;
-#ifdef TESTDEDISP_DEBUG
-      unsigned idm; // DM index this write belongs to, for trace logging
-#endif
-    };
-
-  constexpr size_t max_inflight_writes = 32;
-
-#ifdef TESTDEDISP_DEBUG
-  // DEBUG TRACE: per-rank, unbuffered, timestamped log of which call each
-  // rank is inside, so a hung run shows exactly which job_id/idm/call every
-  // rank was last on. fflush after every line -- buffered stdio can sit on
-  // this for minutes on an infrequent-syscall path, hiding it from a reader
-  // tailing the file live while the rank is actually stuck.
-  char tlogname[256];
-  snprintf(tlogname, sizeof(tlogname), "mpi_trace_rank%d.log", mpi_rank);
-  FILE* tlog = fopen(tlogname, "w");
-#define TRACE(...) do { fprintf(tlog, __VA_ARGS__); fflush(tlog); } while (0)
-#endif
-
-  std::deque<PendingWrite> inflight_writes;
-
-  auto progress_writes = [&]() {
-      int flag;
-      MPI_Status status;
-      for (auto &pw : inflight_writes) {
-        int rc = MPI_Test(&pw.req, &flag, &status);
-        if (rc != MPI_SUCCESS) {
-          std::cerr << "MPI_SUCCESS not found" << std::endl;
-        }
-      }
-    };
-
   // Launch thread to manage MPI communication, data reduction and output
   std::thread mpi_thread = std::thread([&]() {
     mMPI.start();
@@ -848,55 +813,73 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     int source = (mpi_rank == 0) ? MPI_PROC_NULL : mpi_rank - 1;
 
     // Bounded ring of in-flight per-DM row writes, shared by both output
-    // layouts. An entry always owns its outstanding MPI_File_iwrite_at_all
-    // request; it owns the MPI_File handle only when writing one file per DM
-    // (multout). On the single-shared-file path the handle outlives every
-    // entry, so entries there carry MPI_FILE_NULL and close nothing.
-    // We drain (which waits) once the ring is full or at the end of the run.
-    // Sized small enough to stay clear of common fd limits even with
-    // hundreds of ranks * tens of DMs in flight per rank.
+    // layouts. Each entry owns an outstanding POSIX AIO request; it owns
+    // the file descriptor only when writing one file per DM (multout). On
+    // the single-shared-file path the fd outlives every entry, so entries
+    // there carry owns_fd = false and close nothing. We drain (which
+    // waits) once the ring is full or at the end of the run. Sized small
+    // enough to stay clear of common fd limits even with hundreds of
+    // ranks * tens of DMs in flight per rank.
     // TODO: source outfile_basename and dmstepW from a setter (or extend
     // setOutputParams). Hardcoded defaults below mirror writeOutput().
-    // TODO: nsamps > INT_MAX / 4 → derived datatype or MPI 4.0 _c API.
-    
-    // NOTE (measurement caveat, no MPI_File_sync here on purpose): close()
-    // does not push data to storage and neither does MPI_Finalize, so part
-    // of the write cost is deferred into kernel writeback, outside every
-    // timer in this program. Measured on GPFS: this path appeared to write
-    // 8 GB/rank in 0.15 s (53 GB/s/rank, ~640 GB/s aggregate) while the same
-    // filesystem reads at 1.8 GB/s/rank -- the bytes had not reached storage
-    // inside the timed region. Add MPI_File_sync before close if the write
-    // cost must be attributed honestly.
-    
+    //
+    // WHY A DEQUE, NOT A VECTOR. aio_write() hands the kernel the address
+    // of this PendingWrite's aiocb; that address must stay valid (unmoved)
+    // until the operation completes. std::deque never invalidates
+    // references to existing elements on push_back/pop_front (a vector can
+    // reallocate and move everything), so as long as we only emplace_back
+    // and pop_front -- never insert/erase in the middle -- every aiocb
+    // keeps a stable address for its whole time in the ring.
+    struct PendingWrite {
+      int fd = -1;
+      bool owns_fd = true;
+      struct aiocb cb {};
+    };
 
-    // ORDERING REQUIREMENT of the collective writes below: every rank must
-    // initiate the same collective operations on a handle in the same order,
-    // and the opens/closes are collective too. ndm_jobs and ndm_current derive
-    // only from ndm and ndm_batch_max, with no rank-dependent term, so every
-    // rank runs an identical loop nest and fills and drains this ring at
-    // identical points. Anything that makes the DM decomposition depend on the
-    // rank breaks that and deadlocks. Differing mpi_count per rank (rank 0
-    // skips max_delay, the last rank may drop a sample) is fine -- collective
-    // writes do not require equal counts.
+    constexpr size_t max_inflight_writes = 32;
+
+    // NOTE (measurement caveat, no fsync here on purpose): close() does not
+    // push data to storage, so part of the write cost is deferred into
+    // kernel writeback, outside every timer in this program. Add an fsync
+    // before close if the write cost must be attributed honestly.
+    std::deque<PendingWrite> inflight_writes;
+
     auto drain_one_write = [&]() {
       auto &pw = inflight_writes.front();
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f drain: MPI_Wait BEGIN idm=%u (queue depth=%zu)\n",
-            mpi_rank, MPI_Wtime(), pw.idm, inflight_writes.size());
-#endif
-      MPI_Wait(&pw.req, MPI_STATUS_IGNORE);
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f drain: MPI_Wait END   idm=%u\n",
-            mpi_rank, MPI_Wtime(), pw.idm);
-#endif
-      if (pw.fh != MPI_FILE_NULL) {
-        MPI_File_close(&pw.fh);
+      const struct aiocb *cblist[1] = {&pw.cb};
+      while (aio_error(&pw.cb) == EINPROGRESS) {
+        aio_suspend(cblist, 1, nullptr);
       }
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f drain: MPI_File_closed   idm=%u\n",
-            mpi_rank, MPI_Wtime(), pw.idm);
-#endif
+      ssize_t ret = aio_return(&pw.cb);
+      if (ret < 0) {
+        std::cerr << "aio write failed: " << strerror(errno) << std::endl;
+      } else if ((size_t)ret != (size_t)pw.cb.aio_nbytes) {
+        std::cerr << "short aio write: " << ret << " of "
+                   << pw.cb.aio_nbytes << " bytes" << std::endl;
+      }
+      if (pw.owns_fd) {
+        close(pw.fd);
+      }
       inflight_writes.pop_front();
+    };
+
+    // Post one nonblocking write into the ring. buf must stay valid (the
+    // out buffer backing this DM job must not be reused) until the entry
+    // is drained -- the same lifetime requirement MPI_File_iwrite_at had.
+    auto post_write = [&](int fd, bool owns_fd, off_t offset,
+                          const void* buf, size_t nbytes) {
+      inflight_writes.emplace_back();
+      PendingWrite &pw = inflight_writes.back();
+      pw.fd = fd;
+      pw.owns_fd = owns_fd;
+      pw.cb.aio_fildes = fd;
+      pw.cb.aio_offset = offset;
+      pw.cb.aio_buf = const_cast<void*>(buf);
+      pw.cb.aio_nbytes = nbytes;
+      pw.cb.aio_sigevent.sigev_notify = SIGEV_NONE;
+      if (aio_write(&pw.cb) != 0) {
+        std::cerr << "aio_write failed: " << strerror(errno) << std::endl;
+      }
     };
 
     const dedisp_float* dmlist   = get_dm_list();
@@ -930,33 +913,31 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
     // When multout_ is off, all DMs are written into one shared file instead
     // of one file per DM. Opened once, up front, and closed once at the end.
-    // Each DM row is written on its own with an explicit file offset; see the
-    // write branch below for why no file view is installed.
+    // Each DM row is written on its own with an explicit file offset -- no
+    // file view or derived datatype needed, since this rank's slice of a
+    // row is already contiguous in the file.
     //
-    // Opened on MPI_COMM_WORLD because the writes below are COLLECTIVE: a
-    // collective write requires a handle opened on a communicator spanning
-    // every rank that participates, which here is all of them. MPI_File_open
-    // duplicates the communicator internally, so this shares no message
-    // context with the MPI_Sendrecv above.
-    MPI_File single_fh = MPI_FILE_NULL;
+    // Ranks write strictly disjoint byte ranges of this file via pwrite()-
+    // style explicit offsets, so no cross-rank coordination is needed at
+    // open time: POSIX guarantees a concurrent O_CREAT open of a
+    // not-yet-existing path by multiple processes is safe. (This is
+    // stronger than the guarantee MPI-IO's MODE_CREATE gave here, which
+    // additionally had to race to apply Lustre striping hints per open --
+    // moot now that striping is set once, up front, on the output
+    // directory via `lfs setstripe`, not per file.)
+    int single_fd = -1;
     // Resource lifecycle depends only on multout_, not barycenter_: today
-    // only the non-barycenter write path below uses single_fh, but keeping
+    // only the non-barycenter write path below uses single_fd, but keeping
     // this orthogonal to barycenter_ means barycenter support can plug into
-    // the same handle later without touching this setup/teardown.
-    
-    MPI_Info info;
-    MPI_Info_create(&info);
-
-    MPI_Info_set(info, "striping_factor", std::to_string(mpi_size).c_str());      // stripe_count
-    long stripe_unit = ((nsamps * out_bytes_per_sample + 65535) / 65536) * 65536; //((write_bytes + 65535) / 65536) * 65536;
-    MPI_Info_set(info, "striping_unit", std::to_string(stripe_unit).c_str());    
-
+    // the same fd later without touching this setup/teardown.
     if (!multout_) {
       char single_outname[256];
       snprintf(single_outname, sizeof(single_outname), "%s.dat", outfile_);
-      MPI_File_open(MPI_COMM_WORLD, single_outname,
-                    MPI_MODE_CREATE | MPI_MODE_WRONLY,
-                    info, &single_fh);
+      single_fd = open(single_outname, O_CREAT | O_WRONLY, 0644);
+      if (single_fd < 0) {
+        std::cerr << "open failed for " << single_outname << ": "
+                   << strerror(errno) << std::endl;
+      }
     }
 
     // For barycentering, the dedispersed data is the input. The input is
@@ -970,39 +951,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         local_Nout;
 
     MPI_Offset global_byte_off_barycenter = 0;
-
-    if (multout_) {
-      for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
-          auto &dm_job = dm_jobs[job_id];
-          for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-              const unsigned idm = dm_job.idm_start + j;
-              if ((int)(idm % mpi_size) != mpi_rank) {
-                  continue;
-              }
-              char outname[256];
-              snprintf(outname, sizeof(outname), "%s_DM%.*f.dat", outfile_, w_, dmlist[idm]);
-
-              MPI_File fh;
-#ifdef TESTDEDISP_DEBUG
-              TRACE("[rank %d] %.3f job_id=%u idm=%u Precreate: MPI_File_open BEGIN %s\n",
-                    mpi_rank, MPI_Wtime(), job_id, idm, outname);
-#endif
-              MPI_File_open(MPI_COMM_SELF, outname,
-                            MPI_MODE_CREATE | MPI_MODE_WRONLY,
-                            info, &fh);
-#ifdef TESTDEDISP_DEBUG
-              TRACE("[rank %d] %.3f job_id=%u idm=%u Precreate: MPI_File_open END %s\n",
-                    mpi_rank, MPI_Wtime(), job_id, idm, outname);
-#endif
-              MPI_File_close(&fh);
-#ifdef TESTDEDISP_DEBUG
-              TRACE("[rank %d] %.3f job_id=%u idm=%u Precreate: MPI_File_closed %s\n",
-                    mpi_rank, MPI_Wtime(), job_id, idm, outname);
-#endif
-          }
-      }
-      MPI_Barrier(MPI_COMM_WORLD);
-    }
 
     if (barycenter_) {
       global_input_idx_start = (mpi_rank == 0) ? 0 : mpi_rank * nsamps - max_delay;
@@ -1054,13 +1002,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
 
       // Try to acquire the out_lock. It can be done only when the output buffer is populated
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f job_id=%u out_lock BEGIN\n", mpi_rank, MPI_Wtime(), job_id);
-#endif
       dm_job.out_lock.lock();
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f job_id=%u out_lock END\n", mpi_rank, MPI_Wtime(), job_id);
-#endif
       mMPI1.start();
       // Perform MPI communication for current DM job
       // We first pack the R data into the contiguous buffer sendbuf
@@ -1076,18 +1018,11 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       mMPI1.end();
 
       // Send recv call for communication
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f job_id=%u Sendrecv BEGIN (dest=%d source=%d)\n",
-            mpi_rank, MPI_Wtime(), job_id, dest, source);
-#endif
       MPI_Sendrecv(
           sendbuf, max_delay * ndm_batch_max, MPI_FLOAT, dest,   mpi_rank, // mpi_rank_ sends this message
           recvbuf, max_delay * ndm_batch_max, MPI_FLOAT, source, mpi_rank - 1,
           MPI_COMM_WORLD, MPI_STATUS_IGNORE
       );
-#ifdef TESTDEDISP_DEBUG
-      TRACE("[rank %d] %.3f job_id=%u Sendrecv END\n", mpi_rank, MPI_Wtime(), job_id);
-#endif
 
       mMPI2.start();
       // Unpacking the data and doing memadd2D if rank not first
@@ -1116,7 +1051,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           }
         }
 
-        // MPI write loop
+        // Write loop (synchronous, one row at a time -- matches the
+        // blocking MPI_File_write_at this replaces 1:1)
         for (unsigned j = 0 ; j < dm_job.ndm_current; ++j) {
           float* barycentered_data_row_j = barycentered_data + local_Nout * j;
 
@@ -1126,29 +1062,31 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
                   outfile_, w_, dmlist[idm]);
 
-          // TODO: Use synchronous MPI write call
-          MPI_File fh; 
-          MPI_File_open(MPI_COMM_SELF, outname,
-                        MPI_MODE_CREATE | MPI_MODE_WRONLY,
-                        MPI_INFO_NULL, &fh);
+          int fd = open(outname, O_CREAT | O_WRONLY, 0644);
+          if (fd < 0) {
+            std::cerr << "open failed for " << outname << ": "
+                       << strerror(errno) << std::endl;
+            continue;
+          }
 
-          MPI_File_write_at(fh,
-                            (MPI_Offset)global_output_idx_start * out_bytes_per_sample,
-                            barycentered_data_row_j,
-                            local_Nout, MPI_FLOAT, MPI_STATUS_IGNORE);
+          const off_t off =
+              (off_t)global_output_idx_start * out_bytes_per_sample;
+          const size_t nbytes = (size_t)local_Nout * out_bytes_per_sample;
+          ssize_t ret = pwrite(fd, barycentered_data_row_j, nbytes, off);
+          if (ret < 0 || (size_t)ret != nbytes) {
+            std::cerr << "pwrite failed for " << outname << ": "
+                       << strerror(errno) << std::endl;
+          }
 
-          MPI_File_close(&fh);
+          close(fd);
         }
 
       }
       else if (multout_) {
-        // Output buffer for current DM batch is ready. One file per DM, each
-        // written collectively by every rank into its own disjoint byte range.
-        // The open is on MPI_COMM_WORLD and therefore collective, which the
-        // collective write below requires; it also replaces mpi_size separate
-        // opens of the same file with one. Ring-drain throttles outstanding
-        // writes exactly as before -- the requests are nonblocking collective
-        // rather than nonblocking individual, but complete the same way.
+        // Output buffer for current DM batch is ready. Launch non-blocking
+        // per-DM writes (one file per DM). Disjoint byte ranges per rank →
+        // no shared-file consistency concern. Ring-drain throttles
+        // outstanding writes and bounds concurrently-open file descriptors.
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
           /* if (inflight_writes.size() >= max_inflight_writes) {
             drain_one_write();
@@ -1158,94 +1096,46 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           char outname[256];
           snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
                   outfile_, w_, dmlist[idm]);
-          
-          PendingWrite pw;
-#ifdef TESTDEDISP_DEBUG
-          pw.idm = idm;
-          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_open BEGIN %s\n",
-                mpi_rank, MPI_Wtime(), job_id, idm, outname);
-#endif
-          MPI_File_open(MPI_COMM_SELF, outname,
-                        MPI_MODE_CREATE | MPI_MODE_WRONLY, // MPI_MODE_WRONLY, //
-                        MPI_INFO_NULL, &pw.fh);
-#ifdef TESTDEDISP_DEBUG
-          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_open END\n",
-                mpi_rank, MPI_Wtime(), job_id, idm);
-#endif
+
+          int fd = open(outname, O_CREAT | O_WRONLY, 0644);
+          if (fd < 0) {
+            std::cerr << "open failed for " << outname << ": "
+                       << strerror(errno) << std::endl;
+            continue;
+          }
+
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
-#ifdef TESTDEDISP_DEBUG
-          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_iwrite_at POST\n",
-                mpi_rank, MPI_Wtime(), job_id, idm);
-#endif
-          MPI_File_iwrite_at(pw.fh, global_byte_off,
-                                 row_base + local_skip_bytes,
-                                 mpi_count, MPI_FLOAT, &pw.req);
-#ifdef TESTDEDISP_DEBUG
-          TRACE("[rank %d] %.3f job_id=%u idm=%u MPI_File_iwrite_at POST Finished\n",
-                mpi_rank, MPI_Wtime(), job_id, idm);
-#endif
-          inflight_writes.push_back(pw);
-          progress_writes();
+          post_write(fd, /*owns_fd=*/true, global_byte_off,
+                     row_base + local_skip_bytes, write_bytes);
         }
       }
       else {
-        // Single shared output file, one nonblocking COLLECTIVE write per DM
-        // row into the same handle, throttled by the same ring the multout
-        // path uses.
+        // Single shared output file, one nonblocking write per DM row into
+        // the same fd, throttled by the same ring the multout path uses.
         //
-        // WHY COLLECTIVE. DM row idm occupies one contiguous block of
-        // outlen_ samples spanning every rank, and the ranks' slices sit in
-        // rank order within it. An individual write per rank therefore hands
-        // the filesystem mpi_size scattered pieces per row; the collective
-        // form lets MPI exchange them first and issue one large contiguous
-        // write from an aggregator subset. This is the only change here that
-        // alters WHAT the filesystem is asked to do rather than when.
-        //
-        // WHY NO FILE VIEW. This rank's slice of a DM row is contiguous in
-        // the file, so its position is just an offset — a derived datatype
-        // only ever existed to batch several rows into one call. Dropping it
-        // is what raises the queue depth: MPI-IO forbids changing a handle's
-        // view while a nonblocking operation is outstanding on it, which
-        // forced the batched version to MPI_Wait on the previous job before
-        // installing the next view, pinning it at one write in flight. With
-        // no view to change there is nothing to serialise against, so up to
-        // max_inflight_writes rows are in flight at once.
-        //
-        // Removing the view also removes an MPI_File_set_view per DM job.
-        // That call is collective over the communicator used at open, and on
-        // this system it behaves as a barrier — measured at 4.5 s/rank with a
-        // ~100x spread between the fastest and slowest rank.
-        //
-        // Offsets are in BYTES: with no view installed the default view is in
-        // force (displacement 0, etype MPI_BYTE), so MPI_File_iwrite_at takes
-        // a byte offset rather than an offset in MPI_FLOATs.
+        // This rank's slice of a DM row is already contiguous in the file,
+        // so its position is just an explicit byte offset into pwrite()/
+        // aio_write() -- no file view or derived datatype needed, and
+        // therefore nothing to serialise a new view against: all
+        // max_inflight_writes rows can be in flight at once.
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          /* if (inflight_writes.size() >= max_inflight_writes) {
+          if (inflight_writes.size() >= max_inflight_writes) {
             drain_one_write();
-          } */
-           progress_writes();
+          }
 
           const unsigned idm = dm_job.idm_start + j;
 
-          PendingWrite pw;
-          // The shared handle is owned by the enclosing scope, not the ring.
-          pw.fh = MPI_FILE_NULL;
-
           // DM idm occupies one contiguous block of outlen_ samples spanning
           // every rank; this rank's slice sits global_byte_off into it.
-          const MPI_Offset row_off =
-              (MPI_Offset)idm * outlen_ * out_bytes_per_sample
-                  + global_byte_off;
+          const off_t row_off =
+              (off_t)idm * outlen_ * out_bytes_per_sample + global_byte_off;
 
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
 
-          MPI_File_iwrite_at_all(single_fh, row_off,
-                                 row_base + local_skip_bytes,
-                                 mpi_count, MPI_FLOAT, &pw.req);
-
-          inflight_writes.push_back(pw);
+          post_write(single_fd, /*owns_fd=*/false, row_off,
+                     row_base + local_skip_bytes, write_bytes);
         }
       }
 
@@ -1257,24 +1147,19 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
     // Drain any remaining in-flight writes before exiting the thread. Both
     // output layouts feed the same ring, so this is unconditional; only the
-    // shared handle needs an explicit close, and only after the ring is empty
-    // (its entries hold requests outstanding against that handle).
+    // shared fd needs an explicit close, and only after the ring is empty
+    // (its entries hold AIO operations outstanding against that fd).
     while (!inflight_writes.empty()) {
       drain_one_write();
     }
-    if (!multout_) {
-      MPI_File_close(&single_fh);
+    if (!multout_ && single_fd >= 0) {
+      close(single_fd);
     }
-    MPI_Info_free(&info);
+
     // De-allocate the buffers
     delete[] sendbuf;
     delete[] recvbuf;
     mMPI.end();
-#ifdef TESTDEDISP_DEBUG
-    TRACE("[rank %d] %.3f MPI thread EXIT (clean)\n", mpi_rank, MPI_Wtime());
-    fclose(tlog);
-#undef TRACE
-#endif
   });
 
   // Launch thread to copy output data from device to host for each dm_job
@@ -1283,7 +1168,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
     for (unsigned job_id = 0; job_id < dm_jobs.size(); job_id++) {
       auto &dm_job = dm_jobs[job_id];
-      
+
       // Wait for DtoH copy to finish for this job
       dm_job.cpu_lock.lock();
       dm_job.outputEnd.synchronize();
