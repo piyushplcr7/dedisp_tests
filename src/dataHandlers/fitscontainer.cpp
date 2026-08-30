@@ -74,17 +74,19 @@ dataLoader::dataLoader(std::vector<std::string>& listFitsNames, int world_rank, 
 
     const std::string& firstFile = listFitsNames[0];
     if (firstFile.size() >= 4 && firstFile.substr(firstFile.size() - 4) == ".fil") {
-        std::cout << "Input files are filterbank files" << std::endl;
+        if (world_rank == 0)
+            std::cout << "Input files are filterbank files" << std::endl;
         firstFile_ = std::make_unique<Fil>(firstFile.c_str());
-        if (nbits_ == 0) {
-            std::cout << "nbits not specified, defaulting to " << nbits_ << " bits for filterbank files" << std::endl;
+        if (nbits_ == 0 && world_rank == 0) {
+            std::cout << "nbits not specified, defaulting to 8 bits for filterbank files" << std::endl;
         }
         nbits_ = nbits_ == 0 ? 8 : nbits_; // default to 8 bits for filterbank files if nbits not specified 
     } else if (firstFile.size() >= 5 && firstFile.substr(firstFile.size() - 5) == ".fits") {
-        std::cout << "Input files are fits files" << std::endl;
+        if (world_rank == 0)
+            std::cout << "Input files are fits files" << std::endl;
         firstFile_ = std::make_unique<Fits>(firstFile.c_str());
-        if (nbits_ == 0) {
-            std::cout << "nbits not specified, defaulting to " << nbits_ << " bits for fits files" << std::endl;
+        if (nbits_ == 0 && world_rank == 0) {
+            std::cout << "nbits not specified, defaulting to 32 bits for fits files" << std::endl;
         }
         nbits_ = nbits_ == 0 ? 32 : nbits_; // default to 32 bits for fits files if nbits not specified 
     }
