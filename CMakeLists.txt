@@ -23,10 +23,10 @@ set_property(CACHE GPU_BACKEND PROPERTY STRINGS CUDA HIP)
 if(GPU_BACKEND STREQUAL "CUDA")
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
-    find_package(NCCL REQUIRED)
+    find_package(NCCL)
 
-    set(CMAKE_CUDA_ARCHITECTURES "70;80;89;90")
-    set(CUDA_NVCC_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
+    # 60 = Pascal (P100, used on OzStar GPU nodes)
+    set(CMAKE_CUDA_ARCHITECTURES "60;70;80;89;90")
 
     # abstracted vars
     set(GPU_INCLUDE_DIRS ${CUDAToolkit_INCLUDE_DIRS})
@@ -48,8 +48,12 @@ if(GPU_BACKEND STREQUAL "CUDA")
     set(GPU_LANG CUDA)
 
     add_library(GPU_XCCL INTERFACE)
-    target_include_directories(GPU_XCCL INTERFACE ${NCCL_INCLUDE_DIR})
-    target_link_libraries(GPU_XCCL INTERFACE ${NCCL_LIBRARY})
+    if(NCCL_FOUND)
+        target_include_directories(GPU_XCCL INTERFACE ${NCCL_INCLUDE_DIR})
+        target_link_libraries(GPU_XCCL INTERFACE ${NCCL_LIBRARY})
+    else()
+        message(STATUS "NCCL not found - building without GPU_XCCL support")
+    endif()
 
 elseif(GPU_BACKEND STREQUAL "HIP")
 
@@ -145,32 +149,37 @@ if(NOT CMAKE_BUILD_TYPE)
   #set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-# set default compiler flags
-#set(CMAKE_CXX_FLAGS "-Wall -g -O3")
-set(CMAKE_CXX_FLAGS "-Wall -O3 -march=native")
+# set default compiler flags, per build type, for cxx/c and cuda/hip alike
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS "-Wall -O3 -march=native")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-sign-compare")
+    # Vectorization / loop / inlining reports
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec")
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec-missed")
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-loop")
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-loop-missed")
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-inline")
+    set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS}")
 
-# Vectorization reports
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-sign-compare")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec-missed")
+    if(GPU_BACKEND STREQUAL "CUDA")
+        set(CUDA_NVCC_FLAGS -O3 -use_fast_math -lineinfo -src-in-ptx)
+    elseif(GPU_BACKEND STREQUAL "HIP")
+        set(CMAKE_HIP_FLAGS "-O3")
+    endif()
+else() # Debug and other build types
+    set(CMAKE_CXX_FLAGS "-Wall -g -O0 -fno-omit-frame-pointer")
+    set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS}")
 
-# Loop transformation reports
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-loop")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-loop-missed")
-
-# Inlining reports
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-inline")
+    if(GPU_BACKEND STREQUAL "CUDA")
+        set(CUDA_NVCC_FLAGS -O0 -g -G -lineinfo)
+    elseif(GPU_BACKEND STREQUAL "HIP")
+        set(CMAKE_HIP_FLAGS "-O0 -g")
+    endif()
+endif()
 
 message("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
+message("CMAKE_C_FLAGS = ${CMAKE_C_FLAGS}")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_CXX_FLAGS "-Wall")
-
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Mframe")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fno-omit-frame-pointer")
-
-# Optimization level: -O2 (safer for profiling than -O3)
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 
 ################################################################################
