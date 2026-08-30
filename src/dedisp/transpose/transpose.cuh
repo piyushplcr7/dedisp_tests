@@ -156,15 +156,15 @@ void Transpose<T>::transpose(const T* in,
             }
 
 #ifndef NDEBUG
-            cudaStreamSynchronize(stream);
+            /* cudaStreamSynchronize(stream);
             cudaError_t error = cudaGetLastError();
             if( error != cudaSuccess ) {
-                /*
+                
                 throw std::runtime_error(
                     std::string("Transpose: CUDA error in kernel: ") +
                     cudaGetErrorString(error));
-                */
-            }
+               
+            } */
 #endif
         }
     }
