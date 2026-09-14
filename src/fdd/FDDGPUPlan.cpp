@@ -35,6 +35,30 @@
 #include <aio.h>
 #include <cerrno>
 #include <mpi.h>
+#include <sys/vfs.h>
+#include <sys/ioctl.h>
+
+#define LL_SUPER_MAGIC 0x0BD00BD0
+#define LL_IOC_GROUP_LOCK _IOW('f', 158, long)
+#define LL_IOC_GROUP_UNLOCK _IOW('f', 159, long)
+
+namespace {
+constexpr long kLustreGroupLockGid = 424242;
+
+bool is_lustre(const char* path) {
+  struct statfs sfs;
+  return statfs(path, &sfs) == 0 && sfs.f_type == LL_SUPER_MAGIC;
+}
+
+bool maybe_group_lock(int fd, const char* path, long gid) {
+  if (!is_lustre(path)) return false;
+  return ioctl(fd, LL_IOC_GROUP_LOCK, gid) == 0;
+}
+
+void maybe_group_unlock(int fd, long gid, bool was_locked) {
+  if (was_locked) ioctl(fd, LL_IOC_GROUP_UNLOCK, gid);
+}
+} // namespace
 
 namespace dedisp {
 // Constructor
@@ -833,6 +857,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     struct PendingWrite {
       int fd = -1;
       bool owns_fd = true;
+      bool group_locked = false;
       struct aiocb cb {};
     };
 
@@ -857,6 +882,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         std::cerr << "short aio write: " << ret << " of "
                    << pw.cb.aio_nbytes << " bytes" << std::endl;
       }
+      maybe_group_unlock(pw.fd, kLustreGroupLockGid, pw.group_locked);
       if (pw.owns_fd) {
         close(pw.fd);
       }
@@ -867,11 +893,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // out buffer backing this DM job must not be reused) until the entry
     // is drained -- the same lifetime requirement MPI_File_iwrite_at had.
     auto post_write = [&](int fd, bool owns_fd, off_t offset,
-                          const void* buf, size_t nbytes) {
+                          const void* buf, size_t nbytes,
+                          bool group_locked = false) {
       inflight_writes.emplace_back();
       PendingWrite &pw = inflight_writes.back();
       pw.fd = fd;
       pw.owns_fd = owns_fd;
+      pw.group_locked = group_locked;
       pw.cb.aio_fildes = fd;
       pw.cb.aio_offset = offset;
       pw.cb.aio_buf = const_cast<void*>(buf);
@@ -1106,10 +1134,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             continue;
           }
 
+          bool locked = maybe_group_lock(fd, outname, kLustreGroupLockGid);
+
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
           post_write(fd, /*owns_fd=*/true, global_byte_off,
-                     row_base + local_skip_bytes, write_bytes);
+                     row_base + local_skip_bytes, write_bytes, locked);
         }
       }
       else {
