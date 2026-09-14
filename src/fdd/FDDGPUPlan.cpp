@@ -1083,6 +1083,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
       }
       else if (multout_) {
+        if (job_id == 0)
+          aio_start = std::chrono::steady_clock::now();
         // Output buffer for current DM batch is ready. Launch non-blocking
         // per-DM writes (one file per DM). Disjoint byte ranges per rank →
         // no shared-file consistency concern. Ring-drain throttles
@@ -1152,6 +1154,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     while (!inflight_writes.empty()) {
       drain_one_write();
     }
+    sync();
+    aio_end = std::chrono::steady_clock::now();
     if (!multout_ && single_fd >= 0) {
       close(single_fd);
     }

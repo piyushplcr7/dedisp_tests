@@ -5,6 +5,7 @@
 
 #include "GPUPlan.hpp"
 #include "FDDCPUPlan.hpp"
+#include <chrono>
 #include <memory>
 #include "fitscontainer.hpp"
 
@@ -26,6 +27,8 @@ public:
     void writeOutput(char* outfile, int w, bool barycenter, const std::vector<int>& inForOut);
 
     void writeInfs(char* outfile, const dataFile* file, size_t nsamps, double dt, int w, bool barycenter = false, double blotoa = 0.0, double avgvoverc = 0.0);
+
+    const size_t getOutlen() const {return outlen_;}
 
     // Destructor
     ~FDDGPUPlan();
@@ -49,6 +52,9 @@ public:
         bool barycenter);
 
     std::unique_ptr<float[]> output_buffer_;
+
+    std::chrono::steady_clock::time_point aio_start;
+    std::chrono::steady_clock::time_point aio_end;
 
 private:
     // Private interface for FDD on GPU

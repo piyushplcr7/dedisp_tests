@@ -220,11 +220,20 @@ int main(int argc, char **argv) {
   double init_sec =
       std::chrono::duration<double>(mpi_init_t1 - mpi_init_t0).count();
 
+  double aio_start_rel =
+      std::chrono::duration<double>(plan.aio_start - mpi_init_t1).count();
+  double aio_end_rel =
+      std::chrono::duration<double>(plan.aio_end - mpi_init_t1).count();
+
+  double aio_start_min, aio_end_max;
+
   double solver_max = 0.0, init_max = 0.0;
   MPI_Reduce(&solver_sec, &solver_max, 1, MPI_DOUBLE, MPI_MAX, 0,
              MPI_COMM_WORLD);
   MPI_Reduce(&init_sec, &init_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
+  MPI_Reduce(&aio_start_rel, &aio_start_min, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&aio_end_rel, &aio_end_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   MPI_Finalize();
 
   // After MPI_Finalize no collective is legal, so `main` is rank 0's own
@@ -243,6 +252,14 @@ int main(int argc, char **argv) {
     printf("RUNTIME ranks=%d solver_max=%.3f main_rank0=%.3f "
            "init_max=%.3f finalize_rank0=%.3f\n",
            mpi_size, solver_max, main_sec, init_max, finalize_sec);
+    fflush(stdout);
+
+    size_t aio_bytes = (size_t)plan.get_dm_count() * plan.getOutlen() *
+                        (out_nbits / 8);
+    double aio_sec = aio_end_max - aio_start_min;
+    double aio_MBps = aio_bytes / (1024.0 * 1024.0) / aio_sec;
+    printf("AIO_BANDWIDTH bytes=%zu sec=%.3f MBps=%.2f\n", aio_bytes, aio_sec,
+           aio_MBps);
     fflush(stdout);
   }
 

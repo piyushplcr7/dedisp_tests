@@ -20,7 +20,7 @@ void memcpy2D(
     char* dstBase       = (char*) dstPtr;
     const char* srcBase = (const char*) srcPtr;
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (size_t y = 0; y < height; y++)
     {
         std::memcpy(dstBase + y * dstWidth,
