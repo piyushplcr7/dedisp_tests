@@ -37,6 +37,7 @@
 #include <mpi.h>
 #include <sys/vfs.h>
 #include <sys/ioctl.h>
+#include <adios2.h>
 
 #define LL_SUPER_MAGIC 0x0BD00BD0
 #define LL_IOC_GROUP_LOCK _IOW('f', 158, long)
@@ -939,34 +940,31 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         : (MPI_Offset)((size_t)mpi_rank * nsamps - max_delay)
             * out_bytes_per_sample;
 
-    // When multout_ is off, all DMs are written into one shared file instead
-    // of one file per DM. Opened once, up front, and closed once at the end.
-    // Each DM row is written on its own with an explicit file offset -- no
-    // file view or derived datatype needed, since this rank's slice of a
-    // row is already contiguous in the file.
-    //
-    // Ranks write strictly disjoint byte ranges of this file via pwrite()-
-    // style explicit offsets, so no cross-rank coordination is needed at
-    // open time: POSIX guarantees a concurrent O_CREAT open of a
-    // not-yet-existing path by multiple processes is safe. (This is
-    // stronger than the guarantee MPI-IO's MODE_CREATE gave here, which
-    // additionally had to race to apply Lustre striping hints per open --
-    // moot now that striping is set once, up front, on the output
-    // directory via `lfs setstripe`, not per file.)
-    int single_fd = -1;
-    // Resource lifecycle depends only on multout_, not barycenter_: today
-    // only the non-barycenter write path below uses single_fd, but keeping
-    // this orthogonal to barycenter_ means barycenter support can plug into
-    // the same fd later without touching this setup/teardown.
+    std::unique_ptr<adios2::ADIOS> adios;
+    adios2::IO adios_io;
+    adios2::Engine adios_engine;
+    adios2::Variable<float> adios_var;
     if (!multout_) {
+      adios = std::make_unique<adios2::ADIOS>(MPI_COMM_WORLD);
+      adios_io = adios->DeclareIO("SingleOutIO");
+      adios_io.SetEngine("BP5");
+      adios_io.SetParameter("AsyncWrite", "ON");
+
       char single_outname[256];
-      snprintf(single_outname, sizeof(single_outname), "%s.dat", outfile_);
-      single_fd = open(single_outname, O_CREAT | O_WRONLY, 0644);
-      if (single_fd < 0) {
-        std::cerr << "open failed for " << single_outname << ": "
-                   << strerror(errno) << std::endl;
-      }
+      snprintf(single_outname, sizeof(single_outname), "%s.bp", outfile_);
+
+      adios_var = adios_io.DefineVariable<float>(
+          "dedispersed",
+          {(size_t)ndm, (size_t)outlen_},
+          {0, 0},
+          {1, 1});
+
+      adios_engine = adios_io.Open(single_outname, adios2::Mode::Write);
+      adios_engine.BeginStep();
     }
+
+    const size_t col_start_samples =
+        (size_t)(global_byte_off / out_bytes_per_sample);
 
     // For barycentering, the dedispersed data is the input. The input is
     // split across multiple procs. 
@@ -1143,32 +1141,17 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         }
       }
       else {
-        // Single shared output file, one nonblocking write per DM row into
-        // the same fd, throttled by the same ring the multout path uses.
-        //
-        // This rank's slice of a DM row is already contiguous in the file,
-        // so its position is just an explicit byte offset into pwrite()/
-        // aio_write() -- no file view or derived datatype needed, and
-        // therefore nothing to serialise a new view against: all
-        // max_inflight_writes rows can be in flight at once.
-        for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          if (inflight_writes.size() >= max_inflight_writes) {
-            drain_one_write();
-          }
+        const size_t skip_samples = local_skip_bytes / out_bytes_per_sample;
 
-          const unsigned idm = dm_job.idm_start + j;
-
-          // DM idm occupies one contiguous block of outlen_ samples spanning
-          // every rank; this rank's slice sits global_byte_off into it.
-          const off_t row_off =
-              (off_t)idm * outlen_ * out_bytes_per_sample + global_byte_off;
-
-          const char* row_base =
-              (const char*)out_curr_dmjob + (size_t)j * out_stride;
-
-          post_write(single_fd, /*owns_fd=*/false, row_off,
-                     row_base + local_skip_bytes, write_bytes);
-        }
+        adios_var.SetSelection(
+            {{(size_t)dm_job.idm_start, col_start_samples},
+             {(size_t)dm_job.ndm_current, (size_t)mpi_count}});
+        adios_var.SetMemorySelection(
+            {{0, skip_samples},
+             {(size_t)dm_job.ndm_current, (size_t)nsamps_computed_}});
+        adios_engine.Put(adios_var, (const float*)out_curr_dmjob,
+                          adios2::Mode::Deferred);
+        adios_engine.PerformPuts();
       }
 
     } // Loop over dm jobs
@@ -1177,18 +1160,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       delete[] barycentered_data;
     }
 
-    // Drain any remaining in-flight writes before exiting the thread. Both
-    // output layouts feed the same ring, so this is unconditional; only the
-    // shared fd needs an explicit close, and only after the ring is empty
-    // (its entries hold AIO operations outstanding against that fd).
     while (!inflight_writes.empty()) {
       drain_one_write();
     }
-    sync();
-    aio_end = std::chrono::steady_clock::now();
-    if (!multout_ && single_fd >= 0) {
-      close(single_fd);
+    //sync();
+    if (!multout_) {
+      adios_engine.EndStep();
+      adios_engine.Close();
     }
+    aio_end = std::chrono::steady_clock::now();
 
     // De-allocate the buffers
     delete[] sendbuf;
