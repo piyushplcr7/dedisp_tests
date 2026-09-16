@@ -34,6 +34,7 @@
 #include <fcntl.h>
 #include <aio.h>
 #include <cerrno>
+#include <cstdlib>
 #include <mpi.h>
 #include <sys/vfs.h>
 #include <sys/ioctl.h>
@@ -50,7 +51,21 @@ bool is_lustre(const char* path) {
   return statfs(path, &sfs) == 0 && sfs.f_type == LL_SUPER_MAGIC;
 }
 
+bool lustre_group_lock_enabled() {
+  static const bool enabled = [] {
+    bool on = std::getenv("LUSTRE_GROUP_LOCK") != nullptr;
+    if (on) {
+      std::cerr << "LUSTRE_GROUP_LOCK set: using Lustre group locking "
+                   "(+ fsync before unlock) for shared-file writes"
+                << std::endl;
+    }
+    return on;
+  }();
+  return enabled;
+}
+
 bool maybe_group_lock(int fd, const char* path, long gid) {
+  if (!lustre_group_lock_enabled()) return false;
   if (!is_lustre(path)) return false;
   return ioctl(fd, LL_IOC_GROUP_LOCK, gid) == 0;
 }
@@ -882,6 +897,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         std::cerr << "short aio write: " << ret << " of "
                    << pw.cb.aio_nbytes << " bytes" << std::endl;
       }
+      if (pw.group_locked) {
+        fsync(pw.fd);
+      }
       maybe_group_unlock(pw.fd, kLustreGroupLockGid, pw.group_locked);
       if (pw.owns_fd) {
         close(pw.fd);
@@ -1184,7 +1202,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     while (!inflight_writes.empty()) {
       drain_one_write();
     }
-    sync();
+    
     aio_end = std::chrono::steady_clock::now();
     if (!multout_ && single_fd >= 0) {
       close(single_fd);
