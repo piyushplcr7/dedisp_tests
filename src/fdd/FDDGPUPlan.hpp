@@ -107,6 +107,9 @@ private:
     bool barycenter_;
     char* outfile_;
 
+    unsigned int ndm_batch_max;
+    unsigned int out_buf_rows;
+
     // Set by the dataLoader-aware constructor; needed by USE_SEGMENTED mode
     // to fetch per-segment input pointers via getSegmentPtr().
     const dataLoader* container_ = nullptr;

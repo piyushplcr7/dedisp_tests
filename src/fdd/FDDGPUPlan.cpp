@@ -7,6 +7,8 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -38,6 +40,7 @@
 #include <mpi.h>
 #include <sys/vfs.h>
 #include <sys/ioctl.h>
+#include <liburing.h>
 
 #define LL_SUPER_MAGIC 0x0BD00BD0
 #define LL_IOC_GROUP_LOCK _IOW('f', 158, long)
@@ -344,6 +347,10 @@ void FDDGPUPlan::setOutputParams(
   w_ = w;
   barycenter_ = barycenter;
 
+  ndm_batch_max = std::min(m_dm_count / 4, (unsigned long int)64);
+  // EXPERIMENTAL: 16 is hard coded value here to make it work on setonix
+  out_buf_rows = 16 * ndm_batch_max; // Practically, it will always be 1024
+
   const dedisp_float *dmlist = get_dm_list();
   dedisp_size dm_count = get_dm_count();
   dedisp_size max_delay = get_max_delay();
@@ -416,7 +423,7 @@ void FDDGPUPlan::setOutputParams(
     }
   #endif
   
-    output_buffer_ = std::make_unique<float[]>(nsamps_computed_ * dm_count);
+    output_buffer_ = std::make_unique<float[]>(nsamps_computed_ * out_buf_rows);
   }
 
   if (output_buffer_ == nullptr) {
@@ -539,7 +546,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   // Maximum number of DMs computed in one gulp
   // Parameters might be tuned for efficiency depending on system architecture
-  unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
+  //unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
   unsigned int ndm_fft_batch = 32;
   ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
   // The inverse C2R FFT loop runs (ndm_batch_max / ndm_fft_batch) iterations of
@@ -692,6 +699,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                         sizeof_data_x_nu * 1 + sizeof_data_x_dm * (ndm_buffers);
   };
 
+  // EXPERIMENTAL: Hard coding value for now to test for high DMs. 
+  ndm_buffers = 16;
+
   // Debug
 #ifdef TESTDEDISP_DEBUG
   if (mpi_rank == 0) {
@@ -800,6 +810,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     }
   }
 
+  unsigned int num_out_batches = out_buf_rows/ndm_batch_max;
+
   struct DMData {
     unsigned int idm_start;
     unsigned int idm_end;
@@ -807,6 +819,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     std::mutex cpu_lock;
     std::mutex gpu_lock;
     std::mutex out_lock;
+    int slot;
+    std::atomic<unsigned> pending;
     cu::HostMemory *h_data_t_dm;
     cu::DeviceMemory *d_data_x_dm;
     cu::Event inputStart, inputEnd;
@@ -834,6 +848,29 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       job.gpu_lock.lock();
     }
   }
+
+  std::mutex slot_mutex;
+  std::condition_variable slot_cv;
+  std::deque<int> free_slots;
+  for (unsigned s = 0; s < num_out_batches; ++s) {
+    free_slots.push_back(s);
+  }
+
+  auto acquire_slot = [&]() {
+    std::unique_lock<std::mutex> lk(slot_mutex);
+    slot_cv.wait(lk, [&] { return !free_slots.empty(); });
+    int slot = free_slots.front();
+    free_slots.pop_front();
+    return slot;
+  };
+
+  auto release_slot = [&](int slot) {
+    {
+      std::lock_guard<std::mutex> lk(slot_mutex);
+      free_slots.push_back(slot);
+    }
+    slot_cv.notify_one();
+  };
 
   // Launch thread to manage MPI communication, data reduction and output
   std::thread mpi_thread = std::thread([&]() {
@@ -986,6 +1023,85 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       }
     }
 
+    const unsigned uring_queue_depth = out_buf_rows;
+    struct io_uring uring {};
+    std::thread uring_reap_thread;
+
+    struct UringWrite {
+      int fd;
+      bool group_locked;
+      size_t nbytes;
+      DMData* job;
+    };
+
+    auto uring_reap_loop = [&]() {
+      while (true) {
+        struct io_uring_cqe *cqe;
+        int ret = io_uring_wait_cqe(&uring, &cqe);
+        if (ret == -EINTR) {
+          continue;
+        }
+        if (ret < 0) {
+          std::cerr << "io_uring_wait_cqe failed: " << strerror(-ret) << std::endl;
+          return;
+        }
+        auto *req = static_cast<UringWrite*>(io_uring_cqe_get_data(cqe));
+        if (req == nullptr) {
+          io_uring_cqe_seen(&uring, cqe);
+          return;
+        }
+        const int res = cqe->res;
+        io_uring_cqe_seen(&uring, cqe);
+        if (res < 0) {
+          std::cerr << "io_uring write failed: " << strerror(-res) << std::endl;
+        } else if ((size_t)res != req->nbytes) {
+          std::cerr << "short io_uring write: " << res << " of "
+                     << req->nbytes << " bytes" << std::endl;
+        }
+        if (req->group_locked) {
+          fsync(req->fd);
+        }
+        maybe_group_unlock(req->fd, kLustreGroupLockGid, req->group_locked);
+        close(req->fd);
+        DMData* job = req->job;
+        delete req;
+        if (job->pending.fetch_sub(1) == 1) {
+          release_slot(job->slot);
+        }
+      }
+    };
+
+    auto uring_post_write = [&](DMData* job, int fd, off_t offset,
+                                const void* buf, size_t nbytes,
+                                bool group_locked) {
+      struct io_uring_sqe *sqe = io_uring_get_sqe(&uring);
+      while (!sqe) {
+        io_uring_submit(&uring);
+        sqe = io_uring_get_sqe(&uring);
+      }
+      auto *req = new UringWrite{fd, group_locked, nbytes, job};
+      io_uring_prep_write(sqe, fd, buf, nbytes, offset);
+      io_uring_sqe_set_data(sqe, req);
+      io_uring_submit(&uring);
+    };
+
+    auto uring_post_sentinel = [&]() {
+      struct io_uring_sqe *sqe = io_uring_get_sqe(&uring);
+      while (!sqe) {
+        io_uring_submit(&uring);
+        sqe = io_uring_get_sqe(&uring);
+      }
+      io_uring_prep_nop(sqe);
+      io_uring_sqe_set_flags(sqe, IOSQE_IO_DRAIN);
+      io_uring_sqe_set_data(sqe, nullptr);
+      io_uring_submit(&uring);
+    };
+
+    if (multout_) {
+      io_uring_queue_init(uring_queue_depth, &uring, 0);
+      uring_reap_thread = std::thread(uring_reap_loop);
+    }
+
     // For barycentering, the dedispersed data is the input. The input is
     // split across multiple procs. 
     float* barycentered_data;
@@ -1043,12 +1159,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto &dm_job = dm_jobs[job_id];
 
       dedisp_size out_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
-      dedisp_size out_offset = 1ULL * dm_job.idm_start * out_stride;
-      auto* out_curr_dmjob = (void*)out + out_offset;
-      auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
 
       // Try to acquire the out_lock. It can be done only when the output buffer is populated
       dm_job.out_lock.lock();
+
+      dedisp_size out_offset = 1ULL * dm_job.slot * ndm_batch_max * out_stride;
+      auto* out_curr_dmjob = (void*)out + out_offset;
+      auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
       mMPI1.start();
       // Perform MPI communication for current DM job
       // We first pack the R data into the contiguous buffer sendbuf
@@ -1127,19 +1244,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           close(fd);
         }
 
+        release_slot(dm_job.slot);
       }
       else if (multout_) {
         if (job_id == 0)
           aio_start = std::chrono::steady_clock::now();
-        // Output buffer for current DM batch is ready. Launch non-blocking
-        // per-DM writes (one file per DM). Disjoint byte ranges per rank →
-        // no shared-file consistency concern. Ring-drain throttles
-        // outstanding writes and bounds concurrently-open file descriptors.
+        dm_job.pending.store(dm_job.ndm_current);
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          /* if (inflight_writes.size() >= max_inflight_writes) {
-            drain_one_write();
-          } */
-
           const unsigned idm = dm_job.idm_start + j;
           char outname[256];
           snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
@@ -1149,6 +1260,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           if (fd < 0) {
             std::cerr << "open failed for " << outname << ": "
                        << strerror(errno) << std::endl;
+            if (dm_job.pending.fetch_sub(1) == 1) {
+              release_slot(dm_job.slot);
+            }
             continue;
           }
 
@@ -1156,8 +1270,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
-          post_write(fd, /*owns_fd=*/true, global_byte_off,
-                     row_base + local_skip_bytes, write_bytes, locked);
+          uring_post_write(&dm_job, fd, global_byte_off,
+                           row_base + local_skip_bytes, write_bytes, locked);
         }
       }
       else {
@@ -1202,7 +1316,12 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     while (!inflight_writes.empty()) {
       drain_one_write();
     }
-    
+    if (multout_) {
+      uring_post_sentinel();
+      uring_reap_thread.join();
+      io_uring_queue_exit(&uring);
+    }
+
     aio_end = std::chrono::steady_clock::now();
     if (!multout_ && single_fd >= 0) {
       close(single_fd);
@@ -1240,7 +1359,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto *h_src = (void*) h_src_float;
 
       dedisp_size dst_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
-      dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
+      dm_job.slot = acquire_slot();
+      dedisp_size dst_offset = 1ULL * dm_job.slot * ndm_batch_max * dst_stride;
       auto* h_dst = (void*)out + dst_offset;
 
       mCopyMem.start();

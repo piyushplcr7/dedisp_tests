@@ -37,6 +37,7 @@ target_link_libraries(fdd PRIVATE
     MPI::MPI_CXX
     GPU_XCCL
     ${NUMA_LIBRARY}
+    ${URING_LIBRARY}
 )
 
 target_include_directories(fdd
@@ -45,6 +46,7 @@ target_include_directories(fdd
    PRIVATE ${FFTW3_INCLUDE_DIR}
    PRIVATE ${NCCL_INCLUDE_DIR}
    PRIVATE ${MPI_CXX_INCLUDE_DIRS}
+   PRIVATE ${URING_INCLUDE_DIR}
    PUBLIC ${GPU_INCLUDE_DIRS}
 )
 
