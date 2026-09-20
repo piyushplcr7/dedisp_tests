@@ -3,6 +3,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdexcept>
+#include <string>
 
 // I first define the error handling macro and related definitions. I will
 // then use those to wrap all other macros, so that error handling is done
@@ -36,14 +38,32 @@
     #define gpuTextureObject_t hipTextureObject_t
 #endif
 
+struct gpu_error : public std::runtime_error {
+    gpuError_t code;
+    gpu_error(gpuError_t x, const char *file, int line)
+        : std::runtime_error(std::string("GPU error (") + file + ":" +
+                             std::to_string(line) + "): " +
+                             gpuGetErrorString(x)),
+          code(x) {}
+};
+
 inline void gpu_check_error(gpuError_t x, const char *file, int line){
     if(x != gpuSuccess){
-        fprintf(stderr, "GPU error (%s:%d): %s\n", file, line, gpuGetErrorString(x));
-        exit(1);
+        throw gpu_error(x, file, line);
+    }
+}
+
+inline void gpu_check_error_nothrow(gpuError_t x, const char *file,
+                                    int line) noexcept {
+    if(x != gpuSuccess){
+        fprintf(stderr, "GPU error (%s:%d): %s\n", file, line,
+                gpuGetErrorString(x));
     }
 }
 #define GPU_CHECK_ERROR(X) \
     do { gpu_check_error((X), __FILE__, __LINE__); } while (0)
+#define GPU_CHECK_ERROR_NOTHROW(X) \
+    do { gpu_check_error_nothrow((X), __FILE__, __LINE__); } while (0)
 
 #ifdef USE_CUDA
 
@@ -58,11 +78,11 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuMemcpyDeviceToHost cudaMemcpyDeviceToHost
 #define gpuMemcpyHostToDevice cudaMemcpyHostToDevice
 #define gpuMemcpyDeviceToDevice cudaMemcpyDeviceToDevice
-#define gpuFree(...) GPU_CHECK_ERROR(cudaFree(__VA_ARGS__))
-#define gpuHostFree(...) GPU_CHECK_ERROR(cudaFreeHost(__VA_ARGS__))
+#define gpuFree(...) GPU_CHECK_ERROR_NOTHROW(cudaFree(__VA_ARGS__))
+#define gpuHostFree(...) GPU_CHECK_ERROR_NOTHROW(cudaFreeHost(__VA_ARGS__))
 #define gpuStream_t cudaStream_t
 #define gpuStreamCreate(...) GPU_CHECK_ERROR(cudaStreamCreate(__VA_ARGS__))
-#define gpuStreamDestroy(...) GPU_CHECK_ERROR(cudaStreamDestroy(__VA_ARGS__))
+#define gpuStreamDestroy(...) GPU_CHECK_ERROR_NOTHROW(cudaStreamDestroy(__VA_ARGS__))
 #define gpuEventCreate(...) GPU_CHECK_ERROR(cudaEventCreate(__VA_ARGS__))
 #define gpuEventCreateWithFlags(...) GPU_CHECK_ERROR(cudaEventCreateWithFlags(__VA_ARGS__))
 #define gpuGetDeviceCount(...) GPU_CHECK_ERROR(cudaGetDeviceCount(__VA_ARGS__))
@@ -77,8 +97,8 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuDeviceProp_t cudaDeviceProp
 #define gpuPeekAtLastError cudaPeekAtLastError
 #define gpuHostRegister(...) GPU_CHECK_ERROR(cudaHostRegister(__VA_ARGS__))
-#define gpuHostUnregister(...) GPU_CHECK_ERROR(cudaHostUnregister(__VA_ARGS__))
-#define gpuEventDestroy(...) GPU_CHECK_ERROR(cudaEventDestroy(__VA_ARGS__))
+#define gpuHostUnregister(...) GPU_CHECK_ERROR_NOTHROW(cudaHostUnregister(__VA_ARGS__))
+#define gpuEventDestroy(...) GPU_CHECK_ERROR_NOTHROW(cudaEventDestroy(__VA_ARGS__))
 #define gpuEventRecord(...) GPU_CHECK_ERROR(cudaEventRecord(__VA_ARGS__))
 #define gpuEventSynchronize(...) GPU_CHECK_ERROR(cudaEventSynchronize(__VA_ARGS__))
 #define gpuEventElapsedTime(...) GPU_CHECK_ERROR(cudaEventElapsedTime(__VA_ARGS__))
@@ -136,11 +156,11 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuMemcpyDeviceToHost hipMemcpyDeviceToHost
 #define gpuMemcpyHostToDevice hipMemcpyHostToDevice
 #define gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
-#define gpuFree(...) GPU_CHECK_ERROR(hipFree(__VA_ARGS__))
-#define gpuHostFree(...) GPU_CHECK_ERROR(hipHostFree(__VA_ARGS__))
+#define gpuFree(...) GPU_CHECK_ERROR_NOTHROW(hipFree(__VA_ARGS__))
+#define gpuHostFree(...) GPU_CHECK_ERROR_NOTHROW(hipHostFree(__VA_ARGS__))
 #define gpuStream_t hipStream_t
 #define gpuStreamCreate(...) GPU_CHECK_ERROR(hipStreamCreate(__VA_ARGS__))
-#define gpuStreamDestroy(...) GPU_CHECK_ERROR(hipStreamDestroy(__VA_ARGS__))
+#define gpuStreamDestroy(...) GPU_CHECK_ERROR_NOTHROW(hipStreamDestroy(__VA_ARGS__))
 #define gpuEventCreate(...) GPU_CHECK_ERROR(hipEventCreate(__VA_ARGS__))
 #define gpuEventCreateWithFlags(...) GPU_CHECK_ERROR(hipEventCreateWithFlags(__VA_ARGS__))
 #define gpuGetDeviceCount(...) GPU_CHECK_ERROR(hipGetDeviceCount(__VA_ARGS__))
@@ -155,8 +175,8 @@ inline void gpu_check_error(gpuError_t x, const char *file, int line){
 #define gpuDeviceProp_t hipDeviceProp_t
 #define gpuPeekAtLastError hipPeekAtLastError
 #define gpuHostRegister(...) GPU_CHECK_ERROR(hipHostRegister(__VA_ARGS__))
-#define gpuHostUnregister(...) GPU_CHECK_ERROR(hipHostUnregister(__VA_ARGS__))
-#define gpuEventDestroy(...) GPU_CHECK_ERROR(hipEventDestroy(__VA_ARGS__))
+#define gpuHostUnregister(...) GPU_CHECK_ERROR_NOTHROW(hipHostUnregister(__VA_ARGS__))
+#define gpuEventDestroy(...) GPU_CHECK_ERROR_NOTHROW(hipEventDestroy(__VA_ARGS__))
 #define gpuEventRecord(...) GPU_CHECK_ERROR(hipEventRecord(__VA_ARGS__))
 #define gpuEventSynchronize(...) GPU_CHECK_ERROR(hipEventSynchronize(__VA_ARGS__))
 #define gpuEventElapsedTime(...) GPU_CHECK_ERROR(hipEventElapsedTime(__VA_ARGS__))
