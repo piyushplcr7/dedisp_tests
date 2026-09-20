@@ -7,6 +7,8 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -344,6 +346,10 @@ void FDDGPUPlan::setOutputParams(
   w_ = w;
   barycenter_ = barycenter;
 
+  ndm_batch_max = std::min(m_dm_count / 4, (unsigned long int)64);
+  // EXPERIMENTAL: 16 is hard coded value here to make it work on setonix
+  out_buf_rows = 16 * ndm_batch_max; // Practically, it will always be 1024
+
   const dedisp_float *dmlist = get_dm_list();
   dedisp_size dm_count = get_dm_count();
   dedisp_size max_delay = get_max_delay();
@@ -416,7 +422,7 @@ void FDDGPUPlan::setOutputParams(
     }
   #endif
   
-    output_buffer_ = std::make_unique<float[]>(nsamps_computed_ * dm_count);
+    output_buffer_ = std::make_unique<float[]>(nsamps_computed_ * out_buf_rows);
   }
 
   if (output_buffer_ == nullptr) {
@@ -539,7 +545,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
   // Maximum number of DMs computed in one gulp
   // Parameters might be tuned for efficiency depending on system architecture
-  unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
+  //unsigned int ndm_batch_max = std::min(ndm / 4, (unsigned int)64);
   unsigned int ndm_fft_batch = 32;
   ndm_fft_batch = std::min(ndm_batch_max, ndm_fft_batch);
   // The inverse C2R FFT loop runs (ndm_batch_max / ndm_fft_batch) iterations of
@@ -692,6 +698,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                         sizeof_data_x_nu * 1 + sizeof_data_x_dm * (ndm_buffers);
   };
 
+  // EXPERIMENTAL: Hard coding value for now to test for high DMs.
+  ndm_buffers = 16;
+
   // Debug
 #ifdef TESTDEDISP_DEBUG
   if (mpi_rank == 0) {
@@ -800,6 +809,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     }
   }
 
+  unsigned int num_out_batches = out_buf_rows/ndm_batch_max;
+
   struct DMData {
     unsigned int idm_start;
     unsigned int idm_end;
@@ -807,6 +818,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     std::mutex cpu_lock;
     std::mutex gpu_lock;
     std::mutex out_lock;
+    int slot;
+    std::atomic<unsigned> pending;
     cu::HostMemory *h_data_t_dm;
     cu::DeviceMemory *d_data_x_dm;
     cu::Event inputStart, inputEnd;
@@ -835,6 +848,34 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     }
   }
 
+  // The paged `out` buffer no longer holds one row per DM: it holds
+  // num_out_batches slots of ndm_batch_max rows each, recycled as the
+  // writes that consume them complete. A DM job takes a slot when the
+  // output thread is about to fill it, and gives it back once the last
+  // write issued from it has been reaped.
+  std::mutex slot_mutex;
+  std::condition_variable slot_cv;
+  std::deque<int> free_slots;
+  for (unsigned s = 0; s < num_out_batches; ++s) {
+    free_slots.push_back(s);
+  }
+
+  auto acquire_slot = [&]() {
+    std::unique_lock<std::mutex> lk(slot_mutex);
+    slot_cv.wait(lk, [&] { return !free_slots.empty(); });
+    int slot = free_slots.front();
+    free_slots.pop_front();
+    return slot;
+  };
+
+  auto release_slot = [&](int slot) {
+    {
+      std::lock_guard<std::mutex> lk(slot_mutex);
+      free_slots.push_back(slot);
+    }
+    slot_cv.notify_one();
+  };
+
   // Launch thread to manage MPI communication, data reduction and output
   std::thread mpi_thread = std::thread([&]() {
     mMPI.start();
@@ -855,10 +896,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // layouts. Each entry owns an outstanding POSIX AIO request; it owns
     // the file descriptor only when writing one file per DM (multout). On
     // the single-shared-file path the fd outlives every entry, so entries
-    // there carry owns_fd = false and close nothing. We drain (which
-    // waits) once the ring is full or at the end of the run. Sized small
-    // enough to stay clear of common fd limits even with hundreds of
-    // ranks * tens of DMs in flight per rank.
+    // there carry owns_fd = false and close nothing. Completions are
+    // reaped asynchronously by the thread below, not by the producer.
     // TODO: source outfile_basename and dmstepW from a setter (or extend
     // setOutputParams). Hardcoded defaults below mirror writeOutput().
     //
@@ -869,55 +908,119 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     // reallocate and move everything), so as long as we only emplace_back
     // and pop_front -- never insert/erase in the middle -- every aiocb
     // keeps a stable address for its whole time in the ring.
+    //
+    // `job` is the DM job whose output slot this write reads from; the
+    // reaper hands that slot back once the job's last write has landed,
+    // which is what makes the paged `out` buffer re-usable. A `stop`
+    // entry is the end-of-stream sentinel for the reaper (the POSIX AIO
+    // counterpart of an IOSQE_IO_DRAIN nop with null user data).
     struct PendingWrite {
       int fd = -1;
       bool owns_fd = true;
       bool group_locked = false;
+      bool stop = false;
+      DMData* job = nullptr;
       struct aiocb cb {};
     };
 
-    constexpr size_t max_inflight_writes = 32;
+    // One outstanding write per row of the recycled output buffer, so a
+    // write can always be posted for any row that exists and the producer
+    // never blocks on ring space. Backpressure is applied in exactly one
+    // place -- acquire_slot() -- rather than being split between the slot
+    // pool and an unrelated ring bound. Matches uring_queue_depth =
+    // out_buf_rows on the io_uring branch. In multout mode each in-flight
+    // write holds an open fd, so this also sets the peak fd count per rank
+    // (1024 by default, against a 524288 nofile limit on kuma).
+    const size_t max_inflight_writes = out_buf_rows;
 
     // NOTE (measurement caveat, no fsync here on purpose): close() does not
     // push data to storage, so part of the write cost is deferred into
     // kernel writeback, outside every timer in this program. Add an fsync
     // before close if the write cost must be attributed honestly.
+    //
+    // Single producer (this MPI thread) / single consumer (the reaper
+    // below). Only the reaper ever pop_front()s, so the reference it
+    // holds while waiting on a completion stays valid even as the
+    // producer emplace_back()s behind it. aio_mutex guards the deque's
+    // own bookkeeping; the blocking wait happens with it released.
     std::deque<PendingWrite> inflight_writes;
+    std::mutex aio_mutex;
+    std::condition_variable aio_space_cv;   // producer waits for room
+    std::condition_variable aio_items_cv;   // reaper waits for work
 
-    auto drain_one_write = [&]() {
-      auto &pw = inflight_writes.front();
-      const struct aiocb *cblist[1] = {&pw.cb};
-      while (aio_error(&pw.cb) == EINPROGRESS) {
-        aio_suspend(cblist, 1, nullptr);
+    // Completion thread. Waits on the oldest outstanding write, finishes
+    // its bookkeeping (fsync/group-unlock/close), and releases the DM
+    // job's output slot once every write issued from it is done. Exits on
+    // the sentinel entry. This mirrors the io_uring reap thread: the
+    // producer never blocks on completions, only on ring space.
+    auto aio_reap_loop = [&]() {
+      while (true) {
+        std::unique_lock<std::mutex> lk(aio_mutex);
+        aio_items_cv.wait(lk, [&] { return !inflight_writes.empty(); });
+        PendingWrite &pw = inflight_writes.front();
+        const bool stop = pw.stop;
+        lk.unlock();
+
+        if (stop) {
+          // No aio_space_cv notify here: the producer posts the sentinel
+          // last and then joins, so it can never be waiting for room by
+          // the time this runs.
+          lk.lock();
+          inflight_writes.pop_front();
+          return;
+        }
+
+        const struct aiocb *cblist[1] = {&pw.cb};
+        while (aio_error(&pw.cb) == EINPROGRESS) {
+          aio_suspend(cblist, 1, nullptr);
+        }
+        ssize_t ret = aio_return(&pw.cb);
+        if (ret < 0) {
+          std::cerr << "aio write failed: " << strerror(errno) << std::endl;
+        } else if ((size_t)ret != (size_t)pw.cb.aio_nbytes) {
+          std::cerr << "short aio write: " << ret << " of "
+                     << pw.cb.aio_nbytes << " bytes" << std::endl;
+        }
+        if (pw.group_locked) {
+          fsync(pw.fd);
+        }
+        maybe_group_unlock(pw.fd, kLustreGroupLockGid, pw.group_locked);
+        if (pw.owns_fd) {
+          close(pw.fd);
+        }
+        DMData* job = pw.job;
+
+        lk.lock();
+        inflight_writes.pop_front();
+        lk.unlock();
+        aio_space_cv.notify_one();
+
+        if (job && job->pending.fetch_sub(1) == 1) {
+          release_slot(job->slot);
+        }
       }
-      ssize_t ret = aio_return(&pw.cb);
-      if (ret < 0) {
-        std::cerr << "aio write failed: " << strerror(errno) << std::endl;
-      } else if ((size_t)ret != (size_t)pw.cb.aio_nbytes) {
-        std::cerr << "short aio write: " << ret << " of "
-                   << pw.cb.aio_nbytes << " bytes" << std::endl;
-      }
-      if (pw.group_locked) {
-        fsync(pw.fd);
-      }
-      maybe_group_unlock(pw.fd, kLustreGroupLockGid, pw.group_locked);
-      if (pw.owns_fd) {
-        close(pw.fd);
-      }
-      inflight_writes.pop_front();
     };
 
     // Post one nonblocking write into the ring. buf must stay valid (the
-    // out buffer backing this DM job must not be reused) until the entry
-    // is drained -- the same lifetime requirement MPI_File_iwrite_at had.
-    auto post_write = [&](int fd, bool owns_fd, off_t offset,
+    // out buffer slot backing this DM job must not be recycled) until the
+    // entry is reaped -- which is exactly what job->pending guards.
+    // Blocks only while the ring is full, never on a completion.
+    //
+    // aio_write() is issued under aio_mutex so the entry is never visible
+    // to the reaper before it has been submitted to the kernel.
+    auto post_write = [&](DMData* job, int fd, bool owns_fd, off_t offset,
                           const void* buf, size_t nbytes,
                           bool group_locked = false) {
+      std::unique_lock<std::mutex> lk(aio_mutex);
+      aio_space_cv.wait(lk, [&] {
+        return inflight_writes.size() < max_inflight_writes;
+      });
       inflight_writes.emplace_back();
       PendingWrite &pw = inflight_writes.back();
       pw.fd = fd;
       pw.owns_fd = owns_fd;
       pw.group_locked = group_locked;
+      pw.job = job;
       pw.cb.aio_fildes = fd;
       pw.cb.aio_offset = offset;
       pw.cb.aio_buf = const_cast<void*>(buf);
@@ -926,7 +1029,25 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       if (aio_write(&pw.cb) != 0) {
         std::cerr << "aio_write failed: " << strerror(errno) << std::endl;
       }
+      lk.unlock();
+      aio_items_cv.notify_one();
     };
+
+    // End-of-stream marker for the reaper. Everything queued ahead of it
+    // is reaped first, so this is the AIO equivalent of the io_uring
+    // drain-nop: joining after posting it means all writes have landed.
+    auto post_write_sentinel = [&]() {
+      std::unique_lock<std::mutex> lk(aio_mutex);
+      aio_space_cv.wait(lk, [&] {
+        return inflight_writes.size() < max_inflight_writes;
+      });
+      inflight_writes.emplace_back();
+      inflight_writes.back().stop = true;
+      lk.unlock();
+      aio_items_cv.notify_one();
+    };
+
+    std::thread aio_reap_thread(aio_reap_loop);
 
     const dedisp_float* dmlist   = get_dm_list();
 
@@ -1043,12 +1164,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto &dm_job = dm_jobs[job_id];
 
       dedisp_size out_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
-      dedisp_size out_offset = 1ULL * dm_job.idm_start * out_stride;
-      auto* out_curr_dmjob = (void*)out + out_offset;
-      auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
 
       // Try to acquire the out_lock. It can be done only when the output buffer is populated
       dm_job.out_lock.lock();
+
+      // dm_job.slot is assigned by the output thread before it fills the
+      // buffer, so it is only readable once out_lock has been handed over.
+      dedisp_size out_offset = 1ULL * dm_job.slot * ndm_batch_max * out_stride;
+      auto* out_curr_dmjob = (void*)out + out_offset;
+      auto *out_curr_dmjob_R = out_curr_dmjob + 1ULL * nsamps * out_bytes_per_sample;
       mMPI1.start();
       // Perform MPI communication for current DM job
       // We first pack the R data into the contiguous buffer sendbuf
@@ -1127,19 +1251,20 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           close(fd);
         }
 
+        release_slot(dm_job.slot);
       }
       else if (multout_) {
         if (job_id == 0)
           aio_start = std::chrono::steady_clock::now();
         // Output buffer for current DM batch is ready. Launch non-blocking
         // per-DM writes (one file per DM). Disjoint byte ranges per rank →
-        // no shared-file consistency concern. Ring-drain throttles
-        // outstanding writes and bounds concurrently-open file descriptors.
+        // no shared-file consistency concern. post_write() throttles
+        // outstanding writes and bounds concurrently-open file descriptors;
+        // the reaper releases this job's output slot once all ndm_current
+        // writes have landed, so pending must be armed before the first
+        // one is posted.
+        dm_job.pending.store(dm_job.ndm_current);
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          /* if (inflight_writes.size() >= max_inflight_writes) {
-            drain_one_write();
-          } */
-
           const unsigned idm = dm_job.idm_start + j;
           char outname[256];
           snprintf(outname, sizeof(outname), "%s_DM%.*f.dat",
@@ -1149,6 +1274,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           if (fd < 0) {
             std::cerr << "open failed for " << outname << ": "
                        << strerror(errno) << std::endl;
+            if (dm_job.pending.fetch_sub(1) == 1) {
+              release_slot(dm_job.slot);
+            }
             continue;
           }
 
@@ -1156,7 +1284,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
 
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
-          post_write(fd, /*owns_fd=*/true, global_byte_off,
+          post_write(&dm_job, fd, /*owns_fd=*/true, global_byte_off,
                      row_base + local_skip_bytes, write_bytes, locked);
         }
       }
@@ -1167,13 +1295,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         // This rank's slice of a DM row is already contiguous in the file,
         // so its position is just an explicit byte offset into pwrite()/
         // aio_write() -- no file view or derived datatype needed, and
-        // therefore nothing to serialise a new view against: all
-        // max_inflight_writes rows can be in flight at once.
+        // therefore nothing to serialise a new view against: every row of
+        // the job can be in flight at once.
+        //
+        // The slot accounting is the same as the multout path: this job's
+        // rows live in a recycled slot of `out`, so the reaper must know
+        // how many writes read from it before it can be handed back.
+        dm_job.pending.store(dm_job.ndm_current);
         for (unsigned j = 0; j < dm_job.ndm_current; ++j) {
-          if (inflight_writes.size() >= max_inflight_writes) {
-            drain_one_write();
-          }
-
           const unsigned idm = dm_job.idm_start + j;
 
           // DM idm occupies one contiguous block of outlen_ samples spanning
@@ -1184,7 +1313,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           const char* row_base =
               (const char*)out_curr_dmjob + (size_t)j * out_stride;
 
-          post_write(single_fd, /*owns_fd=*/false, row_off,
+          post_write(&dm_job, single_fd, /*owns_fd=*/false, row_off,
                      row_base + local_skip_bytes, write_bytes);
         }
       }
@@ -1196,13 +1325,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     }
 
     // Drain any remaining in-flight writes before exiting the thread. Both
-    // output layouts feed the same ring, so this is unconditional; only the
-    // shared fd needs an explicit close, and only after the ring is empty
-    // (its entries hold AIO operations outstanding against that fd).
-    while (!inflight_writes.empty()) {
-      drain_one_write();
-    }
-    
+    // output layouts feed the same ring, so this is unconditional; the
+    // sentinel is reaped only after every write queued ahead of it, so the
+    // join below is the point where all output has landed. Only the shared
+    // fd needs an explicit close, and only after the ring is empty (its
+    // entries hold AIO operations outstanding against that fd).
+    post_write_sentinel();
+    aio_reap_thread.join();
+
     aio_end = std::chrono::steady_clock::now();
     if (!multout_ && single_fd >= 0) {
       close(single_fd);
@@ -1240,7 +1370,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       auto *h_src = (void*) h_src_float;
 
       dedisp_size dst_stride = 1ULL * nsamps_computed_ * out_bytes_per_sample;
-      dedisp_size dst_offset = 1ULL * dm_job.idm_start * dst_stride;
+      dm_job.slot = acquire_slot();
+      dedisp_size dst_offset = 1ULL * dm_job.slot * ndm_batch_max * dst_stride;
       auto* h_dst = (void*)out + dst_offset;
 
       mCopyMem.start();
