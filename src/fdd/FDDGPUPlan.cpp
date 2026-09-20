@@ -20,7 +20,7 @@
 #include "common/dedisp_strings.h"
 #include "dedisperse/FDDKernel.hpp"
 #include "unpack/unpack.h"
-#define DEDISP_BENCHMARK
+//#define DEDISP_BENCHMARK
 #ifdef DEDISP_BENCHMARK
 #include "external/Stopwatch.h"
 #endif
@@ -718,6 +718,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     exit(1);
   }
 
+  std::cout << "Full input data buffer and working buffer allocated on GPU" << std::endl;
+
   unsigned int ndm_jobs_total = (ndm + ndm_batch_max - 1) / ndm_batch_max;
   size_t d_memory_free = m_device->get_free_memory();
   size_t d_memory_budget =
@@ -725,18 +727,21 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   unsigned int ndm_buffers_max = (unsigned int)std::min(
       (size_t)ndm_jobs_total, d_memory_budget / sizeof_data_x_dm);
 
+  ndm_buffers_max = std::min(ndm_buffers_max, (unsigned int)16);
+
   h_data_t_dm_.resize(ndm_jobs_total);
   d_data_x_dm_.resize(ndm_jobs_total);
 
-  unsigned int ndm_buffers = 0;
+  unsigned int ndm_buffers = ndm_buffers_max; //0;
   for (unsigned int i = 0; i < ndm_buffers_max; i++) {
-    try {
+    std::cout << "ndm_buffers idx " << i << std::endl;
+    //try {
       d_data_x_dm_[i].resize(sizeof_data_x_dm);
       h_data_t_dm_[i].resize(sizeof_data_x_dm);
-    } catch (gpu_error &) {
-      break;
-    }
-    ndm_buffers++;
+    //} catch (gpu_error &) {
+    //  break;
+    //}
+    //ndm_buffers++;
   }
   mAllocMem.end();
 
@@ -1519,7 +1524,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
           // Wait for previous output copy to finish
           if (dm_job_id_outer > 0) {
             auto &dm_job_previous = dm_jobs[dm_job_id - ndm_buffers];
-            dm_job_previous.outputEnd.synchronize();
+            //dm_job_previous.outputEnd.synchronize();
+            executestream->waitEvent(dm_job_previous.outputEnd);
           }
 
           dm_job.d_data_x_dm->zero(*executestream);
@@ -1577,7 +1583,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       }
 
       // Wait for current batch to finish
-      executestream->synchronize();
+      // executestream->synchronize();
 
       // Add input and preprocessing time for the current channel job. The
       // input events are only recorded during the first outer DM iteration,
