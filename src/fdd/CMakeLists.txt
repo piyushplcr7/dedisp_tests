@@ -37,6 +37,7 @@ target_link_libraries(fdd PRIVATE
     MPI::MPI_CXX
     GPU_XCCL
     ${NUMA_LIBRARY}
+    rt
 )
 
 target_include_directories(fdd

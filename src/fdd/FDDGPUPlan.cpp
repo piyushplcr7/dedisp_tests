@@ -668,16 +668,37 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Determine the amount of memory to use
   size_t d_memory_total = m_device->get_total_memory();
   size_t d_memory_free = m_device->get_free_memory();
+  // get_total_memory()/get_free_memory() (host, see helper.cpp) report MB
+  size_t h_memory_total = get_total_memory() * 1024ULL * 1024ULL;
+  size_t h_memory_free = get_free_memory() * 1024ULL * 1024ULL;
   size_t sizeof_data_t_nu =
       1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
   size_t sizeof_data_x_nu =
       1ULL * nchan_batch_max * nsamp_padded_segment * sizeof(float);
   size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded_segment * sizeof(float);
+
+  // The whole input data set is kept resident in device memory: the channel
+  // chunks are staged into it once, during the first outer DM iteration, and
+  // read straight from VRAM for every outer iteration after that. That removes
+  // both the host-to-host memcpy2D into the pinned staging buffers and the H2D
+  // copies from all but the first pass. The buffer holds one
+  // nsamp x nchan_words_gulp chunk per channel job, laid out exactly like the
+  // per-channel-job device buffers it replaces, so the transpose_unpack kernel
+  // addresses it unchanged.
+  unsigned int nchan_jobs_resident =
+      (nchan + nchan_batch_max - 1) / nchan_batch_max;
+  size_t sizeof_data_t_nu_full = 1ULL * nchan_jobs_resident * sizeof_data_t_nu;
+
   // For device side, initial value
-  size_t d_memory_required = sizeof_data_t_nu * nchan_buffers +
+  size_t d_memory_required = sizeof_data_t_nu_full +
                              sizeof_data_x_nu * 1 +
                              sizeof_data_x_dm * ndm_buffers;
   size_t d_memory_reserved = 0.05 * d_memory_total;
+
+  // For host side: each ndm buffer also has a pinned host counterpart
+  // (h_data_t_dm_), of the same per-buffer size as its device twin.
+  size_t h_memory_required = sizeof_data_x_dm * ndm_buffers;
+  size_t h_memory_reserved = 0.05 * h_memory_total;
 
   // Subtract the memory usage of any pre-existing device buffers
   size_t d_memory_in_use = 0;
@@ -689,18 +710,41 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   d_memory_free += d_memory_in_use;
 
-  // Iteratively search for a maximum amount of ndm_buffers, with safety margin
-  // Make sure that it fits on device memory
+  // Subtract the memory usage of any pre-existing host DM buffers
+  size_t h_memory_in_use = 0;
+  for (cu::HostMemory &h_memory : h_data_t_dm_) {
+    h_memory_in_use += h_memory.size();
+  }
+  h_memory_free += h_memory_in_use;
+
+  // The resident input buffer is claimed before any DM buffer: a single one of
+  // those is the minimum needed to make progress at all. No fallback to the
+  // old per-channel-job staging is attempted here, a proper runtime check
+  // belongs with the rest of the sizing logic.
+  if (mpi_rank == 0 &&
+      (d_memory_required + d_memory_reserved) > d_memory_free) {
+    std::cerr << "Warning: device-resident input buffer ("
+              << sizeof_data_t_nu_full / std::pow(1024, 3) << " Gb) does not "
+              << "fit in free device memory ("
+              << d_memory_free / std::pow(1024, 3) << " Gb); "
+              << "allocation is expected to fail." << std::endl;
+  }
+
+  // Iteratively search for a maximum amount of ndm_buffers, with safety
+  // margin, such that it fits both device memory (alongside the resident
+  // input buffer) and the equivalent host (pinned) memory allocation.
+  // ndm_buffers ends up being the minimum of what the GPU and the host can
+  // each accommodate.
   while ((ndm_buffers * ndm_batch_max) < ndm &&
          (d_memory_required + d_memory_reserved + sizeof_data_x_dm) <
-             d_memory_free) {
+             d_memory_free &&
+         (h_memory_required + h_memory_reserved + sizeof_data_x_dm) <
+             h_memory_free) {
     ndm_buffers++;
-    d_memory_required = sizeof_data_t_nu * nchan_buffers +
-                        sizeof_data_x_nu * 1 + sizeof_data_x_dm * (ndm_buffers);
+    d_memory_required = sizeof_data_t_nu_full + sizeof_data_x_nu * 1 +
+                        sizeof_data_x_dm * (ndm_buffers);
+    h_memory_required = sizeof_data_x_dm * ndm_buffers;
   };
-
-  // EXPERIMENTAL: Hard coding value for now to test for high DMs.
-  ndm_buffers = 16;
 
   // Debug
 #ifdef TESTDEDISP_DEBUG
@@ -710,6 +754,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
               << " DMs" << std::endl;
     /* std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
               << " channels" << std::endl; */
+    std::cout << "Resident input buffer  = "
+              << sizeof_data_t_nu_full / std::pow(1024, 3) << " Gb ("
+              << nchan_jobs_resident << " channel chunks)" << std::endl;
     std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3)
               << " Gb" << std::endl;
     std::cout << "Device memory free     = " << d_memory_free / std::pow(1024, 3)
@@ -750,12 +797,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   */
   h_data_t_nu_.resize(nchan_buffers);
   h_data_t_dm_.resize(ndm_buffers);
-  d_data_t_nu_.resize(nchan_buffers);
+  // One device allocation holding the full input instead of a ring of
+  // per-channel-job buffers; every channel job addresses its own chunk of it.
+  d_data_t_nu_.resize(1);
+  d_data_t_nu_[0].resize(sizeof_data_t_nu_full);
   d_data_x_dm_.resize(ndm_buffers);
   cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
   for (unsigned int i = 0; i < nchan_buffers; i++) {
     h_data_t_nu_[i].resize(sizeof_data_t_nu);
-    d_data_t_nu_[i].resize(sizeof_data_t_nu);
   }
   for (unsigned int i = 0; i < ndm_buffers; i++) {
     h_data_t_dm_[i].resize(sizeof_data_x_dm);
@@ -804,7 +853,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     job.nchan_current = std::min(nchan_batch_max, nchan - job.ichan_start);
     job.ichan_end = job.ichan_start + job.nchan_current;
     job.h_in_ptr = h_data_t_nu_[job_id % nchan_buffers];
-    job.d_in_ptr = d_data_t_nu_[job_id % nchan_buffers];
+    // Slice of the resident input buffer owned by this channel job
+    job.d_in_ptr = (void *)((dedisp_byte *)d_data_t_nu_[0].data() +
+                            1ULL * job_id * sizeof_data_t_nu);
     if (job.nchan_current == 0) {
       channel_jobs.pop_back();
     }
@@ -1423,8 +1474,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
       dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
 
-      // Copy the input data for the first job
-      if (channel_job_id == 0) {
+      // Copy the input data for the first job. Only the first outer DM
+      // iteration stages data; afterwards the chunk is already in VRAM.
+      if (dm_job_id_outer == 0 && channel_job_id == 0) {
         dedisp_size gulp_chan_byte_idx =
             (channel_job.ichan_start / chans_per_word) * sizeof(dedisp_word);
 
@@ -1443,7 +1495,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                                     nsamp * nchan_words_gulp * sizeof(dedisp_float));  // size
         htodstream->record(channel_job.inputEnd);
       }
-      executestream->waitEvent(channel_job.inputEnd);
+      if (dm_job_id_outer == 0) {
+        executestream->waitEvent(channel_job.inputEnd);
+      }
 
       // Modified transpose_unpack kernel to just transpose floats
       executestream->record(channel_job.preprocessingStart);
@@ -1539,9 +1593,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         executestream->record(dm_job.dedispersionEnd);
       } // end for dm_job_id_inner
 
-      // Copy the input data for the next job (if any)
+      // Copy the input data for the next job (if any). Again, staging only
+      // happens on the first outer DM iteration.
       unsigned channel_job_id_next = channel_job_id + 1;
-      if (channel_job_id_next < channel_jobs.size()) {
+      if (dm_job_id_outer == 0 && channel_job_id_next < channel_jobs.size()) {
         auto &channel_job_next = channel_jobs[channel_job_id_next];
         dedisp_size gulp_chan_byte_idx =
             (channel_job_next.ichan_start / chans_per_word) *
@@ -1566,10 +1621,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       // Wait for current batch to finish
       executestream->synchronize();
 
-      // Add input and preprocessing time for the current channel job
+      // Add input and preprocessing time for the current channel job. The
+      // input events are only recorded during the first outer DM iteration,
+      // so accounting them once avoids counting the same transfer repeatedly.
 #ifdef DEDISP_BENCHMARK
-      input_timer->Add(
-          channel_job.inputEnd.elapsedTime(channel_job.inputStart));
+      if (dm_job_id_outer == 0) {
+        input_timer->Add(
+            channel_job.inputEnd.elapsedTime(channel_job.inputStart));
+      }
       preprocessing_timer->Add(channel_job.preprocessingEnd.elapsedTime(
           channel_job.preprocessingStart));
 #endif
