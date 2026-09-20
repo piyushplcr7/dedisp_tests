@@ -596,7 +596,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   // Events, markers, timers
   cu::Event eStartGPU, eEndGPU;
   cu::Marker mAllocMem("Allocate host and device memory", cu::Marker::black);
-  cu::Marker mCopyMem("Copy CUDA mem to CPU mem", cu::Marker::black);
+  cu::Marker mCopyMem("Output thread: Copy pinned D2H buffer to paged output slot", cu::Marker::black);
+  cu::Marker mCopyMem1("Main thread: Copy channel chunk to pinned H2D buffer", cu::Marker::black);
   cu::Marker mMPI("MPI Communication and file write thread", cu::Marker::red);
   cu::Marker mMPI1("Packing into sendbuf", cu::Marker::blue);
   cu::Marker mMPI2("Unpacking-memadd2d to output", cu::Marker::green);
@@ -1427,13 +1428,15 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         dedisp_size gulp_chan_byte_idx =
             (channel_job.ichan_start / chans_per_word) * sizeof(dedisp_word);
 
+        mCopyMem1.start();
         memcpy2D(channel_job.h_in_ptr,    // dst
                  dst_stride,              // dst width
                  in + gulp_chan_byte_idx, // src
                  src_stride,              // src width
                  dst_stride,              // width bytes (represents how many columns actually copied?)
                  nsamp);                  // height
-
+        mCopyMem1.end();
+        
         htodstream->record(channel_job.inputStart);
         htodstream->memcpyHtoDAsync(channel_job.d_in_ptr, // dst
                                     channel_job.h_in_ptr, // src
@@ -1544,12 +1547,14 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
             (channel_job_next.ichan_start / chans_per_word) *
             sizeof(dedisp_word);
 
+        mCopyMem1.start();
         memcpy2D(channel_job_next.h_in_ptr, // dst
                  dst_stride,                // dst width
                  in + gulp_chan_byte_idx,   // src
                  src_stride,                // src width
                  dst_stride,                // width bytes
                  nsamp);                    // height
+        mCopyMem1.end();
 
         htodstream->record(channel_job_next.inputStart);
         htodstream->memcpyHtoDAsync(channel_job_next.d_in_ptr, // dst
