@@ -560,9 +560,6 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
               << "); choose numdms so this holds (e.g. >= 256)." << std::endl;
     exit(1);
   }
-  // The number of buffers for DM results is configured below based on the
-  // amount of available GPU memory.
-  unsigned int ndm_buffers = 1;
 
   // Maximum number of channels processed in one gulp
   // Parameters might be tuned for efficiency depending on system architecture
@@ -665,112 +662,17 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   mPrepSpinf.end();
 
-  // Determine the amount of memory to use
   size_t d_memory_total = m_device->get_total_memory();
-  size_t d_memory_free = m_device->get_free_memory();
-  // get_total_memory()/get_free_memory() (host, see helper.cpp) report MB
-  size_t h_memory_total = get_total_memory() * 1024ULL * 1024ULL;
-  size_t h_memory_free = get_free_memory() * 1024ULL * 1024ULL;
   size_t sizeof_data_t_nu =
       1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
   size_t sizeof_data_x_nu =
       1ULL * nchan_batch_max * nsamp_padded_segment * sizeof(float);
   size_t sizeof_data_x_dm = 1ULL * ndm_batch_max * nsamp_padded_segment * sizeof(float);
-
-  // The whole input data set is kept resident in device memory: the channel
-  // chunks are staged into it once, during the first outer DM iteration, and
-  // read straight from VRAM for every outer iteration after that. That removes
-  // both the host-to-host memcpy2D into the pinned staging buffers and the H2D
-  // copies from all but the first pass. The buffer holds one
-  // nsamp x nchan_words_gulp chunk per channel job, laid out exactly like the
-  // per-channel-job device buffers it replaces, so the transpose_unpack kernel
-  // addresses it unchanged.
   unsigned int nchan_jobs_resident =
       (nchan + nchan_batch_max - 1) / nchan_batch_max;
   size_t sizeof_data_t_nu_full = 1ULL * nchan_jobs_resident * sizeof_data_t_nu;
-
-  // For device side, initial value
-  size_t d_memory_required = sizeof_data_t_nu_full +
-                             sizeof_data_x_nu * 1 +
-                             sizeof_data_x_dm * ndm_buffers;
   size_t d_memory_reserved = 0.05 * d_memory_total;
 
-  // For host side: each ndm buffer also has a pinned host counterpart
-  // (h_data_t_dm_), of the same per-buffer size as its device twin.
-  size_t h_memory_required = sizeof_data_x_dm * ndm_buffers;
-  size_t h_memory_reserved = 0.05 * h_memory_total;
-
-  // Subtract the memory usage of any pre-existing device buffers
-  size_t d_memory_in_use = 0;
-  for (cu::DeviceMemory &d_memory : d_data_t_nu_) {
-    d_memory_in_use += d_memory.size();
-  }
-  for (cu::DeviceMemory &d_memory : d_data_x_dm_) {
-    d_memory_in_use += d_memory.size();
-  }
-  d_memory_free += d_memory_in_use;
-
-  // Subtract the memory usage of any pre-existing host DM buffers
-  size_t h_memory_in_use = 0;
-  for (cu::HostMemory &h_memory : h_data_t_dm_) {
-    h_memory_in_use += h_memory.size();
-  }
-  h_memory_free += h_memory_in_use;
-
-  // The resident input buffer is claimed before any DM buffer: a single one of
-  // those is the minimum needed to make progress at all. No fallback to the
-  // old per-channel-job staging is attempted here, a proper runtime check
-  // belongs with the rest of the sizing logic.
-  if (mpi_rank == 0 &&
-      (d_memory_required + d_memory_reserved) > d_memory_free) {
-    std::cerr << "Warning: device-resident input buffer ("
-              << sizeof_data_t_nu_full / std::pow(1024, 3) << " Gb) does not "
-              << "fit in free device memory ("
-              << d_memory_free / std::pow(1024, 3) << " Gb); "
-              << "allocation is expected to fail." << std::endl;
-  }
-
-  // Iteratively search for a maximum amount of ndm_buffers, with safety
-  // margin, such that it fits both device memory (alongside the resident
-  // input buffer) and the equivalent host (pinned) memory allocation.
-  // ndm_buffers ends up being the minimum of what the GPU and the host can
-  // each accommodate.
-  while ((ndm_buffers * ndm_batch_max) < ndm &&
-         (d_memory_required + d_memory_reserved + sizeof_data_x_dm) <
-             d_memory_free &&
-         (h_memory_required + h_memory_reserved + sizeof_data_x_dm) <
-             h_memory_free) {
-    ndm_buffers++;
-    d_memory_required = sizeof_data_t_nu_full + sizeof_data_x_nu * 1 +
-                        sizeof_data_x_dm * (ndm_buffers);
-    h_memory_required = sizeof_data_x_dm * ndm_buffers;
-  };
-
-  // Debug
-#ifdef TESTDEDISP_DEBUG
-  if (mpi_rank == 0) {
-    std::cout << debug_str << std::endl;
-    std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
-              << " DMs" << std::endl;
-    /* std::cout << "nchan_buffers   = " << nchan_buffers << " x " << nchan_batch_max
-              << " channels" << std::endl; */
-    std::cout << "Resident input buffer  = "
-              << sizeof_data_t_nu_full / std::pow(1024, 3) << " Gb ("
-              << nchan_jobs_resident << " channel chunks)" << std::endl;
-    std::cout << "Device memory total    = " << d_memory_total / std::pow(1024, 3)
-              << " Gb" << std::endl;
-    std::cout << "Device memory free     = " << d_memory_free / std::pow(1024, 3)
-              << " Gb" << std::endl;
-    std::cout << "Device Memory required = "
-              << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
-    std::cout << "Host memory total    = "
-              << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-    std::cout << "Host memory free     = "
-              << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl;
-  }
-#endif
-
-  // Allocate memory
 #ifdef DEDISP_DEBUG
   std::cout << memory_alloc_str << std::endl;
 #endif
@@ -796,21 +698,77 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       The vectors (with _ suffix) are used to implement multiple-buffering
   */
   h_data_t_nu_.resize(nchan_buffers);
-  h_data_t_dm_.resize(ndm_buffers);
-  // One device allocation holding the full input instead of a ring of
-  // per-channel-job buffers; every channel job addresses its own chunk of it.
   d_data_t_nu_.resize(1);
-  d_data_t_nu_[0].resize(sizeof_data_t_nu_full);
-  d_data_x_dm_.resize(ndm_buffers);
-  cu::DeviceMemory d_data_x_nu(sizeof_data_x_nu);
-  for (unsigned int i = 0; i < nchan_buffers; i++) {
-    h_data_t_nu_[i].resize(sizeof_data_t_nu);
+  cu::DeviceMemory d_data_x_nu;
+
+  try {
+    for (unsigned int i = 0; i < nchan_buffers; i++) {
+      h_data_t_nu_[i].resize(sizeof_data_t_nu);
+    }
+    d_data_t_nu_[0].resize(sizeof_data_t_nu_full);
+    d_data_x_nu.resize(sizeof_data_x_nu);
+  } catch (gpu_error &error) {
+    std::cerr << error.what() << std::endl;
+    std::cerr << "Failed to allocate input buffers: "
+              << (sizeof_data_t_nu_full + sizeof_data_x_nu) /
+                     std::pow(1024, 3)
+              << " Gb on device, "
+              << m_device->get_free_memory() / std::pow(1024, 3) << " Gb free."
+              << std::endl;
+    exit(1);
   }
-  for (unsigned int i = 0; i < ndm_buffers; i++) {
-    h_data_t_dm_[i].resize(sizeof_data_x_dm);
-    d_data_x_dm_[i].resize(sizeof_data_x_dm);
+
+  unsigned int ndm_jobs_total = (ndm + ndm_batch_max - 1) / ndm_batch_max;
+  size_t d_memory_free = m_device->get_free_memory();
+  size_t d_memory_budget =
+      d_memory_free > d_memory_reserved ? d_memory_free - d_memory_reserved : 0;
+  unsigned int ndm_buffers_max = (unsigned int)std::min(
+      (size_t)ndm_jobs_total, d_memory_budget / sizeof_data_x_dm);
+
+  h_data_t_dm_.resize(ndm_jobs_total);
+  d_data_x_dm_.resize(ndm_jobs_total);
+
+  unsigned int ndm_buffers = 0;
+  for (unsigned int i = 0; i < ndm_buffers_max; i++) {
+    try {
+      d_data_x_dm_[i].resize(sizeof_data_x_dm);
+      h_data_t_dm_[i].resize(sizeof_data_x_dm);
+    } catch (gpu_error &) {
+      break;
+    }
+    ndm_buffers++;
   }
   mAllocMem.end();
+
+  if (ndm_buffers == 0) {
+    std::cerr << "Failed to allocate any DM buffer of "
+              << sizeof_data_x_dm / std::pow(1024, 3) << " Gb." << std::endl;
+    exit(1);
+  }
+
+#ifdef TESTDEDISP_DEBUG
+  if (mpi_rank == 0) {
+    size_t d_memory_required = sizeof_data_t_nu_full + sizeof_data_x_nu +
+                               sizeof_data_x_dm * ndm_buffers;
+    std::cout << debug_str << std::endl;
+    std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
+              << " DMs (max " << ndm_buffers_max << ")" << std::endl;
+    std::cout << "Resident input  = "
+              << sizeof_data_t_nu_full / std::pow(1024, 3) << " Gb, "
+              << nchan_jobs_resident << " channel chunks" << std::endl;
+    std::cout << "Device memory total    = "
+              << d_memory_total / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Device memory free     = "
+              << m_device->get_free_memory() / std::pow(1024, 3) << " Gb"
+              << std::endl;
+    std::cout << "Device Memory required = "
+              << d_memory_required / std::pow(1024, 3) << " Gb" << std::endl;
+    std::cout << "Host memory total    = "
+              << get_total_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+    std::cout << "Host memory free     = "
+              << get_free_memory() / std::pow(1024, 1) << " Gb" << std::endl;
+  }
+#endif
 
 #ifdef DEDISP_DEBUG
   size_t d_memory_free_after_malloc = m_device->get_free_memory(); // bytes
