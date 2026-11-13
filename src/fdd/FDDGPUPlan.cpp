@@ -347,8 +347,13 @@ void FDDGPUPlan::setOutputParams(
   barycenter_ = barycenter;
 
   ndm_batch_max = std::min(m_dm_count / 4, (unsigned long int)64);
-  // EXPERIMENTAL: 16 is hard coded value here to make it work on setonix
-  out_buf_rows = 16 * ndm_batch_max; // Practically, it will always be 1024
+
+  char *out_batches_str = getenv("FDD_OUT_BATCHES");
+  unsigned int out_batches = !out_batches_str ? 16 : atoi(out_batches_str);
+  if (out_batches == 0) {
+    out_batches = 16;
+  }
+  out_buf_rows = out_batches * ndm_batch_max;
 
   const dedisp_float *dmlist = get_dm_list();
   dedisp_size dm_count = get_dm_count();
@@ -662,6 +667,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   }
   mPrepSpinf.end();
 
+  char *resident_input_str = getenv("FDD_RESIDENT_INPUT");
+  bool resident_input = !resident_input_str ? true : atoi(resident_input_str);
+
   size_t d_memory_total = m_device->get_total_memory();
   size_t sizeof_data_t_nu =
       1ULL * nsamp * nchan_words_gulp * sizeof(dedisp_word);
@@ -671,6 +679,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   unsigned int nchan_jobs_resident =
       (nchan + nchan_batch_max - 1) / nchan_batch_max;
   size_t sizeof_data_t_nu_full = 1ULL * nchan_jobs_resident * sizeof_data_t_nu;
+  size_t sizeof_input_device =
+      resident_input ? sizeof_data_t_nu_full : sizeof_data_t_nu * nchan_buffers;
   size_t d_memory_reserved = 0.05 * d_memory_total;
 
 #ifdef DEDISP_DEBUG
@@ -698,27 +708,35 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       The vectors (with _ suffix) are used to implement multiple-buffering
   */
   h_data_t_nu_.resize(nchan_buffers);
-  d_data_t_nu_.resize(1);
+  d_data_t_nu_.resize(resident_input ? 1 : nchan_buffers);
   cu::DeviceMemory d_data_x_nu;
 
   try {
     for (unsigned int i = 0; i < nchan_buffers; i++) {
       h_data_t_nu_[i].resize(sizeof_data_t_nu);
     }
-    d_data_t_nu_[0].resize(sizeof_data_t_nu_full);
+    if (resident_input) {
+      d_data_t_nu_[0].resize(sizeof_data_t_nu_full);
+    } else {
+      for (unsigned int i = 0; i < nchan_buffers; i++) {
+        d_data_t_nu_[i].resize(sizeof_data_t_nu);
+      }
+    }
     d_data_x_nu.resize(sizeof_data_x_nu);
   } catch (gpu_error &error) {
     std::cerr << error.what() << std::endl;
     std::cerr << "Failed to allocate input buffers: "
-              << (sizeof_data_t_nu_full + sizeof_data_x_nu) /
-                     std::pow(1024, 3)
+              << (sizeof_input_device + sizeof_data_x_nu) / std::pow(1024, 3)
               << " Gb on device, "
               << m_device->get_free_memory() / std::pow(1024, 3) << " Gb free."
               << std::endl;
     exit(1);
   }
 
-  std::cout << "Full input data buffer and working buffer allocated on GPU" << std::endl;
+  if (resident_input) {
+    std::cout << "Full input data buffer and working buffer allocated on GPU"
+              << std::endl;
+  }
 
   unsigned int ndm_jobs_total = (ndm + ndm_batch_max - 1) / ndm_batch_max;
   size_t d_memory_free = m_device->get_free_memory();
@@ -727,7 +745,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
   unsigned int ndm_buffers_max = (unsigned int)std::min(
       (size_t)ndm_jobs_total, d_memory_budget / sizeof_data_x_dm);
 
-  ndm_buffers_max = std::min(ndm_buffers_max, (unsigned int)16);
+  char *ndm_buffers_cap_str = getenv("FDD_NDM_BUFFERS_MAX");
+  unsigned int ndm_buffers_cap =
+      !ndm_buffers_cap_str ? 16 : atoi(ndm_buffers_cap_str);
+  if (ndm_buffers_cap == 0) {
+    ndm_buffers_cap = 16;
+  }
+  ndm_buffers_max = std::min(ndm_buffers_max, ndm_buffers_cap);
 
   h_data_t_dm_.resize(ndm_jobs_total);
   d_data_x_dm_.resize(ndm_jobs_total);
@@ -758,9 +782,9 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     std::cout << debug_str << std::endl;
     std::cout << "ndm_buffers     = " << ndm_buffers << " x " << ndm_batch_max
               << " DMs (max " << ndm_buffers_max << ")" << std::endl;
-    std::cout << "Resident input  = "
-              << sizeof_data_t_nu_full / std::pow(1024, 3) << " Gb, "
-              << nchan_jobs_resident << " channel chunks" << std::endl;
+    std::cout << "Resident input  = " << (resident_input ? "on" : "off")
+              << ", " << sizeof_input_device / std::pow(1024, 3) << " Gb"
+              << std::endl;
     std::cout << "Device memory total    = "
               << d_memory_total / std::pow(1024, 3) << " Gb" << std::endl;
     std::cout << "Device memory free     = "
@@ -816,9 +840,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
     job.nchan_current = std::min(nchan_batch_max, nchan - job.ichan_start);
     job.ichan_end = job.ichan_start + job.nchan_current;
     job.h_in_ptr = h_data_t_nu_[job_id % nchan_buffers];
-    // Slice of the resident input buffer owned by this channel job
-    job.d_in_ptr = (void *)((dedisp_byte *)d_data_t_nu_[0].data() +
-                            1ULL * job_id * sizeof_data_t_nu);
+    job.d_in_ptr = resident_input
+                       ? (void *)((dedisp_byte *)d_data_t_nu_[0].data() +
+                                  1ULL * job_id * sizeof_data_t_nu)
+                       : (void *)d_data_t_nu_[job_id % nchan_buffers].data();
     if (job.nchan_current == 0) {
       channel_jobs.pop_back();
     }
@@ -1437,9 +1462,8 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       dedisp_size dst_stride = nchan_words_gulp * sizeof(dedisp_word);
       dedisp_size src_stride = nchan_words * sizeof(dedisp_word);
 
-      // Copy the input data for the first job. Only the first outer DM
-      // iteration stages data; afterwards the chunk is already in VRAM.
-      if (dm_job_id_outer == 0 && channel_job_id == 0) {
+      // Copy the input data for the first job
+      if ((!resident_input || dm_job_id_outer == 0) && channel_job_id == 0) {
         dedisp_size gulp_chan_byte_idx =
             (channel_job.ichan_start / chans_per_word) * sizeof(dedisp_word);
 
@@ -1458,7 +1482,7 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
                                     nsamp * nchan_words_gulp * sizeof(dedisp_float));  // size
         htodstream->record(channel_job.inputEnd);
       }
-      if (dm_job_id_outer == 0) {
+      if (!resident_input || dm_job_id_outer == 0) {
         executestream->waitEvent(channel_job.inputEnd);
       }
 
@@ -1557,10 +1581,10 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
         executestream->record(dm_job.dedispersionEnd);
       } // end for dm_job_id_inner
 
-      // Copy the input data for the next job (if any). Again, staging only
-      // happens on the first outer DM iteration.
+      // Copy the input data for the next job (if any)
       unsigned channel_job_id_next = channel_job_id + 1;
-      if (dm_job_id_outer == 0 && channel_job_id_next < channel_jobs.size()) {
+      if ((!resident_input || dm_job_id_outer == 0) &&
+          channel_job_id_next < channel_jobs.size()) {
         auto &channel_job_next = channel_jobs[channel_job_id_next];
         dedisp_size gulp_chan_byte_idx =
             (channel_job_next.ichan_start / chans_per_word) *
@@ -1583,13 +1607,13 @@ void FDDGPUPlan::execute_gpu(size_type nsamps, const byte_type *in,
       }
 
       // Wait for current batch to finish
-      // executestream->synchronize();
+      if (!resident_input) {
+        executestream->synchronize();
+      }
 
-      // Add input and preprocessing time for the current channel job. The
-      // input events are only recorded during the first outer DM iteration,
-      // so accounting them once avoids counting the same transfer repeatedly.
+      // Add input and preprocessing time for the current channel job
 #ifdef DEDISP_BENCHMARK
-      if (dm_job_id_outer == 0) {
+      if (!resident_input || dm_job_id_outer == 0) {
         input_timer->Add(
             channel_job.inputEnd.elapsedTime(channel_job.inputStart));
       }
