@@ -149,9 +149,12 @@ if(NOT CMAKE_BUILD_TYPE)
   #set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
+set(CPU_ARCH "native" CACHE STRING "CPU ARCH for build")
+message("For compilation, set -march=${CPU_ARCH}")
+
 # set default compiler flags, per build type, for cxx/c and cuda/hip alike
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(CMAKE_CXX_FLAGS "-Wall -O3 -march=native")
+    set(CMAKE_CXX_FLAGS "-Wall -O3 -march=${CPU_ARCH}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-sign-compare")
     # Vectorization / loop / inlining reports
     #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec")
@@ -208,7 +211,7 @@ endif()
 ################################################################################
 # OpenMP configuration
 ################################################################################
-find_package(OpenMP REQUIRED)
+find_package(OpenMP REQUIRED COMPONENTS C CXX)
 
 if(OPENMP_FOUND)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
