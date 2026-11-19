@@ -23,6 +23,15 @@ target_include_directories(fdd PUBLIC
     )
 
 target_compile_definitions(fdd PRIVATE ${GPU_DEFINITIONS})
+if (ENABLE_POSIX_AIO)
+    target_compile_definitions(fdd PRIVATE ENABLE_POSIX_AIO)
+    target_link_libraries(fdd PRIVATE rt)
+endif()
+if (ENABLE_IOURING)
+    target_compile_definitions(fdd PRIVATE ENABLE_IOURING)
+    target_include_directories(fdd PRIVATE ${URING_INCLUDE_DIR})
+    target_link_libraries(fdd PRIVATE ${URING_LIBRARY})
+endif()
 target_link_libraries(fdd PRIVATE GPU_TRACER_LIBS GPU_FFT_LIBS hwlocutils fits ${CFITSIO_LIBRARY} datacontainer)
 
 ##############################
@@ -37,14 +46,13 @@ target_link_libraries(fdd PRIVATE
     MPI::MPI_CXX
     GPU_XCCL
     ${NUMA_LIBRARY}
-    rt
 )
 
 target_include_directories(fdd
    PRIVATE ${CMAKE_SOURCE_DIR}/src
    PRIVATE ${CMAKE_SOURCE_DIR}/src/fdd
    PRIVATE ${FFTW3_INCLUDE_DIR}
-   PRIVATE ${NCCL_INCLUDE_DIR}
+   #PRIVATE ${NCCL_INCLUDE_DIR}
    PRIVATE ${MPI_CXX_INCLUDE_DIRS}
    PUBLIC ${GPU_INCLUDE_DIRS}
 )

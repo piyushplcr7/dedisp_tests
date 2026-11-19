@@ -241,6 +241,16 @@ find_package(HWLOC REQUIRED)
 find_package(MPI REQUIRED)
 
 ################################################################################
+# Output backends (compile-time availability; runtime choice via
+# DEDISP_OUT_BACKEND=sync|aio|uring among those enabled; sync is always built)
+################################################################################
+option(ENABLE_POSIX_AIO "Build the POSIX AIO output backend" ON)
+option(ENABLE_IOURING "Build the io_uring output backend (needs liburing)" OFF)
+if (ENABLE_IOURING)
+    find_package(URING REQUIRED)
+endif()
+
+################################################################################
 # FFTW
 ################################################################################
 find_package(FFTW3 REQUIRED true)
