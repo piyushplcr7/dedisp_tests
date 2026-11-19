@@ -1,7 +1,7 @@
 #include "gpu_runtime.hpp"
 #include "dedisperse.h"
 #include "dedisperse_kernel.cuh"
-
+#include <string.h>
 
 // Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256
